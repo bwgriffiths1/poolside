@@ -1,0 +1,99 @@
+/* Poolside design tokens — Editorial (default), with Minimal / Terminal variants
+   Applied via data-aesthetic and data-density attributes on <html>. */
+
+:root {
+  /* Editorial (default) */
+  --bg:           #f6f4ef;
+  --bg-elev:      #fbf9f4;
+  --bg-sunk:      #efece4;
+  --ink:          #1a1815;
+  --ink-soft:     #4a4640;
+  --muted:        #8a847a;
+  --muted-soft:   #b5afa3;
+  --border:       #e3ddd1;
+  --border-soft:  #ece6da;
+  --accent:       #c4633a;
+  --accent-soft:  #e5b89e;
+  --accent-tint:  #f4e4d8;
+  --success:      #4d7c4e;
+  --warn:         #b88a2c;
+  --info:         #4a6b8f;
+  --danger:       #a44a3c;
+
+  --font-sans:  "Geist", "Söhne", "Helvetica Neue", system-ui, -apple-system, sans-serif;
+  --font-serif: "Newsreader", "Iowan Old Style", Georgia, serif;
+  --font-mono:  "Geist Mono", "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+
+  --radius-sm: 4px;
+  --radius:    6px;
+  --radius-lg: 10px;
+
+  --pad-1: 4px;
+  --pad-2: 8px;
+  --pad-3: 12px;
+  --pad-4: 16px;
+  --pad-5: 24px;
+  --pad-6: 32px;
+  --pad-7: 48px;
+  --pad-8: 64px;
+
+  --sidebar-w: 232px;
+  --row-h:     44px;
+  --header-h:  56px;
+}
+
+[data-aesthetic="minimal"] {
+  --bg:           #fafaf9;
+  --bg-elev:      #ffffff;
+  --bg-sunk:      #f3f3f1;
+  --ink:          #0d0d0e;
+  --ink-soft:     #3f3f43;
+  --muted:        #82828a;
+  --muted-soft:   #bfbfc4;
+  --border:       #e6e6e3;
+  --border-soft:  #efefec;
+  --accent:       #1a1a1a;
+  --accent-soft:  #999999;
+  --accent-tint:  #ececec;
+  --success:      #2f7a4d;
+  --warn:         #a87800;
+  --info:         #2a6fdb;
+  --danger:       #c0392b;
+}
+
+[data-aesthetic="terminal"] {
+  --bg:           #0c0d10;
+  --bg-elev:      #131418;
+  --bg-sunk:      #08090c;
+  --ink:          #e8e6df;
+  --ink-soft:     #b5b3ad;
+  --muted:        #6c6a64;
+  --muted-soft:   #4a4844;
+  --border:       #23252a;
+  --border-soft:  #1a1c20;
+  --accent:       #d68b56;
+  --accent-soft:  #8a5832;
+  --accent-tint:  #261b13;
+  --success:      #7dd3a0;
+  --warn:         #e0b85a;
+  --info:         #6fa8dc;
+  --danger:       #d96a55;
+}
+
+[data-density="compact"] {
+  --pad-3: 8px;
+  --pad-4: 12px;
+  --pad-5: 16px;
+  --pad-6: 22px;
+  --row-h: 36px;
+  --header-h: 48px;
+}
+
+[data-density="spacious"] {
+  --pad-3: 16px;
+  --pad-4: 22px;
+  --pad-5: 32px;
+  --pad-6: 48px;
+  --row-h: 56px;
+  --header-h: 64px;
+}

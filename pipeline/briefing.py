@@ -420,6 +420,46 @@ def _add_word_table(doc: Document, rows: list[list[str]]) -> None:
                     run.bold = True
 
 
+_CALLOUT_OPEN_RE = re.compile(r"^>\s*\[!([^\]]+)\]\s*(.*)$")
+
+
+def _render_v2_callout(doc: Document, label: str, body_text: str) -> None:
+    """Render a `> [!Label] body` admonition as a tinted left-bar callout box.
+
+    Mirrors the web preview (.md-callout): cyan accent bar on the left,
+    uppercase mono label, italic serif-style body. python-docx can't reproduce
+    every nuance, so we approximate: Calibri italic body + bold caps label.
+    """
+    p = doc.add_paragraph()
+    _v2_pshading(p, _CYAN_BG)
+    _v2_pborder(p, "left", 24, _CYAN_HEX, space=8)
+    _v2_pborder(p, "top", 4, _CYAN_HEX, space=4)
+    _v2_pborder(p, "bottom", 4, _CYAN_HEX, space=4)
+    _v2_pindent(p, left=180, right=120)
+    _v2_spacing(p, before=Pt(6), after=Pt(6), line=Pt(13))
+
+    lr = p.add_run(label.upper())
+    lr.font.name = "Calibri"; lr.font.size = Pt(8.5)
+    lr.bold = True; lr.font.color.rgb = _CYAN
+
+    p.add_run("\n")
+
+    # Body text — strip a leading single space if present, then render with
+    # inline **bold** support but in italic.
+    body_text = body_text.strip()
+    if body_text:
+        for part in re.split(r"(\*\*[^*]+\*\*)", body_text):
+            m = re.fullmatch(r"\*\*([^*]+)\*\*", part)
+            if m:
+                r = p.add_run(m.group(1))
+                r.font.name = "Calibri"; r.font.size = Pt(10.5)
+                r.bold = True; r.italic = True; r.font.color.rgb = _CHARCOAL
+            elif part:
+                r = p.add_run(part)
+                r.font.name = "Calibri"; r.font.size = Pt(10.5)
+                r.italic = True; r.font.color.rgb = _CHARCOAL
+
+
 def _render_v2_body_lines(doc: Document, body_lines: list[str]) -> None:
     """Render body text lines, converting consecutive | rows into Word tables
     and <!-- image_id:N --> references into inline images."""
@@ -431,6 +471,22 @@ def _render_v2_body_lines(doc: Document, body_lines: list[str]) -> None:
         if img_match:
             _add_image_to_doc(doc, int(img_match.group(1)))
             i += 1
+            continue
+        # Callout / admonition: `> [!Label] body…` + any continuation `>` lines.
+        m_callout = _CALLOUT_OPEN_RE.match(line.strip())
+        if m_callout:
+            label = m_callout.group(1).strip()
+            body_parts: list[str] = []
+            if m_callout.group(2):
+                body_parts.append(m_callout.group(2))
+            i += 1
+            while i < len(body_lines):
+                cont = body_lines[i].lstrip()
+                if not cont.startswith(">"):
+                    break
+                body_parts.append(re.sub(r"^>\s?", "", cont))
+                i += 1
+            _render_v2_callout(doc, label, " ".join(body_parts))
             continue
         # H4 sub-heading: italic blue number, bold italic black title
         if line.strip().startswith("#### "):

@@ -207,7 +207,7 @@ if agenda_items:
     if not api_key_ok:
         st.warning("ANTHROPIC_API_KEY not set — cannot summarise.", icon="⚠️")
     else:
-        dl_col, btn_col, chk_col, img_col, style_col = st.columns([2, 2, 2, 2, 2])
+        dl_col, btn_col, chk_col, img_col = st.columns([2, 2, 2, 2])
         with dl_col:
             if briefing_text:
                 from pipeline.briefing import generate_docx_bytes
@@ -231,14 +231,8 @@ if agenda_items:
             force_rerun = st.checkbox("Force re-run all levels", value=False,
                                       help="Re-summarize even if summaries already exist (creates new versions)")
         with img_col:
-            do_images = st.checkbox("Extract images", value=False,
+            do_images = st.checkbox("Extract images", value=True,
                                     help="Extract and analyse charts/diagrams from slides and PDFs (slower, higher API cost)")
-        with style_col:
-            briefing_style = st.selectbox(
-                "Briefing style",
-                options=["standard", "detailed"],
-                help="Standard: concise executive briefing. Detailed: carries forward key data and tables from item summaries.",
-            )
         if run_btn:
             committee_short = selected_meeting.get("type_short", "MC")
             with st.status("Running summarization…", expanded=True) as status_box:
@@ -254,7 +248,6 @@ if agenda_items:
                         progress_fn=_progress,
                         force_rerun=force_rerun,
                         extract_images=do_images if do_images else None,
-                        briefing_style=briefing_style,
                     )
                     n1, n2, n3 = results["level1"], results["level2"], results["level3"]
                     errs = results.get("errors", [])

@@ -163,6 +163,21 @@ def update_item(
     return {"status": "ok"}
 
 
+@router.post("/api/agenda-items/{row_id}/resummarize")
+def resummarize_item(row_id: int) -> dict[str, Any]:
+    """Re-run Level-2 rollup for this single agenda item — uses existing
+    doc summaries + child-item summaries; writes a new draft `summary_version`.
+    """
+    from .. import resummarize
+
+    if db.get_agenda_item(row_id) is None:
+        raise HTTPException(status_code=404, detail="Agenda item not found")
+    try:
+        return resummarize.resummarize_agenda_item(row_id)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.delete("/api/agenda-items/{row_id}")
 def delete_item(row_id: int) -> dict[str, str]:
     """Delete an agenda item. item_documents cascade automatically;

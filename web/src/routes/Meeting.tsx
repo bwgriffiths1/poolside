@@ -13,6 +13,7 @@ import {
   MaterialAssignment,
   PerItemDocControls,
 } from "../components/MaterialAssignment";
+import { VersionHistory } from "../components/VersionHistory";
 import type { AgendaItem, DocumentRef } from "../types";
 
 interface AgendaDraft {
@@ -118,6 +119,23 @@ function AgendaRow({
     }
   }, [isEditing, item]);
 
+  const qc = useQueryClient();
+  const resummarize = useMutation({
+    mutationFn: () => api.resummarizeAgendaItem(item.id),
+    onSuccess: (res) => {
+      if (!res.ok) {
+        alert(`Re-run skipped: ${res.reason ?? "no inputs"}`);
+        return;
+      }
+      qc.invalidateQueries({ queryKey: ["meeting", meetingId] });
+      qc.invalidateQueries({ queryKey: ["summary", "agenda_item", item.id] });
+      qc.invalidateQueries({ queryKey: ["summary-versions", "agenda_item", item.id] });
+    },
+    onError: (e: Error) => alert(`Re-run failed: ${e.message}`),
+  });
+
+  const [showVersions, setShowVersions] = useState(false);
+
   return (
     <div
       className={`agenda-item depth-${item.depth} ${expanded ? "open" : ""}`}
@@ -206,8 +224,22 @@ function AgendaRow({
                     >
                       <Icon name="external" size={12} /> Open in full editor
                     </a>
-                    <button className="btn btn-sm btn-ghost" title="Re-run AI summarization">
-                      <Icon name="refresh" size={12} /> Re-run
+                    <button
+                      className="btn btn-sm btn-ghost"
+                      title="Re-run AI summarization for this item (uses current doc summaries + child item summaries, current model, current prompt)"
+                      disabled={resummarize.isPending}
+                      onClick={() => resummarize.mutate()}
+                    >
+                      <Icon name="refresh" size={12} />{" "}
+                      {resummarize.isPending ? "Re-running…" : "Re-run"}
+                    </button>
+                    <button
+                      className={`btn btn-sm btn-ghost ${showVersions ? "is-active" : ""}`}
+                      title="Show every saved version of this summary"
+                      onClick={() => setShowVersions(!showVersions)}
+                    >
+                      <Icon name={showVersions ? "chev-d" : "chev-r"} size={11} />{" "}
+                      Versions
                     </button>
                   </div>
                   {item.one_line && (
@@ -234,6 +266,14 @@ function AgendaRow({
                       Summary stored but body is empty.
                     </p>
                   ) : null}
+                  {showVersions && (
+                    <VersionHistory
+                      entityType="agenda_item"
+                      entityId={item.id}
+                      meetingId={meetingId}
+                      onRestored={() => setShowVersions(false)}
+                    />
+                  )}
                 </>
               ) : (
                 <div className="empty-summary">

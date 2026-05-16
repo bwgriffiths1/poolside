@@ -12,6 +12,12 @@ import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
+# Load .env first, BEFORE any pipeline imports — and override empty env vars
+# (e.g. some shells set ANTHROPIC_API_KEY="" which silently blocks the
+# default load_dotenv() in pipeline/db_new.py from setting it).
+from dotenv import load_dotenv  # noqa: E402
+load_dotenv(override=True)
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse

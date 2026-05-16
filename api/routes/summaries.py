@@ -104,3 +104,88 @@ def save_summary(
         "status": row["status"],
         "is_manual": True,
     }
+
+
+# ─── Version history ────────────────────────────────────────────────────────
+
+
+def _version_meta(row: dict) -> dict[str, Any]:
+    """Compact metadata for the version list (no body text)."""
+    detailed = row.get("detailed") or ""
+    one_line = row.get("one_line") or ""
+    return {
+        "id": row["id"],
+        "version": row["version"],
+        "status": row["status"],
+        "is_manual": bool(row.get("is_manual")),
+        "model_id": row.get("model_id"),
+        "created_at": str(row["created_at"]) if row.get("created_at") else None,
+        "created_by": row.get("created_by"),
+        "size": len(detailed),
+        "preview": one_line or (detailed[:160] + "…" if len(detailed) > 160 else detailed),
+    }
+
+
+@router.get("/api/summaries/{entity_type}/{entity_id}/versions")
+def list_versions(entity_type: str, entity_id: int) -> list[dict[str, Any]]:
+    et = _validate_entity_type(entity_type)
+    rows = db.list_summary_versions(et, entity_id)
+    return [_version_meta(r) for r in rows]
+
+
+@router.get("/api/summaries/{entity_type}/{entity_id}/versions/{version_id}")
+def get_version(entity_type: str, entity_id: int, version_id: int) -> dict[str, Any]:
+    et = _validate_entity_type(entity_type)
+    # Look up the specific version, scoped to the entity for safety.
+    with db._conn() as conn:
+        with db._cursor(conn) as cur:
+            cur.execute(
+                """
+                SELECT * FROM summary_versions
+                WHERE id = %s AND entity_type = %s AND entity_id = %s
+                """,
+                (version_id, et, entity_id),
+            )
+            row = cur.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Version not found")
+    return {
+        **_version_meta(dict(row)),
+        "detailed": row.get("detailed") or "",
+        "one_line": row.get("one_line") or "",
+    }
+
+
+@router.post("/api/summaries/{entity_type}/{entity_id}/versions/{version_id}/restore")
+def restore_version(
+    entity_type: str, entity_id: int, version_id: int
+) -> dict[str, Any]:
+    """Make this version the current approved one. Marks all other non-stub
+    versions for the same entity as superseded.
+
+    Resolve the meeting_id for the lifecycle bump.
+    """
+    et = _validate_entity_type(entity_type)
+    if et == "meeting":
+        if db.get_meeting(entity_id) is None:
+            raise HTTPException(status_code=404, detail="Meeting not found")
+        meeting_id = entity_id
+    else:
+        item = db.get_agenda_item(entity_id)
+        if item is None:
+            raise HTTPException(status_code=404, detail="Agenda item not found")
+        meeting_id = item["meeting_id"]
+
+    # Verify the version belongs to this entity
+    with db._conn() as conn:
+        with db._cursor(conn) as cur:
+            cur.execute(
+                "SELECT id FROM summary_versions WHERE id = %s AND entity_type = %s AND entity_id = %s",
+                (version_id, et, entity_id),
+            )
+            if cur.fetchone() is None:
+                raise HTTPException(status_code=404, detail="Version not found for this entity")
+
+    db.approve_summary_version(version_id)
+    lifecycle.bump_lifecycle(meeting_id)
+    return {"status": "ok", "restored_version_id": version_id}

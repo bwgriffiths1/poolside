@@ -97,15 +97,10 @@ _VENUE_SLUG = {
 def _get_committee_prompts(
     committee_short: str,
     venue_short: str = "ISO-NE",
-    briefing_style: str = "standard",
 ) -> tuple[str, str]:
     """
     Return (briefing_prompt, agenda_item_prompt) for the given committee
     short name (e.g. "MC", "RC", "NPC") and venue (e.g. "ISO-NE", "NYISO").
-
-    briefing_style: "standard" or "detailed".  When "detailed", the lookup
-    tries {venue}_{committee}_briefing_detailed_prompt first, falling back
-    to the standard prompt if no detailed variant exists.
 
     Lookup order for each prompt type:
       1. {venue}_{committee}_{type}_prompt  (e.g. isone_mc_briefing_prompt)
@@ -117,18 +112,11 @@ def _get_committee_prompts(
     venue_slug = _VENUE_SLUG.get(venue_short, venue_short.lower().replace("-", ""))
     comm_slug = committee_short.lower()
 
-    briefing = None
-    if briefing_style == "detailed":
-        briefing = (
-            _load_prompt(f"{venue_slug}_{comm_slug}_briefing_detailed_prompt")
-            or _load_prompt(f"{comm_slug}_briefing_detailed_prompt")
-        )
-    if not briefing:
-        briefing = (
-            _load_prompt(f"{venue_slug}_{comm_slug}_briefing_prompt")
-            or _load_prompt(f"{comm_slug}_briefing_prompt")
-            or _load_prompt("isone_mc_briefing_prompt")
-        )
+    briefing = (
+        _load_prompt(f"{venue_slug}_{comm_slug}_briefing_prompt")
+        or _load_prompt(f"{comm_slug}_briefing_prompt")
+        or _load_prompt("isone_mc_briefing_prompt")
+    )
     agenda_item = (
         _load_prompt(f"{venue_slug}_{comm_slug}_agenda_item_prompt")
         or _load_prompt(f"{comm_slug}_agenda_item_prompt")
@@ -1278,7 +1266,6 @@ def run_meeting_summarization(
     force_rerun: bool = False,
     start_level: int = 1,
     extract_images: bool | None = None,
-    briefing_style: str = "standard",
     item_ids: set[int] | None = None,
 ) -> dict:
     """
@@ -1349,7 +1336,7 @@ def run_meeting_summarization(
     item_max_tokens = models["item_max_tokens"]
     mtg_max_tokens  = models["meeting_max_tokens"]
 
-    briefing_prompt, agenda_item_prompt = _get_committee_prompts(committee_short, venue_short, briefing_style=briefing_style)
+    briefing_prompt, agenda_item_prompt = _get_committee_prompts(committee_short, venue_short)
     doc_summary_prompt = _load_prompt("doc_summary_prompt")
 
     if not doc_summary_prompt:

@@ -1,10 +1,11 @@
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { Topbar } from "../components/Topbar";
 import { Icon } from "../components/Icon";
 import { VenueTag, TypeTag } from "../components/Tag";
 import { BlockRenderer } from "../components/briefing/BlockRenderer";
+import { VersionHistory } from "../components/VersionHistory";
 import { useScrollSpy } from "../hooks/useScrollSpy";
 import { api } from "../lib/api";
 import { extFromFilename } from "../lib/format";
@@ -86,6 +87,7 @@ export function Briefing() {
     retry: false,
   });
 
+  const [showVersions, setShowVersions] = useState(false);
   const refs = useRef<Record<string, HTMLElement | null>>({});
   const sectionIds = briefing
     ? ["top", ...briefing.sections.map((s) => s.id), "decisions", "sources"]
@@ -178,11 +180,28 @@ export function Briefing() {
           <>
             <button
               className="btn btn-sm btn-ghost"
+              onClick={() => setShowVersions(!showVersions)}
+              title="Browse and restore previous versions of this briefing"
+            >
+              <Icon name="refresh" /> Versions
+            </button>
+            <button
+              className="btn btn-sm btn-ghost"
               onClick={() => navigate(`/edit/meeting/${meetingId}`)}
             >
               <Icon name="edit" /> Edit
             </button>
-            <button className="btn btn-sm">
+            <button
+              className="btn btn-sm"
+              onClick={async () => {
+                try {
+                  await api.downloadBriefingDocx(meetingId);
+                } catch (err) {
+                  console.error("Download failed", err);
+                  alert("Could not download briefing — see console for details.");
+                }
+              }}
+            >
               <Icon name="download" /> Download .docx
             </button>
             <button className="btn btn-sm btn-primary">
@@ -230,6 +249,18 @@ export function Briefing() {
             </div>
           </header>
 
+          {showVersions && (
+            <section style={{ marginBottom: 32 }}>
+              <div className="b-eyebrow">Version history</div>
+              <VersionHistory
+                entityType="meeting"
+                entityId={meetingId}
+                meetingId={meetingId}
+                onRestored={() => setShowVersions(false)}
+              />
+            </section>
+          )}
+
           <section className="briefing-tldr">
             <div className="b-eyebrow">Key takeaways</div>
             <ol>
@@ -242,19 +273,6 @@ export function Briefing() {
                 </li>
               ))}
             </ol>
-          </section>
-
-          <section className="briefing-intro">
-            <p className="b-p has-dropcap">
-              The Markets Committee convened May 12–13 in Holyoke for what
-              proved to be the most consequential meeting of the spring
-              stakeholder cycle. Three voting items reached resolution —
-              Capacity Accreditation Phase 2 advanced to NPC, ESI Phase 2
-              design was approved, and FCA 19 parameters were finalized —
-              while two discussion items (DASI status, IBR performance) set
-              up Q3 deliverables. Below: section-by-section analysis with
-              positions and downstream implications.
-            </p>
           </section>
 
           {briefing.sections.map((s) => (

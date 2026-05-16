@@ -105,7 +105,6 @@ def list_prompts() -> dict[str, Any]:
                 "short_name": c["short_name"],
                 "name": c.get("name") or c["short_name"],
                 "briefing": meta(f"{venue_slug}_{comm_slug}_briefing_prompt"),
-                "briefing_detailed": meta(f"{venue_slug}_{comm_slug}_briefing_detailed_prompt"),
                 "agenda_item": meta(f"{venue_slug}_{comm_slug}_agenda_item_prompt"),
             })
         venues_out.append({
@@ -123,7 +122,7 @@ def list_prompts() -> dict[str, Any]:
     }
     for v in venues_out:
         for c in v["committees"]:
-            for k in ("briefing", "briefing_detailed", "agenda_item"):
+            for k in ("briefing", "agenda_item"):
                 if c[k] and c[k].get("exists"):
                     known_slugs.add(c[k]["slug"])
     extras = []

@@ -26,18 +26,21 @@ from fastapi.staticfiles import StaticFiles
 from .migrate import run_migrations
 from .routes import (
     admin,
+    admin_dashboard,
     agenda_items,
     auth,
     briefings,
     config as config_route,
     documents,
     editor_images,
+    images,
     ingest,
     jobs,
     manual_ingest,
     me,
     meetings,
     prompts,
+    search,
     summaries,
 )
 from .scheduler import start_scheduler, stop_scheduler
@@ -113,11 +116,14 @@ app.include_router(prompts.router)
 app.include_router(prompts.config_router)
 app.include_router(summaries.router)
 app.include_router(editor_images.router)
+app.include_router(images.router)
 app.include_router(ingest.router)
 app.include_router(admin.router)
+app.include_router(admin_dashboard.router)
 app.include_router(config_route.router)
 app.include_router(manual_ingest.router)
 app.include_router(jobs.router)
+app.include_router(search.router)
 
 
 @app.get("/api/health")

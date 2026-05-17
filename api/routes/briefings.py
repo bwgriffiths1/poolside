@@ -7,7 +7,7 @@ from fastapi import APIRouter, HTTPException, Response
 
 from pipeline import db_new as db
 from pipeline.briefing import generate_docx_bytes
-from .. import briefing_parser, schemas
+from .. import adapters, briefing_parser, schemas
 
 router = APIRouter(prefix="/api/meetings", tags=["briefings"])
 
@@ -22,21 +22,23 @@ def get_briefing(meeting_id: int) -> schemas.Briefing:
     if summary is None:
         raise HTTPException(status_code=404, detail="No briefing for this meeting")
 
-    md = summary.get("detailed") or summary.get("one_line") or ""
+    md = adapters.resolve_image_refs(
+        summary.get("detailed") or summary.get("one_line") or ""
+    )
 
     venue_short = meeting.get("venue_short") or meeting.get("venue") or ""
     venue_name = meeting.get("venue_name") or venue_short
     location = meeting.get("location") or ""
     type_name = meeting.get("type_name") or ""
 
+    # Leave word_count / reading_time absent so briefing_parser computes them
+    # from the rendered markdown (~250 words/minute is its default cadence).
     meta = {
         "title": f"{type_name} — {meeting.get('meeting_date', '')}",
         "subtitle": f"{venue_name} · {location}",
         "headline": summary.get("one_line") or "",
         "generated_at": str(summary.get("created_at", "")),
         "model": summary.get("model") or summary.get("created_by") or "",
-        "word_count": 0,
-        "reading_time": 0,
     }
 
     return briefing_parser.parse_briefing_markdown(md, meta)

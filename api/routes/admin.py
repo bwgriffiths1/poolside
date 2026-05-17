@@ -41,8 +41,12 @@ def _load_config() -> dict:
 
 @router.post("/discover")
 def discover_all_venues() -> dict[str, Any]:
-    """Scrape ISO-NE + NYISO calendars; create stub rows for any unknown
-    meetings. Returns the count of new meetings per venue.
+    """Scrape configured ISO-NE committee calendars; create stub rows for
+    any unknown meetings. Returns the count of new meetings per venue.
+
+    NYISO is currently out of scope for the Vite UI — its scraper still
+    lives in v2_pages/ingest_meeting.py (Streamlit-side). Reintroduce a
+    venue key here when the NYISO ingest flow is ported.
     """
     cfg = _load_config()
     results: dict[str, int] = {}
@@ -77,11 +81,6 @@ def discover_all_venues() -> dict[str, Any]:
         except Exception as e:
             log.exception("ISO-NE scrape failed for %s: %s", committee.get("short"), e)
     results["ISO-NE"] = iso_new
-
-    # NYISO — uses a different scraper. Wire similarly if/when needed.
-    # For now we report 0 and surface a TODO; the NYISO ingest still happens
-    # through v2_pages/ingest_meeting.py manually.
-    results["NYISO"] = 0
 
     _stamp_venue_scrape("ISO-NE")
     return {"discovered": results}

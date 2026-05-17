@@ -46,6 +46,15 @@ function voteClass(vote?: string | null): string {
   return "vote";
 }
 
+function SummaryMeta({ item }: { item: AgendaItem }) {
+  if (item.summary_version == null) return null;
+  const parts: string[] = [`v${item.summary_version}`];
+  if (item.summary_status) parts.push(item.summary_status);
+  if (item.summary_is_manual) parts.push("manual");
+  if (item.summary_updated_at) parts.push(formatRel(item.summary_updated_at));
+  return <span className="text-xs muted">{parts.join(" · ")}</span>;
+}
+
 function DocRow({
   doc,
   meetingId,
@@ -224,9 +233,7 @@ function AgendaRow({
                     >
                       Summary
                     </span>
-                    <span className="text-xs muted">
-                      v2 · approved · May 12 18:42
-                    </span>
+                    <SummaryMeta item={item} />
                     <span style={{ flex: 1 }} />
                     <button className="btn btn-sm" onClick={onEdit}>
                       <Icon name="edit" size={12} /> Quick edit
@@ -291,9 +298,17 @@ function AgendaRow({
                 </>
               ) : (
                 <div className="empty-summary">
-                  <span className="muted text-sm">No summary yet.</span>
-                  <button className="btn btn-sm btn-accent">
-                    <Icon name="spark" size={12} /> Summarize
+                  <span className="muted text-sm" style={{ flex: 1 }}>
+                    No summary yet for this item.
+                  </span>
+                  <button
+                    className="btn btn-sm btn-accent"
+                    onClick={() => resummarize.mutate()}
+                    disabled={resummarize.isPending}
+                    title="Generate an AI summary for this item using its assigned documents and any child-item summaries."
+                  >
+                    <Icon name="spark" size={12} />{" "}
+                    {resummarize.isPending ? "Summarizing…" : "Summarize this item"}
                   </button>
                 </div>
               )}
@@ -463,7 +478,11 @@ export function Meeting() {
   useEffect(() => {
     let cancelled = false;
     api.getActiveJob(meetingId).then((j) => {
-      if (!cancelled && j && (j.status === "queued" || j.status === "running")) {
+      if (
+        !cancelled &&
+        j &&
+        (j.status === "queued" || j.status === "running" || j.status === "cancelling")
+      ) {
         setActiveJobId(j.id);
       }
     }).catch(() => { /* no-op */ });
@@ -479,15 +498,24 @@ export function Meeting() {
         | { status?: string }
         | undefined;
       if (!data) return 3000;
-      return data.status === "complete" || data.status === "failed" ? false : 3000;
+      const terminal =
+        data.status === "complete" ||
+        data.status === "failed" ||
+        data.status === "cancelled";
+      return terminal ? false : 3000;
     },
+  });
+
+  const cancelSummarize = useMutation({
+    mutationFn: (jobId: number) => api.cancelJob(jobId),
+    onError: (e: Error) => alert(`Cancel failed: ${e.message}`),
   });
 
   // When the polled job hits a terminal state, refresh data + toast once.
   useEffect(() => {
     const j = activeJob.data;
     if (!j || activeJobId == null) return;
-    if (j.status !== "complete" && j.status !== "failed") return;
+    if (j.status !== "complete" && j.status !== "failed" && j.status !== "cancelled") return;
     if (completedAlerted.has(j.id)) return;
     setCompletedAlerted((s) => new Set([...s, j.id]));
     qcRefresh.invalidateQueries({ queryKey: ["meeting", meetingId] });
@@ -667,7 +695,7 @@ export function Meeting() {
           >
             <div>
               <div className="page-eyebrow" style={{ marginBottom: 6 }}>
-                Meeting briefing · v2
+                Meeting briefing
               </div>
               <h2 className="briefing-card-title serif">
                 {briefing!.headline || detail.one_line || briefing!.title}
@@ -686,7 +714,15 @@ export function Meeting() {
             <div className="briefing-card-right">
               <button
                 className="btn btn-sm"
-                onClick={(e) => e.stopPropagation()}
+                onClick={async (e) => {
+                  e.stopPropagation();
+                  try {
+                    await api.downloadBriefingDocx(meetingId);
+                  } catch (err) {
+                    console.error("Download failed", err);
+                    alert("Could not download briefing — see console for details.");
+                  }
+                }}
               >
                 <Icon name="download" /> Download .docx
               </button>
@@ -727,9 +763,8 @@ export function Meeting() {
         )}
 
         {activeJob.data &&
-          (activeJob.data.status === "running" ||
-            activeJob.data.status === "queued" ||
-            (activeJob.data.status === "failed" && activeJobId === activeJob.data.id)) && (
+          activeJobId === activeJob.data.id &&
+          activeJob.data.status !== "complete" && (
             <div
               className={`summary-banner ${
                 activeJob.data.status === "failed" ? "is-error" : ""
@@ -739,15 +774,30 @@ export function Meeting() {
                 <div className="summary-banner-title">
                   {activeJob.data.status === "running" && "Summarizing meeting…"}
                   {activeJob.data.status === "queued" && "Queued…"}
+                  {activeJob.data.status === "cancelling" && "Cancelling…"}
+                  {activeJob.data.status === "cancelled" && "Cancelled"}
                   {activeJob.data.status === "failed" && "Summarization failed"}
                 </div>
                 <div className="summary-banner-sub">
                   {activeJob.data.status === "failed"
                     ? activeJob.data.error || "Unknown error."
+                    : activeJob.data.status === "cancelling"
+                    ? "Waiting for the current step to finish, then stopping."
                     : activeJob.data.progress_text || "Working…"}
                 </div>
               </div>
-              {activeJob.data.status === "failed" && (
+              {(activeJob.data.status === "queued" ||
+                activeJob.data.status === "running") && (
+                <button
+                  className="btn btn-sm btn-ghost"
+                  disabled={cancelSummarize.isPending}
+                  onClick={() => cancelSummarize.mutate(activeJob.data!.id)}
+                >
+                  {cancelSummarize.isPending ? "Cancelling…" : "Cancel"}
+                </button>
+              )}
+              {(activeJob.data.status === "failed" ||
+                activeJob.data.status === "cancelled") && (
                 <button
                   className="btn btn-sm btn-ghost"
                   onClick={() => setActiveJobId(null)}
@@ -820,6 +870,29 @@ export function Meeting() {
                       — actuals may differ.
                     </div>
                   )}
+                  {estimate.data.committee_stats &&
+                    estimate.data.committee_stats.count > 0 && (
+                      <div
+                        className="muted text-xs"
+                        style={{
+                          marginTop: 8,
+                          paddingTop: 8,
+                          borderTop: "1px solid var(--border-soft)",
+                        }}
+                      >
+                        Typical for this committee: $
+                        {estimate.data.committee_stats.avg_cost_usd.toFixed(4)}{" "}
+                        · ~
+                        {Math.max(
+                          1,
+                          Math.round(
+                            estimate.data.committee_stats.avg_duration_seconds / 60,
+                          ),
+                        )}{" "}
+                        min ({estimate.data.committee_stats.count} prior run
+                        {estimate.data.committee_stats.count === 1 ? "" : "s"})
+                      </div>
+                    )}
                 </>
               )}
             </div>

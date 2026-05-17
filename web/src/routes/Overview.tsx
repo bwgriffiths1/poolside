@@ -6,8 +6,9 @@ import { Icon } from "../components/Icon";
 import { Segmented } from "../components/Segmented";
 import { MeetingRow } from "../components/MeetingRow";
 import { api } from "../lib/api";
-import { TODAY } from "../lib/fixtures";
 import type { CurrentUser, MeetingListItem, MeetingStatus } from "../types";
+
+const today = () => new Date().toISOString().slice(0, 10);
 
 type Venue = "All" | "ISO-NE";
 type StatusFilter = "All" | MeetingStatus;
@@ -37,14 +38,51 @@ export function Overview() {
   });
 
   const refreshAll = useMutation({
-    mutationFn: () => api.refreshAll(),
-    onSuccess: (data) => {
+    // Scrape calendars (discover new meetings) + refresh materials for known
+    // upcoming meetings in one click. Both are independent backend calls;
+    // we run them in parallel and merge the result into a single alert.
+    mutationFn: async () => {
+      const [discoverRes, refreshRes] = await Promise.allSettled([
+        api.triggerDiscover(),
+        api.refreshAll(),
+      ]);
+      return { discoverRes, refreshRes };
+    },
+    onSuccess: ({ discoverRes, refreshRes }) => {
       qc.invalidateQueries({ queryKey: ["meetings"] });
-      alert(`Refreshed ${data.refreshed} of ${data.total} meetings.`);
+      qc.invalidateQueries({ queryKey: ["venues"] });
+
+      const parts: string[] = [];
+
+      if (discoverRes.status === "fulfilled") {
+        const totalNew = Object.values(discoverRes.value.discovered).reduce(
+          (n, v) => n + v,
+          0,
+        );
+        parts.push(
+          totalNew === 0
+            ? "No new meetings on the calendars."
+            : `Discovered ${totalNew} new meeting${totalNew === 1 ? "" : "s"}.`,
+        );
+      } else {
+        parts.push(`Calendar scrape failed: ${discoverRes.reason}`);
+      }
+
+      if (refreshRes.status === "fulfilled") {
+        const total = refreshRes.value.count;
+        const errored = refreshRes.value.refreshed.filter((r) => r.error).length;
+        parts.push(
+          errored === 0
+            ? `Refreshed materials for ${total} meeting${total === 1 ? "" : "s"}.`
+            : `Refreshed ${total} meeting${total === 1 ? "" : "s"} (${errored} had errors — see server log).`,
+        );
+      } else {
+        parts.push(`Materials refresh failed: ${refreshRes.reason}`);
+      }
+
+      alert(parts.join("\n"));
     },
-    onError: (err: Error) => {
-      alert(`Refresh failed: ${err.message}`);
-    },
+    onError: (err: Error) => alert(`Refresh failed: ${err.message}`),
   });
 
   const filtered = useMemo(() => {
@@ -55,23 +93,24 @@ export function Overview() {
     });
   }, [meetings, venueFilter, statusFilter]);
 
+  const todayIso = today();
   const upcoming = useMemo(
     () =>
       filtered
-        .filter((m) => m.meeting_date >= TODAY)
+        .filter((m) => m.meeting_date >= todayIso)
         .sort((a, b) => a.meeting_date.localeCompare(b.meeting_date)),
-    [filtered]
+    [filtered, todayIso]
   );
   const past = useMemo(
     () =>
       filtered
-        .filter((m) => m.meeting_date < TODAY)
+        .filter((m) => m.meeting_date < todayIso)
         .sort((a, b) => b.meeting_date.localeCompare(a.meeting_date)),
-    [filtered]
+    [filtered, todayIso]
   );
 
   const summarizedThisMonth = meetings.filter(
-    (m) => m.status === "summarized" && m.meeting_date.startsWith(TODAY.slice(0, 7))
+    (m) => m.status === "summarized" && m.meeting_date.startsWith(todayIso.slice(0, 7))
   ).length;
   const pendingReview = meetings.filter((m) => m.status === "materials").length;
 
@@ -87,12 +126,10 @@ export function Overview() {
               className="btn btn-sm"
               onClick={() => refreshAll.mutate()}
               disabled={refreshAll.isPending}
+              title="Scrape calendars for new meetings AND pull latest materials for upcoming ones."
             >
               <Icon name="refresh" />
-              {refreshAll.isPending ? "Refreshing…" : "Refresh materials"}
-            </button>
-            <button className="btn btn-sm" onClick={() => navigate("/add")}>
-              <Icon name="calendar" /> Refresh calendars
+              {refreshAll.isPending ? "Refreshing…" : "Refresh"}
             </button>
             <button
               className="btn btn-sm btn-primary"
@@ -123,28 +160,7 @@ export function Overview() {
 
         <Inbox meetings={meetings} onOpen={openMeeting} />
 
-        <div className="kpi-grid">
-          <div className="kpi">
-            <div className="kpi-label">Upcoming</div>
-            <div className="kpi-num">{upcoming.length}</div>
-            <div className="kpi-sub">next 30 days</div>
-          </div>
-          <div className="kpi">
-            <div className="kpi-label">Materials ready</div>
-            <div className="kpi-num">{pendingReview}</div>
-            <div className="kpi-sub">awaiting briefing</div>
-          </div>
-          <div className="kpi">
-            <div className="kpi-label">Summarized</div>
-            <div className="kpi-num">{summarizedThisMonth}</div>
-            <div className="kpi-sub">this month</div>
-          </div>
-          <div className="kpi">
-            <div className="kpi-label">Hours saved</div>
-            <div className="kpi-num">~64</div>
-            <div className="kpi-sub">vs. manual briefing time</div>
-          </div>
-        </div>
+        <PipelineStatus />
 
         <div className="filter-bar">
           <div className="row" style={{ gap: 6 }}>
@@ -239,15 +255,75 @@ export function Overview() {
   );
 }
 
+// ── Pipeline status ───────────────────────────────────────────────────────
+
+function rel(iso: string | null | undefined): string {
+  if (!iso) return "never";
+  const ms = Date.now() - new Date(iso).getTime();
+  if (ms < 0) return "in the future";
+  if (ms < 60_000) return "just now";
+  const min = Math.floor(ms / 60_000);
+  if (min < 60) return `${min} min ago`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr}h ago`;
+  return `${Math.floor(hr / 24)}d ago`;
+}
+
+function shortFutureTime(iso: string | null | undefined): string {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "—";
+  const ms = d.getTime() - Date.now();
+  if (ms <= 0) return "imminent";
+  const min = Math.round(ms / 60_000);
+  if (min < 60) return `in ${min} min`;
+  const hr = Math.round(min / 60);
+  if (hr < 24) return `in ${hr}h`;
+  return `on ${d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })}`;
+}
+
+function PipelineStatus() {
+  const venues = useQuery({
+    queryKey: ["venues"],
+    queryFn: () => api.venues(),
+  });
+  const scheduler = useQuery({
+    queryKey: ["scheduler"],
+    queryFn: () => api.schedulerStatus(),
+  });
+
+  const isone = venues.data?.find((v) => v.short_name === "ISO-NE");
+  const discoverJob = scheduler.data?.jobs.find((j) => j.id === "discover_all_venues");
+  const refreshJob = scheduler.data?.jobs.find((j) => j.id === "refresh_upcoming_meetings");
+
+  const running = scheduler.data?.running ?? false;
+
+  return (
+    <div className="pipeline-status">
+      <span
+        className={`pipeline-dot ${running ? "ok" : "off"}`}
+        title={running ? "Scheduler running" : "Scheduler off"}
+      />
+      <span className="muted text-xs">
+        Calendars: last scrape {rel(isone?.last_scraped_at)}
+        {discoverJob?.next_run_time && (
+          <> · next {shortFutureTime(discoverJob.next_run_time)}</>
+        )}
+        {refreshJob?.next_run_time && (
+          <> · materials refresh {shortFutureTime(refreshJob.next_run_time)}</>
+        )}
+      </span>
+    </div>
+  );
+}
+
 // ── Inbox ─────────────────────────────────────────────────────────────────
 
 type Bucket =
-  | "stub"
   | "has_agenda"
   | "needs_categorization"
-  | "ready_to_summarize"
   | "new_files"
-  | "summarized";
+  | "ready_to_summarize";
 
 interface BucketDef {
   key: Bucket;
@@ -256,8 +332,20 @@ interface BucketDef {
   match: (m: MeetingListItem) => boolean;
 }
 
-// Mutually-exclusive — each meeting falls into at most one bucket, by priority.
+// Mutually-exclusive — each meeting falls into at most one bucket. Order here
+// is display order (and the priority tiebreaker, though the match predicates
+// are already pairwise disjoint).
 const BUCKETS: BucketDef[] = [
+  {
+    key: "has_agenda",
+    label: "Has agenda",
+    hint: "Agenda parsed but no documents yet — waiting on the next refresh.",
+    match: (m) =>
+      m.item_count > 0 &&
+      m.doc_count === 0 &&
+      m.status !== "summarized" &&
+      m.status !== "updated",
+  },
   {
     key: "needs_categorization",
     label: "Needs file categorization",
@@ -281,41 +369,14 @@ const BUCKETS: BucketDef[] = [
       m.status !== "summarized" &&
       m.status !== "updated",
   },
-  {
-    key: "has_agenda",
-    label: "Has agenda",
-    hint: "Agenda parsed but no documents yet — waiting on the next refresh.",
-    match: (m) =>
-      m.item_count > 0 &&
-      m.doc_count === 0 &&
-      m.status !== "summarized" &&
-      m.status !== "updated",
-  },
-  {
-    key: "stub",
-    label: "Stub",
-    hint: "Discovered by the scraper. No agenda or documents yet.",
-    match: (m) =>
-      m.item_count === 0 &&
-      m.doc_count === 0 &&
-      m.status === "scheduled",
-  },
-  {
-    key: "summarized",
-    label: "Summarized",
-    hint: "Briefing has been generated. Open to read or re-run.",
-    match: (m) => m.status === "summarized",
-  },
 ];
 
 function bucketize(meetings: MeetingListItem[]): Record<Bucket, MeetingListItem[]> {
   const result: Record<Bucket, MeetingListItem[]> = {
+    has_agenda: [],
     needs_categorization: [],
     new_files: [],
     ready_to_summarize: [],
-    has_agenda: [],
-    stub: [],
-    summarized: [],
   };
   // Inbox is about *active* work — limit to recent + upcoming, skip ancient stubs.
   const cutoff = new Date();
@@ -348,13 +409,11 @@ function Inbox({
   const buckets = useMemo(() => bucketize(meetings), [meetings]);
   const [open, setOpen] = useState<Bucket | null>(null);
 
-  // "Summarized" is a done state, not work — exclude from the attention count.
   const needsAttention =
+    buckets.has_agenda.length +
     buckets.needs_categorization.length +
     buckets.new_files.length +
-    buckets.ready_to_summarize.length +
-    buckets.has_agenda.length +
-    buckets.stub.length;
+    buckets.ready_to_summarize.length;
 
   return (
     <div className="inbox">

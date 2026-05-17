@@ -11,6 +11,7 @@ import { Prompts } from "./routes/Prompts";
 import { Stub } from "./routes/Stub";
 import { Login } from "./routes/Login";
 import { Settings } from "./routes/Settings";
+import { Admin } from "./routes/Admin";
 
 export function App() {
   return (
@@ -30,6 +31,7 @@ export function App() {
           <Route path="/bulk" element={<Stub name="bulk" />} />
           <Route path="/prompts" element={<Prompts />} />
           <Route path="/settings" element={<Settings />} />
+          <Route path="/admin" element={<Admin />} />
           <Route path="*" element={<Navigate to="/overview" replace />} />
         </Route>
       </Routes>

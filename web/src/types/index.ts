@@ -52,6 +52,10 @@ export interface AgendaItem {
   docs: DocumentRef[];
   one_line?: string;
   detailed?: string;
+  summary_version?: number | null;
+  summary_status?: string | null;
+  summary_updated_at?: string | null;
+  summary_is_manual?: boolean;
 }
 
 export interface MeetingDetail extends MeetingListItem {

@@ -77,17 +77,12 @@ export function Meetings() {
       <Topbar
         crumbs={[{ label: "Meetings" }]}
         actions={
-          <>
-            <button className="btn btn-sm" onClick={() => navigate("/add")}>
-              <Icon name="refresh" /> Refresh calendars
-            </button>
-            <button
-              className="btn btn-sm btn-primary"
-              onClick={() => navigate("/add")}
-            >
-              <Icon name="plus" /> Add meeting
-            </button>
-          </>
+          <button
+            className="btn btn-sm btn-primary"
+            onClick={() => navigate("/add")}
+          >
+            <Icon name="plus" /> Add meeting
+          </button>
         }
       />
 

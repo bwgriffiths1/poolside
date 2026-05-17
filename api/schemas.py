@@ -62,6 +62,10 @@ class AgendaItem(BaseModel):
     docs: list[DocumentRef]
     one_line: Optional[str] = ""
     detailed: Optional[str] = ""
+    summary_version: Optional[int] = None
+    summary_status: Optional[str] = None
+    summary_updated_at: Optional[str] = None
+    summary_is_manual: bool = False
 
 
 class MeetingDetail(MeetingListItem):

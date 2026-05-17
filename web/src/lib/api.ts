@@ -114,7 +114,10 @@ export const api = {
     return res.json();
   },
 
-  refreshAll: async (): Promise<{ refreshed: number; total: number }> => {
+  refreshAll: async (): Promise<{
+    count: number;
+    refreshed: Array<{ meeting_id: number; error?: string }>;
+  }> => {
     const res = await fetch(`${BASE}/admin/refresh`, {
       method: "POST",
       credentials: "include",
@@ -136,7 +139,33 @@ export const api = {
   schedulerStatus: () =>
     get<SchedulerStatus>("/admin/scheduler", () => ({ running: false, jobs: [] })),
 
-  triggerDiscover: () => mutate(`/admin/discover`, "POST"),
+  searchSummaries: async (q: string): Promise<SummarySearchHit[]> => {
+    if (!q.trim()) return [];
+    const res = await fetch(
+      `${BASE}/search/summaries?q=${encodeURIComponent(q.trim())}`,
+      { credentials: "include" },
+    );
+    if (!res.ok) return [];
+    return res.json();
+  },
+
+  usageDashboard: () =>
+    get<UsageDashboard>("/admin/usage", () => ({
+      this_month: { cost_usd: 0, input_tokens: 0, output_tokens: 0, jobs: 0 },
+      last_month: { cost_usd: 0, input_tokens: 0, output_tokens: 0, jobs: 0 },
+      by_committee_this_month: [],
+      trailing_six_months: [],
+      month_label: "",
+    })),
+
+  triggerDiscover: async (): Promise<{ discovered: Record<string, number> }> => {
+    const res = await fetch(`${BASE}/admin/discover`, {
+      method: "POST",
+      credentials: "include",
+    });
+    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+    return res.json();
+  },
 
   ingestByUrl: async (
     body: { url: string; committee_short?: string }
@@ -228,6 +257,17 @@ export const api = {
 
   getActiveJob: (meeting_id: number) =>
     get<SummarizeJob | null>(`/meetings/${meeting_id}/active-job`),
+
+  cancelJob: async (
+    job_id: number,
+  ): Promise<{ job_id: number; status: string; changed: boolean }> => {
+    const res = await fetch(`${BASE}/jobs/${job_id}/cancel`, {
+      method: "POST",
+      credentials: "include",
+    });
+    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+    return res.json();
+  },
 
   // ── Prompt library ───────────────────────────────────────────────────────
   prompts: () => get<PromptIndex>(`/prompts`),
@@ -440,6 +480,12 @@ export interface SummarizeEstimateLine {
   cost_usd: number;
 }
 
+export interface SummarizeCommitteeStats {
+  count: number;
+  avg_cost_usd: number;
+  avg_duration_seconds: number;
+}
+
 export interface SummarizeEstimate {
   estimated_input_tokens: number;
   estimated_output_tokens: number;
@@ -447,9 +493,16 @@ export interface SummarizeEstimate {
   model_breakdown: SummarizeEstimateLine[];
   docs_without_text: number;
   items_planned: number;
+  committee_stats?: SummarizeCommitteeStats | null;
 }
 
-export type SummarizeJobStatus = "queued" | "running" | "complete" | "failed";
+export type SummarizeJobStatus =
+  | "queued"
+  | "running"
+  | "cancelling"
+  | "complete"
+  | "failed"
+  | "cancelled";
 
 export interface SummarizeJob {
   id: number;
@@ -481,6 +534,48 @@ export interface VenueWithScrape {
 export interface SchedulerStatus {
   running: boolean;
   jobs: { id: string; next_run_time: string | null }[];
+}
+
+export interface SummarySearchHit {
+  entity_type: "meeting" | "agenda_item";
+  entity_id: number;
+  meeting_id: number;
+  meeting_title: string;
+  meeting_date: string;
+  venue: string;
+  type_short: string;
+  item_id: string | null;
+  item_title: string | null;
+  snippet: string;
+  rank: number;
+}
+
+export interface UsageTotals {
+  cost_usd: number;
+  input_tokens: number;
+  output_tokens: number;
+  jobs: number;
+}
+
+export interface UsageByCommittee {
+  venue: string;
+  committee: string;
+  cost_usd: number;
+  jobs: number;
+}
+
+export interface UsageMonthlyPoint {
+  month: string; // "YYYY-MM"
+  cost_usd: number;
+  jobs: number;
+}
+
+export interface UsageDashboard {
+  this_month: UsageTotals;
+  last_month: UsageTotals;
+  by_committee_this_month: UsageByCommittee[];
+  trailing_six_months: UsageMonthlyPoint[];
+  month_label: string;
 }
 
 async function mutate(path: string, method: string, body?: unknown): Promise<void> {

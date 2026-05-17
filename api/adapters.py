@@ -4,10 +4,29 @@ Single source of truth for status derivation and field mapping.
 """
 from __future__ import annotations
 
+import re
 from typing import Any
 from datetime import date
 
 from . import schemas
+
+
+# The summarizer embeds extracted figures as marker comments like
+# `<!-- image_id:441 -->`. The frontend renders markdown but doesn't know
+# how to resolve those — so we rewrite each into a standard image syntax
+# pointing at /api/images/N. The image route serves the PNG bytes.
+_IMAGE_REF_RE = re.compile(r"<!--\s*image_id:(\d+)\s*-->")
+
+
+def resolve_image_refs(md: str) -> str:
+    """Replace `<!-- image_id:N -->` comments with `![figure](/api/images/N)`
+    so the rendered markdown picks them up as inline images.
+    """
+    if not md or "<!--" not in md:
+        return md or ""
+    return _IMAGE_REF_RE.sub(
+        lambda m: f"![figure {m.group(1)}](/api/images/{m.group(1)})", md
+    )
 
 
 # Map the explicit DB lifecycle_status enum to the frontend's pill statuses.
@@ -180,7 +199,7 @@ def agenda_item_row(row: dict[str, Any], docs: list[schemas.DocumentRef],
     depth = item_id.count(".") if item_id else 0
     s = summary or {}
     one_line = (s.get("one_line") or "").strip()
-    detailed = s.get("detailed") or ""
+    detailed = resolve_image_refs(s.get("detailed") or "")
     # Fall back to deriving a preview from the detailed body when one_line is empty.
     if not one_line and detailed:
         one_line = _first_sentence(detailed)
@@ -198,4 +217,8 @@ def agenda_item_row(row: dict[str, Any], docs: list[schemas.DocumentRef],
         docs=docs,
         one_line=one_line,
         detailed=detailed,
+        summary_version=s.get("version"),
+        summary_status=s.get("status"),
+        summary_updated_at=_iso(s.get("created_at")),
+        summary_is_manual=bool(s.get("is_manual")),
     )

@@ -109,18 +109,66 @@ def estimate_meeting_summarize(
 
     Heuristic — see pipeline.summarizer.estimate_summarization_cost. Returns
     approximate input/output token counts and USD cost, plus a per-level
-    breakdown. The UI should label the figure as approximate.
+    breakdown. Also returns `committee_stats` summarizing past completed
+    summarize_jobs for meetings in the same committee, so the UI can show
+    "typical cost / typical duration" alongside the estimate.
     """
     from pipeline.summarizer import estimate_summarization_cost
 
-    if db.get_meeting(meeting_id) is None:
+    row = db.get_meeting(meeting_id)
+    if row is None:
         raise HTTPException(status_code=404, detail="Meeting not found")
 
     try:
-        return estimate_summarization_cost(meeting_id)
+        estimate = estimate_summarization_cost(meeting_id)
     except Exception as e:
         log.exception("estimate failed for %s: %s", meeting_id, e)
         raise HTTPException(status_code=500, detail=str(e))
+
+    committee_short = row.get("type_short")
+    venue_short = row.get("venue_short")
+    estimate["committee_stats"] = _committee_summarize_stats(
+        committee_short, venue_short
+    )
+    return estimate
+
+
+def _committee_summarize_stats(
+    committee_short: str | None, venue_short: str | None
+) -> dict[str, Any] | None:
+    """Look up completed summarize_jobs across meetings in the same
+    venue+committee. Returns avg cost + avg duration (sec) + count, or None
+    when no prior runs exist."""
+    if not committee_short or not venue_short:
+        return None
+    with db._conn() as conn:
+        with db._cursor(conn) as cur:
+            cur.execute(
+                """
+                SELECT
+                    COUNT(*) AS n,
+                    AVG(sj.cost_usd)::float AS avg_cost_usd,
+                    AVG(EXTRACT(EPOCH FROM (sj.finished_at - sj.started_at)))::float
+                        AS avg_duration_seconds
+                FROM summarize_jobs sj
+                JOIN meetings m       ON m.id  = sj.meeting_id
+                JOIN meeting_types mt ON mt.id = m.meeting_type_id
+                JOIN venues v         ON v.id  = mt.venue_id
+                WHERE sj.status = 'complete'
+                  AND sj.finished_at IS NOT NULL
+                  AND mt.short_name = %s
+                  AND v.short_name  = %s
+                """,
+                (committee_short, venue_short),
+            )
+            row = cur.fetchone()
+    if not row or not row["n"]:
+        return None
+    return {
+        "count": int(row["n"]),
+        "avg_cost_usd": float(row["avg_cost_usd"] or 0),
+        "avg_duration_seconds": float(row["avg_duration_seconds"] or 0),
+    }
 
 
 def _update_job(job_id: int, **fields) -> None:
@@ -135,6 +183,18 @@ def _update_job(job_id: int, **fields) -> None:
             cur.execute(f"UPDATE summarize_jobs SET {cols} WHERE id = %s", params)
 
 
+class _JobCancelled(Exception):
+    pass
+
+
+def _job_status(job_id: int) -> str | None:
+    with db._conn() as conn:
+        with db._cursor(conn) as cur:
+            cur.execute("SELECT status FROM summarize_jobs WHERE id = %s", (job_id,))
+            row = cur.fetchone()
+            return row["status"] if row else None
+
+
 def _run_summarize_job(job_id: int, meeting_id: int, committee_short: str, venue_short: str) -> None:
     """Daemon-thread entry point: drive run_meeting_summarization while
     streaming progress and usage back into the summarize_jobs row."""
@@ -147,12 +207,17 @@ def _run_summarize_job(job_id: int, meeting_id: int, committee_short: str, venue
 
     _update_job(job_id, status="running")
 
-    # Progress callback: each line goes to the DB so the frontend can poll.
+    # Progress callback: writes to DB *and* checks whether someone hit Cancel
+    # since the last call. If so we raise _JobCancelled, which the outer try
+    # catches to mark the row 'cancelled'. This is cooperative — the in-flight
+    # LLM call still has to finish before the cancel takes effect.
     def progress(msg: str) -> None:
         try:
             _update_job(job_id, progress_text=msg)
         except Exception:
             log.exception("failed to write progress for job %s", job_id)
+        if _job_status(job_id) == "cancelling":
+            raise _JobCancelled()
 
     try:
         client = make_client()
@@ -165,6 +230,15 @@ def _run_summarize_job(job_id: int, meeting_id: int, committee_short: str, venue
                 progress_fn=progress,
             )
         totals = totals_from_usage_log(usage_log)
+    except _JobCancelled:
+        log.info("summarize job %s cancelled at user request", job_id)
+        _update_job(
+            job_id,
+            status="cancelled",
+            progress_text="Cancelled by user.",
+            finished_at=datetime.now(timezone.utc),
+        )
+        return
     except Exception as e:
         log.exception("summarize job %s failed: %s", job_id, e)
         _update_job(

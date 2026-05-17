@@ -16,11 +16,10 @@ export function Stub({ name }: { name: string }) {
       <Topbar crumbs={[{ label }]} />
       <div className="page">
         <div className="page-header">
-          <div className="page-eyebrow">Coming soon</div>
+          <div className="page-eyebrow">Forthcoming</div>
           <h1 className="page-title">{label}</h1>
           <p className="page-subtitle">
-            This screen wasn't part of the v1 design exploration. The four screens you can browse
-            are: Overview, Meeting Detail, Briefing Reader, and Add Meeting.
+            Forthcoming — this screen isn't built yet.
           </p>
         </div>
         <div className="row" style={{ gap: 8 }}>

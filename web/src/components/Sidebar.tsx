@@ -41,7 +41,10 @@ const GROUPS: NavGroup[] = [
   },
   {
     label: "Account",
-    items: [{ to: "/settings", icon: "settings", label: "Settings" }],
+    items: [
+      { to: "/admin", icon: "spark", label: "Admin · Usage" },
+      { to: "/settings", icon: "settings", label: "Settings" },
+    ],
   },
 ];
 
@@ -69,7 +72,6 @@ export function Sidebar({ user, onOpenPalette }: SidebarProps) {
         <span className="mark">
           Poolside<span className="mark-accent">.</span>
         </span>
-        <span className="ver">v0.4</span>
       </div>
 
       <button className="cmd-trigger" type="button" onClick={onOpenPalette}>

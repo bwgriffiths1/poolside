@@ -42,18 +42,53 @@ def get_job(job_id: int, _: dict = Depends(current_user)) -> dict[str, Any]:
     return _serialize_job(dict(row))
 
 
+@router.post("/jobs/{job_id}/cancel")
+def cancel_job(
+    job_id: int,
+    _: dict = Depends(current_user),
+) -> dict[str, Any]:
+    """Request that a running summarize job stop.
+
+    Cooperative: the daemon thread polls the row's status between progress
+    callbacks. The current in-flight LLM call has to finish before the
+    cancel takes effect, so expect a delay of seconds to tens of seconds.
+    """
+    with db._conn() as conn:
+        with db._cursor(conn) as cur:
+            cur.execute("SELECT status FROM summarize_jobs WHERE id = %s", (job_id,))
+            row = cur.fetchone()
+            if not row:
+                raise HTTPException(status_code=404, detail="Job not found")
+            cur_status = row["status"]
+            if cur_status in ("complete", "failed", "cancelled"):
+                return {"job_id": job_id, "status": cur_status, "changed": False}
+            cur.execute(
+                """UPDATE summarize_jobs
+                       SET status = 'cancelling'
+                     WHERE id = %s
+                       AND status IN ('queued', 'running')""",
+                (job_id,),
+            )
+            changed = bool(cur.rowcount)
+    return {
+        "job_id": job_id,
+        "status": "cancelling" if changed else cur_status,
+        "changed": changed,
+    }
+
+
 @router.get("/meetings/{meeting_id}/active-job")
 def get_active_job(
     meeting_id: int,
     _: dict = Depends(current_user),
 ) -> dict[str, Any] | None:
-    """Return the most recent queued/running job for this meeting, or null."""
+    """Return the most recent queued/running/cancelling job for this meeting, or null."""
     with db._conn() as conn:
         with db._cursor(conn) as cur:
             cur.execute(
                 """SELECT * FROM summarize_jobs
                     WHERE meeting_id = %s
-                      AND status IN ('queued', 'running')
+                      AND status IN ('queued', 'running', 'cancelling')
                  ORDER BY started_at DESC
                     LIMIT 1""",
                 (meeting_id,),

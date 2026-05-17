@@ -149,6 +149,7 @@ function AgendaRow({
   onSaveEdit,
   onDelete,
 }: AgendaRowProps) {
+  const navigate = useNavigate();
   const [draft, setDraft] = useState<AgendaDraft>({
     title: item.title,
     item_id: item.item_id ?? "",
@@ -201,7 +202,22 @@ function AgendaRow({
         </div>
         <div className="agenda-num">{item.item_id || "—"}</div>
         <div className="agenda-title-wrap">
-          <div className="agenda-title">{item.title}</div>
+          <div className="agenda-title">
+            {item.title}
+            {(item.initiative_codes ?? []).map((code) => (
+              <span
+                key={code}
+                className="initiative-chip mono"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  navigate(`/initiatives/${encodeURIComponent(code)}`);
+                }}
+                title={`Open initiative ${code}`}
+              >
+                {code}
+              </span>
+            ))}
+          </div>
           {item.one_line && (
             <div className="agenda-oneline serif">{item.one_line}</div>
           )}

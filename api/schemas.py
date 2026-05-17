@@ -66,6 +66,7 @@ class AgendaItem(BaseModel):
     summary_status: Optional[str] = None
     summary_updated_at: Optional[str] = None
     summary_is_manual: bool = False
+    initiative_codes: list[str] = []
 
 
 class MeetingDetail(MeetingListItem):

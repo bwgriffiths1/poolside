@@ -720,6 +720,56 @@ a:hover { text-decoration: underline; }
 .share-row-main { flex: 1; min-width: 0; }
 .share-row-url { overflow: hidden; text-overflow: ellipsis; }
 
+/* Initiatives list + drill-in */
+.initiative-list {
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.initiative-row {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  width: 100%;
+  padding: 12px 16px;
+  background: transparent;
+  border: 0;
+  border-top: 1px solid var(--border-soft);
+  text-align: left;
+  cursor: pointer;
+  font-family: inherit;
+  color: var(--ink);
+}
+.initiative-row:first-child { border-top: 0; }
+.initiative-row:hover { background: var(--bg-sunk); }
+.initiative-row-code {
+  background: var(--accent-tint);
+  color: var(--accent);
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  font-weight: 600;
+  min-width: 90px;
+  text-align: center;
+}
+.initiative-row-main { flex: 1; min-width: 0; }
+
+.initiative-detail-list { display: flex; flex-direction: column; gap: 12px; }
+.initiative-detail-row {
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 16px;
+}
+.initiative-detail-head {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 4px;
+}
+.initiative-detail-title { font-size: 14px; line-height: 1.4; }
+
 /* Inbox (Overview) */
 .inbox { margin-bottom: 32px; }
 .inbox-head {

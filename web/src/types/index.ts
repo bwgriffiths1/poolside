@@ -56,6 +56,7 @@ export interface AgendaItem {
   summary_status?: string | null;
   summary_updated_at?: string | null;
   summary_is_manual?: boolean;
+  initiative_codes?: string[];
 }
 
 export interface MeetingDetail extends MeetingListItem {

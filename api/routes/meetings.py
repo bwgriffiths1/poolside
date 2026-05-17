@@ -80,7 +80,16 @@ def get_meeting(meeting_id: int) -> schemas.MeetingDetail:
         doc_rows = db.get_documents_for_item(ar["id"])
         item_docs = [adapters.document_row(d) for d in doc_rows]
         item_summary = db.get_current_summary("agenda_item", ar["id"])
-        agenda_items.append(adapters.agenda_item_row(ar, item_docs, item_summary))
+        try:
+            tag_rows = db.get_tags_for_entity("agenda_item", ar["id"])
+            initiative_codes = [
+                t["name"] for t in tag_rows if t.get("tag_type") == "initiative"
+            ]
+        except Exception:
+            initiative_codes = []
+        agenda_items.append(
+            adapters.agenda_item_row(ar, item_docs, item_summary, initiative_codes)
+        )
 
     return schemas.MeetingDetail(
         **base.model_dump(),

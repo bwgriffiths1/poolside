@@ -14,6 +14,7 @@ import { Settings } from "./routes/Settings";
 import { Admin } from "./routes/Admin";
 import { PublicShare } from "./routes/PublicShare";
 import { Accept } from "./routes/Accept";
+import { Initiatives, InitiativeDetail } from "./routes/Initiatives";
 
 export function App() {
   return (
@@ -29,6 +30,8 @@ export function App() {
           <Route path="/meeting/:id" element={<Meeting />} />
           <Route path="/briefings" element={<Briefings />} />
           <Route path="/briefing/:id" element={<Briefing />} />
+          <Route path="/initiatives" element={<Initiatives />} />
+          <Route path="/initiatives/:code" element={<InitiativeDetail />} />
           <Route path="/add" element={<Add />} />
           <Route path="/edit/:type/:id" element={<Editor />} />
           <Route path="/deepdive" element={<Stub name="deepdive" />} />

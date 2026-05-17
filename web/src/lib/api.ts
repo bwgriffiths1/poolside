@@ -360,6 +360,100 @@ export const api = {
     return res.json();
   },
 
+  // ── Danger zone ──────────────────────────────────────────────────────
+  deleteMeeting: async (meeting_id: number): Promise<{ deleted: boolean }> => {
+    const res = await fetch(`${BASE}/meetings/${meeting_id}`, {
+      method: "DELETE",
+      credentials: "include",
+    });
+    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+    return res.json();
+  },
+  deleteAllDocuments: async (
+    meeting_id: number,
+  ): Promise<{ removed_documents: number }> => {
+    const res = await fetch(`${BASE}/meetings/${meeting_id}/documents`, {
+      method: "DELETE",
+      credentials: "include",
+    });
+    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+    return res.json();
+  },
+
+  // ── Invites + password resets ────────────────────────────────────────
+  listUserTokens: (purpose?: "invite" | "password_reset") =>
+    get<UserTokenRow[]>(
+      purpose ? `/admin/user-tokens?purpose=${purpose}` : `/admin/user-tokens`,
+      () => [],
+    ),
+  createInvite: async (body: {
+    email: string;
+    name: string;
+    expires_days?: number | null;
+  }): Promise<UserTokenRow> => {
+    const res = await fetch(`${BASE}/admin/invites`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => null);
+      throw new Error(data?.detail || `${res.status} ${res.statusText}`);
+    }
+    return res.json();
+  },
+  createPasswordReset: async (
+    email: string,
+    expires_days?: number | null,
+  ): Promise<UserTokenRow> => {
+    const res = await fetch(`${BASE}/admin/password-resets`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, expires_days }),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => null);
+      throw new Error(data?.detail || `${res.status} ${res.statusText}`);
+    }
+    return res.json();
+  },
+  revokeUserToken: async (id: number): Promise<{ revoked: boolean }> => {
+    const res = await fetch(`${BASE}/admin/user-tokens/${id}`, {
+      method: "DELETE",
+      credentials: "include",
+    });
+    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+    return res.json();
+  },
+  publicTokenPreview: async (token: string): Promise<PublicTokenPreview> => {
+    const res = await fetch(`${BASE}/public/user-tokens/${encodeURIComponent(token)}`);
+    if (!res.ok) {
+      const data = await res.json().catch(() => null);
+      throw new Error(data?.detail || `${res.status} ${res.statusText}`);
+    }
+    return res.json();
+  },
+  publicTokenAccept: async (
+    token: string,
+    password: string,
+  ): Promise<{ ok: boolean; purpose: string; email: string }> => {
+    const res = await fetch(
+      `${BASE}/public/user-tokens/${encodeURIComponent(token)}/accept`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password }),
+      },
+    );
+    if (!res.ok) {
+      const data = await res.json().catch(() => null);
+      throw new Error(data?.detail || `${res.status} ${res.statusText}`);
+    }
+    return res.json();
+  },
+
   // ── Prompt library ───────────────────────────────────────────────────────
   prompts: () => get<PromptIndex>(`/prompts`),
   prompt: (slug: string) => get<PromptContent>(`/prompts/${slug}`),
@@ -652,6 +746,26 @@ export interface ShareToken {
   created_at: string;
   expires_at: string | null;
   revoked_at: string | null;
+}
+
+export interface UserTokenRow {
+  id: number;
+  token: string;
+  purpose: "invite" | "password_reset";
+  email: string;
+  name: string | null;
+  created_by: number | null;
+  created_at: string;
+  expires_at: string | null;
+  used_at: string | null;
+  status?: "active" | "expired" | "used";
+}
+
+export interface PublicTokenPreview {
+  purpose: "invite" | "password_reset";
+  email: string;
+  name: string | null;
+  expires_at: string | null;
 }
 
 export interface PublicShareResponse {

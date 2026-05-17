@@ -135,6 +135,17 @@ def create_user(email: str, name: str, password: str,
             return cur.fetchone()
 
 
+def set_user_password(user_id: int, password: str) -> None:
+    """Replace a user's password_hash. Used by the password-reset flow."""
+    pw_hash = hash_password(password)
+    with _conn() as conn:
+        with _cursor(conn) as cur:
+            cur.execute(
+                "UPDATE app_users SET password_hash = %s WHERE id = %s",
+                (pw_hash, user_id),
+            )
+
+
 def update_last_login(email: str) -> None:
     with _conn() as conn:
         with _cursor(conn) as cur:

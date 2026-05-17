@@ -89,6 +89,45 @@ def get_meeting(meeting_id: int) -> schemas.MeetingDetail:
     )
 
 
+@router.delete("/{meeting_id}")
+def delete_meeting(
+    meeting_id: int,
+    _: dict = Depends(current_user),
+) -> dict[str, Any]:
+    """Hard-delete a meeting and everything that hangs off it.
+
+    `ON DELETE CASCADE` on the documents / agenda_items / summary_versions /
+    summarize_jobs / share_tokens / etc. foreign keys means we only have to
+    DELETE one row. The agenda + docs + summaries + jobs go with it.
+    """
+    if db.get_meeting(meeting_id) is None:
+        raise HTTPException(status_code=404, detail="Meeting not found")
+    with db._conn() as conn:
+        with db._cursor(conn) as cur:
+            cur.execute("DELETE FROM meetings WHERE id = %s", (meeting_id,))
+    return {"deleted": True, "meeting_id": meeting_id}
+
+
+@router.delete("/{meeting_id}/documents")
+def delete_all_documents(
+    meeting_id: int,
+    _: dict = Depends(current_user),
+) -> dict[str, Any]:
+    """Wipe every document row for this meeting. Use when the scraper
+    pulled garbage or you want to re-discover materials from scratch.
+    Cascades remove item_documents and document_images rows.
+    """
+    if db.get_meeting(meeting_id) is None:
+        raise HTTPException(status_code=404, detail="Meeting not found")
+    with db._conn() as conn:
+        with db._cursor(conn) as cur:
+            cur.execute(
+                "DELETE FROM documents WHERE meeting_id = %s", (meeting_id,)
+            )
+            removed = cur.rowcount or 0
+    return {"removed_documents": int(removed)}
+
+
 @router.get("/{meeting_id}/agenda", response_model=list[schemas.AgendaItem])
 def get_meeting_agenda(meeting_id: int) -> list[schemas.AgendaItem]:
     items: list[schemas.AgendaItem] = []

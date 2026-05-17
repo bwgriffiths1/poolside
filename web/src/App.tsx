@@ -13,6 +13,7 @@ import { Login } from "./routes/Login";
 import { Settings } from "./routes/Settings";
 import { Admin } from "./routes/Admin";
 import { PublicShare } from "./routes/PublicShare";
+import { Accept } from "./routes/Accept";
 
 export function App() {
   return (
@@ -20,6 +21,7 @@ export function App() {
       <Routes>
         <Route path="/login" element={<Login />} />
         <Route path="/share/:token" element={<PublicShare />} />
+        <Route path="/accept/:token" element={<Accept />} />
         <Route element={<AppShell />}>
           <Route index element={<Navigate to="/overview" replace />} />
           <Route path="/overview" element={<Overview />} />

@@ -1,7 +1,8 @@
-import { useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMemo, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Topbar } from "../components/Topbar";
-import { api } from "../lib/api";
+import { Icon } from "../components/Icon";
+import { api, type UserTokenRow } from "../lib/api";
 
 function dollars(n: number, frac = 4): string {
   return `$${n.toFixed(frac)}`;
@@ -132,10 +133,214 @@ export function Admin() {
               )}
             </section>
 
+            <section style={{ marginTop: 48 }}>
+              <UserTokensPanel />
+            </section>
+
             <div style={{ height: 64 }} />
           </>
         )}
       </div>
+    </>
+  );
+}
+
+function UserTokensPanel() {
+  const qc = useQueryClient();
+  const tokens = useQuery({
+    queryKey: ["user-tokens"],
+    queryFn: () => api.listUserTokens(),
+  });
+  const [inviteEmail, setInviteEmail] = useState("");
+  const [inviteName, setInviteName] = useState("");
+  const [resetEmail, setResetEmail] = useState("");
+  const [showToken, setShowToken] = useState<UserTokenRow | null>(null);
+
+  const createInvite = useMutation({
+    mutationFn: () =>
+      api.createInvite({ email: inviteEmail, name: inviteName }),
+    onSuccess: (row) => {
+      setShowToken(row);
+      setInviteEmail("");
+      setInviteName("");
+      qc.invalidateQueries({ queryKey: ["user-tokens"] });
+    },
+    onError: (e: Error) => alert(e.message),
+  });
+  const createReset = useMutation({
+    mutationFn: () => api.createPasswordReset(resetEmail),
+    onSuccess: (row) => {
+      setShowToken(row);
+      setResetEmail("");
+      qc.invalidateQueries({ queryKey: ["user-tokens"] });
+    },
+    onError: (e: Error) => alert(e.message),
+  });
+  const revoke = useMutation({
+    mutationFn: (id: number) => api.revokeUserToken(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["user-tokens"] }),
+  });
+
+  const urlFor = (t: UserTokenRow) =>
+    `${window.location.origin}/#/accept/${t.token}`;
+
+  const copy = async (t: UserTokenRow) => {
+    const url = urlFor(t);
+    try {
+      await navigator.clipboard.writeText(url);
+    } catch {
+      window.prompt("Copy this URL:", url);
+    }
+  };
+
+  return (
+    <>
+      <h2 className="section-head">Users</h2>
+      <p className="muted text-sm" style={{ marginBottom: 12 }}>
+        Email infrastructure isn't wired yet — generate an invite or reset
+        link below, copy the URL, and forward it to the user yourself.
+      </p>
+
+      <div className="row" style={{ gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
+        <input
+          className="input"
+          placeholder="email@example.com"
+          value={inviteEmail}
+          onChange={(e) => setInviteEmail(e.target.value)}
+          style={{ flex: "1 1 220px", minWidth: 200 }}
+        />
+        <input
+          className="input"
+          placeholder="Full name"
+          value={inviteName}
+          onChange={(e) => setInviteName(e.target.value)}
+          style={{ flex: "1 1 200px", minWidth: 180 }}
+        />
+        <button
+          className="btn btn-sm btn-accent"
+          disabled={!inviteEmail || !inviteName || createInvite.isPending}
+          onClick={() => createInvite.mutate()}
+        >
+          <Icon name="plus" size={12} /> Invite user
+        </button>
+      </div>
+      <div className="row" style={{ gap: 8, flexWrap: "wrap", marginBottom: 16 }}>
+        <input
+          className="input"
+          placeholder="email of existing user"
+          value={resetEmail}
+          onChange={(e) => setResetEmail(e.target.value)}
+          style={{ flex: "1 1 220px", minWidth: 200 }}
+        />
+        <button
+          className="btn btn-sm"
+          disabled={!resetEmail || createReset.isPending}
+          onClick={() => createReset.mutate()}
+        >
+          <Icon name="refresh" size={12} /> Generate password reset
+        </button>
+      </div>
+
+      {showToken && (
+        <div
+          style={{
+            background: "var(--accent-tint)",
+            border: "1px solid var(--accent-soft)",
+            padding: "12px 14px",
+            borderRadius: "var(--radius)",
+            marginBottom: 16,
+          }}
+        >
+          <div className="text-sm" style={{ marginBottom: 6 }}>
+            {showToken.purpose === "invite"
+              ? `Invite link for ${showToken.email}:`
+              : `Password reset for ${showToken.email}:`}
+          </div>
+          <div
+            className="mono text-xs"
+            style={{
+              wordBreak: "break-all",
+              background: "var(--bg-elev)",
+              padding: "6px 8px",
+              borderRadius: "var(--radius-sm)",
+              marginBottom: 8,
+            }}
+          >
+            {urlFor(showToken)}
+          </div>
+          <div className="row" style={{ gap: 6 }}>
+            <button
+              className="btn btn-sm"
+              onClick={() => copy(showToken)}
+            >
+              <Icon name="copy" size={12} /> Copy
+            </button>
+            <button
+              className="btn btn-sm btn-ghost"
+              onClick={() => setShowToken(null)}
+            >
+              Dismiss
+            </button>
+          </div>
+        </div>
+      )}
+
+      {tokens.isLoading ? (
+        <div className="muted">Loading…</div>
+      ) : (tokens.data ?? []).length === 0 ? (
+        <div className="empty">No invites or resets yet.</div>
+      ) : (
+        <div className="usage-table">
+          <div className="usage-row usage-row-head">
+            <div style={{ flex: 0.7 }}>Kind</div>
+            <div style={{ flex: 1.5 }}>Email</div>
+            <div style={{ flex: 1 }}>Created</div>
+            <div style={{ flex: 0.7 }}>Status</div>
+            <div style={{ flex: 0.8, textAlign: "right" }}>Actions</div>
+          </div>
+          {(tokens.data ?? []).map((t) => (
+            <div className="usage-row" key={t.id}>
+              <div style={{ flex: 0.7 }} className="mono text-xs">
+                {t.purpose === "invite" ? "invite" : "reset"}
+              </div>
+              <div style={{ flex: 1.5 }}>
+                <div>{t.email}</div>
+                {t.name && <div className="muted text-xs">{t.name}</div>}
+              </div>
+              <div style={{ flex: 1 }} className="muted text-xs">
+                {new Date(t.created_at).toLocaleString()}
+              </div>
+              <div style={{ flex: 0.7 }} className="text-xs mono">
+                {t.status}
+              </div>
+              <div
+                style={{ flex: 0.8, textAlign: "right", display: "flex", gap: 4, justifyContent: "flex-end" }}
+              >
+                {t.status === "active" && (
+                  <>
+                    <button
+                      className="btn btn-sm btn-ghost"
+                      onClick={() => copy(t)}
+                      title="Copy URL"
+                    >
+                      <Icon name="copy" size={12} />
+                    </button>
+                    <button
+                      className="btn btn-sm btn-ghost"
+                      onClick={() => {
+                        if (confirm("Revoke this token?")) revoke.mutate(t.id);
+                      }}
+                      title="Revoke"
+                    >
+                      <Icon name="trash" size={12} />
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </>
   );
 }

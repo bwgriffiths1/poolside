@@ -44,6 +44,7 @@ from .routes import (
     search,
     share,
     summaries,
+    user_tokens,
     watches,
 )
 from .scheduler import start_scheduler, stop_scheduler
@@ -130,6 +131,7 @@ app.include_router(search.router)
 app.include_router(notifications.router)
 app.include_router(watches.router)
 app.include_router(share.router)
+app.include_router(user_tokens.router)
 
 
 @app.get("/api/health")

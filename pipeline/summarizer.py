@@ -1253,6 +1253,71 @@ def _run_item_rollup(
 
 
 # ---------------------------------------------------------------------------
+# Hierarchy helpers (shared by orchestrator and Level 3)
+# ---------------------------------------------------------------------------
+
+def _build_children_map(all_items: list[dict]) -> dict[int, list[dict]]:
+    """Map parent item id -> list of child item dicts.
+
+    Uses two mechanisms, merged:
+      1. Explicit parent_id FK (set during ingest)
+      2. Prefix matching on item_id strings (fallback for "silent" parents
+         whose children may have parent_id=NULL e.g. 2.1 -> {2.1.a, 2.1.b}).
+    """
+    item_by_id:      dict[int, dict] = {it["id"]: it for it in all_items}
+    item_by_item_id: dict[str, dict] = {
+        it["item_id"]: it for it in all_items if it.get("item_id")
+    }
+    children_of: dict[int, list[dict]] = {}
+
+    for it in all_items:
+        if it.get("parent_id") and it["parent_id"] in item_by_id:
+            children_of.setdefault(it["parent_id"], [])
+            if it not in children_of[it["parent_id"]]:
+                children_of[it["parent_id"]].append(it)
+        elif it.get("item_id") and "." in it["item_id"]:
+            parts = it["item_id"].split(".")
+            parent_item = None
+            for i in range(len(parts) - 1, 0, -1):
+                candidate = ".".join(parts[:i])
+                parent_item = item_by_item_id.get(candidate)
+                if parent_item:
+                    break
+            if parent_item:
+                children_of.setdefault(parent_item["id"], [])
+                if it not in children_of[parent_item["id"]]:
+                    children_of[parent_item["id"]].append(it)
+
+    return children_of
+
+
+def _collect_leaf_summaries(
+    item: dict,
+    children_of: dict[int, list[dict]],
+) -> list[tuple[dict, dict]]:
+    """Walk descendants of `item` and return [(leaf_item, summary), ...]
+    for every leaf (no children) that has a current summary.
+
+    If `item` itself has no children, returns [(item, summary)] if a summary
+    exists. Leaves without a summary are skipped (defensive).
+    """
+    leaves: list[tuple[dict, dict]] = []
+
+    def _walk(node: dict) -> None:
+        kids = children_of.get(node["id"]) or []
+        if kids:
+            for kid in kids:
+                _walk(kid)
+        else:
+            summ = db.get_current_summary("agenda_item", node["id"])
+            if summ and summ.get("detailed"):
+                leaves.append((node, summ))
+
+    _walk(item)
+    return leaves
+
+
+# ---------------------------------------------------------------------------
 # Level 3 — Meeting briefing
 # ---------------------------------------------------------------------------
 
@@ -1272,6 +1337,12 @@ def _run_meeting_briefing(
     Stores result as entity_type='meeting'.
     Returns True if briefing was created.
     """
+    # Walk to leaves so hierarchical items contribute proportional input
+    # (e.g. a CAR-SA item with 9 sub-presentations supplies ~9× the text
+    # of a single-presentation item, restoring the length signal the
+    # briefing prompt's "length proportionality" rule expects).
+    children_of = _build_children_map(all_items)
+
     parts = []
     for item in top_level_items:
         # Skip administrative items (minutes, opening remarks, etc.)
@@ -1279,15 +1350,30 @@ def _run_meeting_briefing(
             logger.info("Level 3 — skipping administrative item: %s",
                         item.get("title"))
             continue
-        summ = db.get_current_summary("agenda_item", item["id"])
-        if summ and summ.get("detailed"):
-            label = item.get("item_id") or item["title"]
-            # Include per-item metadata header in each block
-            meta = _item_metadata_block(item)
-            header = f"## Item {label}: {item['title']}"
-            if meta:
-                header += f"\n{meta}"
-            parts.append(f"{header}\n\n{summ['detailed']}")
+
+        leaves = _collect_leaf_summaries(item, children_of)
+        if not leaves:
+            continue
+
+        label = item.get("item_id") or item["title"]
+        meta  = _item_metadata_block(item)
+        header = f"## Item {label}: {item['title']}"
+        if meta:
+            header += f"\n{meta}"
+
+        if len(leaves) == 1 and leaves[0][0]["id"] == item["id"]:
+            # Non-hierarchical top-level item — single block (unchanged).
+            parts.append(f"{header}\n\n{leaves[0][1]['detailed']}")
+        else:
+            # Hierarchical — emit one ### sub-block per leaf so the model
+            # sees the full per-leaf text instead of a compressed parent rollup.
+            sub_blocks = []
+            for leaf_item, leaf_summ in leaves:
+                sub_label = leaf_item.get("item_id") or leaf_item["title"]
+                sub_blocks.append(
+                    f"### {sub_label} — {leaf_item['title']}\n\n{leaf_summ['detailed']}"
+                )
+            parts.append(f"{header}\n\n" + "\n\n".join(sub_blocks))
 
     if not parts:
         logger.warning("Level 3 — meeting %d: no item summaries available for briefing",
@@ -1443,37 +1529,7 @@ def run_meeting_summarization(
         _progress("No agenda items found — nothing to summarise.")
         return {"level1": 0, "level2": 0, "level3": False, "errors": []}
 
-    # Build parent-child map — two mechanisms, merged together:
-    #   1. Explicit parent_id FK (set during ingest)
-    #   2. Prefix matching on item_id strings (fallback for "silent" parents
-    #      whose children may have parent_id=NULL e.g. 2.1 → {2.1.a, 2.1.b, 2.1.c})
-    item_by_id:      dict[int, dict]  = {it["id"]: it for it in all_items}
-    item_by_item_id: dict[str, dict]  = {
-        it["item_id"]: it for it in all_items if it.get("item_id")
-    }
-    children_of: dict[int, list[dict]] = {}
-
-    for it in all_items:
-        # Method 1 — explicit FK
-        if it.get("parent_id") and it["parent_id"] in item_by_id:
-            children_of.setdefault(it["parent_id"], [])
-            if it not in children_of[it["parent_id"]]:
-                children_of[it["parent_id"]].append(it)
-        # Method 2 — prefix fallback (only when parent_id not set)
-        # Walk UP the dot-separated prefix chain until we find an existing row.
-        # e.g. "2.1.a" tries "2.1" first; if no "2.1" row exists, tries "2".
-        elif it.get("item_id") and "." in it["item_id"]:
-            parts = it["item_id"].split(".")
-            parent_item = None
-            for i in range(len(parts) - 1, 0, -1):
-                candidate = ".".join(parts[:i])
-                parent_item = item_by_item_id.get(candidate)
-                if parent_item:
-                    break
-            if parent_item:
-                children_of.setdefault(parent_item["id"], [])
-                if it not in children_of[parent_item["id"]]:
-                    children_of[parent_item["id"]].append(it)
+    children_of = _build_children_map(all_items)
 
     errors: list[str] = []
     l1_count = 0

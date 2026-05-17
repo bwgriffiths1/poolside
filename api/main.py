@@ -39,9 +39,12 @@ from .routes import (
     manual_ingest,
     me,
     meetings,
+    notifications,
     prompts,
     search,
+    share,
     summaries,
+    watches,
 )
 from .scheduler import start_scheduler, stop_scheduler
 
@@ -124,6 +127,9 @@ app.include_router(config_route.router)
 app.include_router(manual_ingest.router)
 app.include_router(jobs.router)
 app.include_router(search.router)
+app.include_router(notifications.router)
+app.include_router(watches.router)
+app.include_router(share.router)
 
 
 @app.get("/api/health")

@@ -1,13 +1,13 @@
 import { useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Topbar } from "../components/Topbar";
 import { Icon } from "../components/Icon";
 import { VenueTag, TypeTag } from "../components/Tag";
 import { BlockRenderer } from "../components/briefing/BlockRenderer";
 import { VersionHistory } from "../components/VersionHistory";
 import { useScrollSpy } from "../hooks/useScrollSpy";
-import { api } from "../lib/api";
+import { api, type ShareToken } from "../lib/api";
 import { extFromFilename } from "../lib/format";
 import { inlineMd } from "../lib/markdown";
 import type { Briefing as BriefingType } from "../types";
@@ -88,6 +88,26 @@ export function Briefing() {
   });
 
   const [showVersions, setShowVersions] = useState(false);
+  const [showShare, setShowShare] = useState(false);
+  const qc = useQueryClient();
+  const approval = useQuery({
+    queryKey: ["approval", meetingId],
+    queryFn: () => api.getApproval(meetingId),
+    enabled: Number.isFinite(meetingId),
+    retry: false,
+  });
+  const approveMut = useMutation({
+    mutationFn: () =>
+      approval.data?.status === "approved"
+        ? api.unapproveBriefing(meetingId)
+        : api.approveBriefing(meetingId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["approval", meetingId] });
+      qc.invalidateQueries({ queryKey: ["meetings"] });
+    },
+    onError: (e: Error) => alert(`Approval failed: ${e.message}`),
+  });
+  const isApproved = approval.data?.status === "approved";
   const refs = useRef<Record<string, HTMLElement | null>>({});
   const sectionIds = briefing
     ? ["top", ...briefing.sections.map((s) => s.id), "decisions", "sources"]
@@ -204,9 +224,40 @@ export function Briefing() {
             >
               <Icon name="download" /> Download .docx
             </button>
+            <button
+              className="btn btn-sm"
+              onClick={() => setShowShare(true)}
+              title="Generate a public link to share this briefing without login"
+            >
+              <Icon name="link" /> Share
+            </button>
+            <button
+              className={`btn btn-sm ${isApproved ? "" : "btn-primary"}`}
+              onClick={() => approveMut.mutate()}
+              disabled={approveMut.isPending}
+              title={
+                isApproved
+                  ? `Approved by ${approval.data?.approved_by ?? ""}`
+                  : "Stamp this briefing as approved and notify watchers"
+              }
+            >
+              <Icon name="check" />{" "}
+              {approveMut.isPending
+                ? "Working…"
+                : isApproved
+                ? "Unapprove"
+                : "Approve & publish"}
+            </button>
           </>
         }
       />
+
+      {showShare && (
+        <ShareLinkModal
+          meetingId={meetingId}
+          onClose={() => setShowShare(false)}
+        />
+      )}
 
       <div className="briefing-page">
         <aside className="briefing-side">
@@ -240,6 +291,21 @@ export function Briefing() {
               <span>
                 <Icon name="dot" size={11} /> {briefing.model}
               </span>
+              {approval.data && (
+                <span>
+                  <Icon name="dot" size={11} />{" "}
+                  {approval.data.status === "approved" ? (
+                    <>
+                      <strong style={{ color: "var(--success)" }}>Approved</strong>
+                      {approval.data.approved_by && (
+                        <> by {approval.data.approved_by}</>
+                      )}
+                    </>
+                  ) : (
+                    <span className="muted">Draft</span>
+                  )}
+                </span>
+              )}
             </div>
           </header>
 
@@ -422,5 +488,163 @@ export function Briefing() {
         </article>
       </div>
     </>
+  );
+}
+
+// ─── Share modal ────────────────────────────────────────────────────────
+
+function ShareLinkModal({
+  meetingId,
+  onClose,
+}: {
+  meetingId: number;
+  onClose: () => void;
+}) {
+  const qc = useQueryClient();
+  const tokens = useQuery({
+    queryKey: ["share-tokens", meetingId],
+    queryFn: () => api.listShareLinks(meetingId),
+  });
+  const create = useMutation({
+    mutationFn: (expires_days: number | null) =>
+      api.createShareLink(meetingId, expires_days),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["share-tokens", meetingId] }),
+    onError: (e: Error) => alert(`Create failed: ${e.message}`),
+  });
+  const revoke = useMutation({
+    mutationFn: (token_id: number) => api.revokeShareLink(token_id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["share-tokens", meetingId] }),
+  });
+
+  const [expiry, setExpiry] = useState<"30" | "90" | "never">("30");
+
+  const onCreate = () => {
+    const days = expiry === "never" ? null : Number(expiry);
+    create.mutate(days);
+  };
+
+  const baseUrl = () => {
+    // Use the same origin the user is on; hash router → /#/share/<token>.
+    return `${window.location.origin}/#/share`;
+  };
+
+  const isActive = (t: ShareToken): boolean => {
+    if (t.revoked_at) return false;
+    if (t.expires_at && new Date(t.expires_at).getTime() < Date.now()) return false;
+    return true;
+  };
+
+  const copy = async (t: ShareToken) => {
+    const url = `${baseUrl()}/${t.token}`;
+    try {
+      await navigator.clipboard.writeText(url);
+    } catch {
+      // Fallback: prompt — better than silent failure.
+      window.prompt("Copy this link:", url);
+    }
+  };
+
+  return (
+    <div
+      className="cmd-palette-backdrop"
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
+      <div className="share-modal" role="dialog" aria-label="Share briefing">
+        <div className="share-modal-head">
+          <h3 style={{ margin: 0, fontSize: 14 }}>Share this briefing</h3>
+          <span style={{ flex: 1 }} />
+          <button className="btn btn-sm btn-ghost" onClick={onClose}>
+            <Icon name="x" size={12} />
+          </button>
+        </div>
+
+        <p className="muted text-sm" style={{ margin: "8px 0 14px" }}>
+          A share link opens this briefing without requiring login. Anyone
+          with the URL can read it until you revoke or it expires.
+        </p>
+
+        <div className="row" style={{ gap: 8, marginBottom: 14 }}>
+          <label className="field-label" style={{ marginBottom: 0 }}>
+            Expires
+          </label>
+          <select
+            className="select"
+            value={expiry}
+            onChange={(e) => setExpiry(e.target.value as "30" | "90" | "never")}
+            style={{ width: 140 }}
+          >
+            <option value="30">30 days</option>
+            <option value="90">90 days</option>
+            <option value="never">Never</option>
+          </select>
+          <span style={{ flex: 1 }} />
+          <button
+            className="btn btn-sm btn-accent"
+            onClick={onCreate}
+            disabled={create.isPending}
+          >
+            <Icon name="plus" size={12} />{" "}
+            {create.isPending ? "Creating…" : "Create link"}
+          </button>
+        </div>
+
+        {tokens.isLoading ? (
+          <div className="muted text-sm">Loading…</div>
+        ) : (tokens.data ?? []).length === 0 ? (
+          <div className="muted text-sm">No share links yet.</div>
+        ) : (
+          <div className="share-list">
+            {(tokens.data ?? []).map((t) => (
+              <div
+                key={t.id}
+                className={`share-row ${isActive(t) ? "" : "inactive"}`}
+              >
+                <div className="share-row-main">
+                  <div className="share-row-url mono text-xs">
+                    {baseUrl()}/{t.token.slice(0, 10)}…
+                  </div>
+                  <div className="muted text-xs" style={{ marginTop: 2 }}>
+                    Created {new Date(t.created_at).toLocaleDateString()} ·{" "}
+                    {t.revoked_at
+                      ? "revoked"
+                      : t.expires_at
+                      ? `expires ${new Date(t.expires_at).toLocaleDateString()}`
+                      : "no expiry"}
+                  </div>
+                </div>
+                {isActive(t) ? (
+                  <>
+                    <button
+                      className="btn btn-sm btn-ghost"
+                      onClick={() => copy(t)}
+                      title="Copy URL"
+                    >
+                      <Icon name="copy" size={12} /> Copy
+                    </button>
+                    <button
+                      className="btn btn-sm btn-ghost"
+                      onClick={() => {
+                        if (confirm("Revoke this share link?")) {
+                          revoke.mutate(t.id);
+                        }
+                      }}
+                      title="Revoke"
+                    >
+                      <Icon name="trash" size={12} />
+                    </button>
+                  </>
+                ) : (
+                  <span className="muted text-xs">
+                    {t.revoked_at ? "Revoked" : "Expired"}
+                  </span>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
   );
 }

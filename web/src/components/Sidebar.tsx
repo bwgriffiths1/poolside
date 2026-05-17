@@ -1,6 +1,7 @@
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { Icon, type IconName } from "./Icon";
+import { NotificationBell } from "./NotificationBell";
 import { api } from "../lib/api";
 import type { CurrentUser } from "../types";
 
@@ -111,6 +112,7 @@ export function Sidebar({ user, onOpenPalette }: SidebarProps) {
             <div className="name">{user.name}</div>
             <div className="email">{user.email}</div>
           </div>
+          <NotificationBell />
           <button
             type="button"
             className="user-logout"

@@ -269,6 +269,97 @@ export const api = {
     return res.json();
   },
 
+  // ── Notifications ────────────────────────────────────────────────────
+  listNotifications: (include_read = false) =>
+    get<NotificationRow[]>(
+      `/notifications?limit=30&include_read=${include_read}`,
+      () => [],
+    ),
+  unreadCount: () =>
+    get<{ count: number }>(`/notifications/unread-count`, () => ({ count: 0 })),
+  markNotificationsRead: async (ids?: number[]): Promise<{ marked_read: number }> => {
+    const res = await fetch(`${BASE}/notifications/mark-read`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(ids && ids.length ? { ids } : {}),
+    });
+    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+    return res.json();
+  },
+
+  // ── Watches ──────────────────────────────────────────────────────────
+  isWatching: (meeting_id: number) =>
+    get<{ watching: boolean }>(`/watches/by-meeting/${meeting_id}`, () => ({
+      watching: false,
+    })),
+  watchMeeting: async (meeting_id: number): Promise<{ watching: boolean }> => {
+    const res = await fetch(`${BASE}/watches/by-meeting/${meeting_id}`, {
+      method: "POST",
+      credentials: "include",
+    });
+    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+    return res.json();
+  },
+  unwatchMeeting: async (meeting_id: number): Promise<{ watching: boolean }> => {
+    const res = await fetch(`${BASE}/watches/by-meeting/${meeting_id}`, {
+      method: "DELETE",
+      credentials: "include",
+    });
+    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+    return res.json();
+  },
+
+  // ── Approval ─────────────────────────────────────────────────────────
+  getApproval: (meeting_id: number) =>
+    get<BriefingApproval>(`/meetings/${meeting_id}/briefing/approval`),
+  approveBriefing: async (meeting_id: number): Promise<BriefingApproval> => {
+    const res = await fetch(`${BASE}/meetings/${meeting_id}/briefing/approve`, {
+      method: "POST",
+      credentials: "include",
+    });
+    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+    return res.json();
+  },
+  unapproveBriefing: async (meeting_id: number): Promise<BriefingApproval> => {
+    const res = await fetch(`${BASE}/meetings/${meeting_id}/briefing/unapprove`, {
+      method: "POST",
+      credentials: "include",
+    });
+    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+    return res.json();
+  },
+
+  // ── Share links ──────────────────────────────────────────────────────
+  listShareLinks: (meeting_id: number) =>
+    get<ShareToken[]>(`/meetings/${meeting_id}/share`, () => []),
+  createShareLink: async (
+    meeting_id: number,
+    expires_days?: number | null,
+  ): Promise<ShareToken> => {
+    const res = await fetch(`${BASE}/meetings/${meeting_id}/share`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ expires_days: expires_days ?? null }),
+    });
+    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+    return res.json();
+  },
+  revokeShareLink: async (token_id: number): Promise<{ revoked: boolean }> => {
+    const res = await fetch(`${BASE}/share-tokens/${token_id}`, {
+      method: "DELETE",
+      credentials: "include",
+    });
+    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+    return res.json();
+  },
+  publicShare: async (token: string): Promise<PublicShareResponse> => {
+    const res = await fetch(`${BASE}/public/share/${encodeURIComponent(token)}`);
+    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+    return res.json();
+  },
+
   // ── Prompt library ───────────────────────────────────────────────────────
   prompts: () => get<PromptIndex>(`/prompts`),
   prompt: (slug: string) => get<PromptContent>(`/prompts/${slug}`),
@@ -534,6 +625,41 @@ export interface VenueWithScrape {
 export interface SchedulerStatus {
   running: boolean;
   jobs: { id: string; next_run_time: string | null }[];
+}
+
+export interface NotificationRow {
+  id: number;
+  user_id: number | null;
+  kind: string;
+  payload: Record<string, unknown>;
+  meeting_id: number | null;
+  created_at: string;
+  read_at: string | null;
+}
+
+export interface BriefingApproval {
+  version: number | null;
+  status: string | null;
+  approved_by: string | null;
+  approved_at: string | null;
+}
+
+export interface ShareToken {
+  id: number;
+  token: string;
+  meeting_id: number;
+  created_by: number | null;
+  created_at: string;
+  expires_at: string | null;
+  revoked_at: string | null;
+}
+
+export interface PublicShareResponse {
+  venue: string;
+  type_short: string;
+  type_name: string;
+  meeting_date: string;
+  briefing: Briefing;
 }
 
 export interface SummarySearchHit {

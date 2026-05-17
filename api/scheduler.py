@@ -41,6 +41,52 @@ def _refresh_job() -> None:
         log.exception("scheduled refresh_upcoming_meetings failed: %s", e)
 
 
+def _drift_alarm_job() -> None:
+    """If the discovery cron hasn't found anything in 48h, raise a broadcast
+    notification — usually means ISO-NE changed their site and our scraper
+    needs a poke. Idempotent: only writes one alarm per 24h window.
+    """
+    from datetime import datetime, timedelta, timezone
+    from pipeline import db_new as db
+    from .routes.notifications import create_notification
+
+    try:
+        with db._conn() as conn:
+            with db._cursor(conn) as cur:
+                cur.execute("SELECT MAX(last_scraped_at) AS last FROM venues")
+                row = cur.fetchone()
+                last_scraped = row["last"] if row else None
+                cur.execute(
+                    """SELECT 1 FROM notifications
+                        WHERE kind = 'drift_alarm'
+                          AND created_at > NOW() - INTERVAL '24 hours'
+                        LIMIT 1"""
+                )
+                recent_alarm = cur.fetchone()
+
+        if recent_alarm:
+            return  # already alarmed once in the last day; don't spam
+        if last_scraped is None:
+            return  # never scraped — handled separately
+        threshold = datetime.now(timezone.utc) - timedelta(hours=48)
+        if last_scraped >= threshold:
+            return  # all good
+
+        hours = int((datetime.now(timezone.utc) - last_scraped).total_seconds() // 3600)
+        create_notification(
+            kind="drift_alarm",
+            user_id=None,  # broadcast
+            payload={
+                "last_scraped_at": last_scraped.isoformat(),
+                "hours_silent": hours,
+                "hint": "Discovery cron hasn't found a new meeting in 48h+. The ISO-NE calendar markup may have changed.",
+            },
+        )
+        log.warning("drift_alarm raised — %dh since last scrape", hours)
+    except Exception as e:
+        log.exception("drift_alarm job failed: %s", e)
+
+
 def start_scheduler() -> AsyncIOScheduler | None:
     """Start the scheduler. Returns the instance, or None when disabled.
 
@@ -65,6 +111,12 @@ def start_scheduler() -> AsyncIOScheduler | None:
         _refresh_job,
         CronTrigger(day_of_week="mon-fri", hour="8-18", minute="0,30"),
         id="refresh_upcoming_meetings",
+        replace_existing=True,
+    )
+    s.add_job(
+        _drift_alarm_job,
+        CronTrigger(hour=7, minute=0),
+        id="drift_alarm",
         replace_existing=True,
     )
     s.start()

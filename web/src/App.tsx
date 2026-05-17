@@ -12,12 +12,14 @@ import { Stub } from "./routes/Stub";
 import { Login } from "./routes/Login";
 import { Settings } from "./routes/Settings";
 import { Admin } from "./routes/Admin";
+import { PublicShare } from "./routes/PublicShare";
 
 export function App() {
   return (
     <HashRouter>
       <Routes>
         <Route path="/login" element={<Login />} />
+        <Route path="/share/:token" element={<PublicShare />} />
         <Route element={<AppShell />}>
           <Route index element={<Navigate to="/overview" replace />} />
           <Route path="/overview" element={<Overview />} />

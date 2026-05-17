@@ -42,9 +42,30 @@ Produce the briefing in this exact structure:
 
 ## Executive Summary
 
-3–5 sentences giving the reader the 30-second version of this meeting.
-Identify the 2–3 most significant developments, any votes taken, and any
-near-term stakeholder or regulatory deadlines.
+This section is the most important part of the briefing. It should be
+roughly one page long (~400–600 words) and stand alone — if the reader
+reads nothing else, this page tells them what matters and why.
+
+**Do NOT organize by agenda item.** Organize by impact and risk. The
+reader is a portfolio strategist, not a meeting attendee. They want to
+know what changed, what's at stake, and what decisions are unresolved.
+
+Structure the executive summary with these elements:
+
+**Key Developments** (bulleted, 3–5 items)
+Lead with the highest-impact developments framed as market consequences,
+not process updates. Focus on what shifted — from conceptual to concrete,
+from proposal to tariff language, from open question to resolved design
+choice.
+
+**Critical Decisions & Open Design Risks** (bulleted, 2–4 items)
+Flag the unresolved questions that will determine market outcomes.
+Frame these as decision points and their consequences, not as "the
+committee discussed X."
+
+**Near-Term Deadlines & Process Milestones** (brief, 2–3 items)
+Votes, comment deadlines, FERC filing dates, tariff effective dates —
+only items within the next 60 days that require action or attention
 
 ---
 

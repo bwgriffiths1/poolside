@@ -42,6 +42,18 @@ def _render_summary_with_images(text: str) -> None:
         elif part.strip():
             st.markdown(part)
 
+def _get_item_summary_status(agenda_items: list[dict]) -> dict[int, str]:
+    """Return {item_id: 'summarized'|'none'} for each agenda item."""
+    result = {}
+    for item in agenda_items:
+        summ = db.get_current_summary("agenda_item", item["id"])
+        if summ and summ.get("status") not in ("stub", None):
+            result[item["id"]] = "summarized"
+        else:
+            result[item["id"]] = "none"
+    return result
+
+
 # ---------------------------------------------------------------------------
 # Jump-to pre-selection (from Overview page)
 # ---------------------------------------------------------------------------
@@ -207,7 +219,12 @@ if agenda_items:
     if not api_key_ok:
         st.warning("ANTHROPIC_API_KEY not set — cannot summarise.", icon="⚠️")
     else:
-        dl_col, btn_col, chk_col, img_col, style_col = st.columns([2, 2, 2, 2, 2])
+        # -- Compute item summary status for "New Items" button & selector --
+        item_status = _get_item_summary_status(agenda_items)
+        unsummarized_ids = {iid for iid, s in item_status.items() if s == "none"}
+
+        # -- Row 1: Action buttons ------------------------------------------
+        dl_col, btn_col, brief_col, new_col = st.columns([2, 3, 2, 2])
         with dl_col:
             if briefing_text:
                 from pipeline.briefing import generate_docx_bytes
@@ -227,34 +244,115 @@ if agenda_items:
                 st.button("📄 Download Briefing", disabled=True, use_container_width=True)
         with btn_col:
             run_btn = st.button("🤖 Summarize Meeting", type="primary", use_container_width=True)
-        with chk_col:
-            force_rerun = st.checkbox("Force re-run all levels", value=False,
-                                      help="Re-summarize even if summaries already exist (creates new versions)")
-        with img_col:
-            do_images = st.checkbox("Extract images", value=False,
-                                    help="Extract and analyse charts/diagrams from slides and PDFs (slower, higher API cost)")
-        with style_col:
-            briefing_style = st.selectbox(
-                "Briefing style",
-                options=["standard", "detailed"],
-                help="Standard: concise executive briefing. Detailed: carries forward key data and tables from item summaries.",
+        with brief_col:
+            rerun_brief_btn = st.button(
+                "🔄 Rerun Briefing Only", use_container_width=True,
+                help="Regenerate the meeting briefing (Level 3) without re-running document or item summaries",
             )
-        if run_btn:
+        with new_col:
+            new_items_btn = st.button(
+                "🆕 Summarize New Items", use_container_width=True,
+                disabled=len(unsummarized_ids) == 0,
+                help="Summarize only items that don't have summaries yet"
+                     if unsummarized_ids else "All items are already summarized",
+            )
+
+        # -- Row 2: Settings expander ---------------------------------------
+        with st.expander("Summarization Settings", expanded=False):
+            # Section A: Toggles & style
+            chk_col, img_col, style_col = st.columns(3)
+            with chk_col:
+                force_rerun = st.checkbox(
+                    "Force re-run all levels", value=False,
+                    help="Re-summarize even if summaries already exist (creates new versions)",
+                )
+            with img_col:
+                do_images = st.checkbox(
+                    "Extract images", value=False,
+                    help="Extract and analyse charts/diagrams from slides and PDFs (slower, higher API cost)",
+                )
+            with style_col:
+                briefing_style = st.selectbox(
+                    "Briefing style",
+                    options=["standard", "detailed"],
+                    help="Standard: concise executive briefing. Detailed: carries forward key data and tables from item summaries.",
+                )
+
+            # Section B: Pipeline level
+            level_options = {
+                "Full pipeline (L1 + L2 + L3)": 1,
+                "Rollups + Briefing (L2 + L3)": 2,
+                "Briefing only (L3)": 3,
+            }
+            level_choice = st.radio(
+                "Pipeline levels",
+                options=list(level_options.keys()),
+                horizontal=True,
+                help="L1 = document summaries, L2 = agenda-item rollups, L3 = meeting briefing",
+            )
+            start_level = level_options[level_choice]
+
+            # Section C: Item scope
+            st.divider()
+            scope_choice = st.radio(
+                "Item scope",
+                options=["All items", "Unsummarized items only", "Select specific items"],
+                horizontal=True,
+                help="Choose which agenda items to process",
+            )
+
+            selected_item_ids = None  # None = all items
+            if scope_choice == "Unsummarized items only":
+                selected_item_ids = unsummarized_ids
+                if not unsummarized_ids:
+                    st.info("All items already have summaries.")
+                else:
+                    st.caption(f"{len(unsummarized_ids)} unsummarized item(s) will be processed.")
+            elif scope_choice == "Select specific items":
+                item_choices = {}
+                for item in agenda_items:
+                    status = item_status.get(item["id"], "none")
+                    icon = "✅" if status == "summarized" else "⬜"
+                    indent = "\u00a0" * (item["depth"] * 4)
+                    label = f"{icon} {indent}{item.get('item_id') or ''} {item['title']}"
+                    item_choices[item["id"]] = label
+                picked = st.multiselect(
+                    "Select agenda items",
+                    options=list(item_choices.keys()),
+                    format_func=lambda k: item_choices[k],
+                    default=[k for k, s in item_status.items() if s != "summarized"],
+                )
+                selected_item_ids = set(picked) if picked else set()
+
+            if selected_item_ids is not None and scope_choice != "All items":
+                st.caption(
+                    "When specific items are selected the pipeline always runs from Level 1 "
+                    "for those items, then rolls up affected parents and regenerates the briefing."
+                )
+
+        # -- Run handlers ----------------------------------------------------
+        def _run_summarization(
+            force: bool, images: bool, style: str,
+            level: int = 1, item_ids: set[int] | None = None,
+            label: str = "Running summarization…",
+        ):
             committee_short = selected_meeting.get("type_short", "MC")
-            with st.status("Running summarization…", expanded=True) as status_box:
+            with st.status(label, expanded=True) as status_box:
                 def _progress(msg: str) -> None:
                     st.write(msg)
                 try:
-                    client  = make_client()
+                    client = make_client()
                     results = run_meeting_summarization(
                         meeting_id=selected_id,
                         client=client,
                         committee_short=committee_short,
                         venue_short=selected_meeting.get("venue_short", "ISO-NE"),
                         progress_fn=_progress,
-                        force_rerun=force_rerun,
-                        extract_images=do_images if do_images else None,
-                        briefing_style=briefing_style,
+                        force_rerun=force,
+                        start_level=level,
+                        extract_images=images if images else None,
+                        briefing_style=style,
+                        item_ids=item_ids,
                     )
                     n1, n2, n3 = results["level1"], results["level2"], results["level3"]
                     errs = results.get("errors", [])
@@ -275,6 +373,23 @@ if agenda_items:
                 except Exception as exc:
                     status_box.update(label=f"Summarization failed: {exc}", state="error")
                     st.error(str(exc))
+
+        if run_btn:
+            _run_summarization(
+                force=force_rerun, images=do_images, style=briefing_style,
+                level=start_level if selected_item_ids is None else 1,
+                item_ids=selected_item_ids,
+            )
+        elif rerun_brief_btn:
+            _run_summarization(
+                force=True, images=False, style=briefing_style,
+                level=3, label="Regenerating briefing…",
+            )
+        elif new_items_btn and unsummarized_ids:
+            _run_summarization(
+                force=False, images=do_images, style=briefing_style,
+                item_ids=unsummarized_ids, label="Summarizing new items…",
+            )
 
 # ---------------------------------------------------------------------------
 # Check for new materials

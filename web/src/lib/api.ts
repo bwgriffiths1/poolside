@@ -435,6 +435,12 @@ export const api = {
     }
     return res.json();
   },
+  // ── Initiatives ──────────────────────────────────────────────────────
+  listInitiatives: () =>
+    get<InitiativeSummary[]>(`/initiatives`, () => []),
+  getInitiative: (code: string) =>
+    get<InitiativeDetail>(`/initiatives/${encodeURIComponent(code)}`),
+
   publicTokenAccept: async (
     token: string,
     password: string,
@@ -766,6 +772,40 @@ export interface PublicTokenPreview {
   email: string;
   name: string | null;
   expires_at: string | null;
+}
+
+export interface InitiativeSummary {
+  tag_id: number;
+  code: string;
+  description: string | null;
+  item_count: number;
+  meeting_count: number;
+  latest_meeting_date: string | null;
+}
+
+export interface InitiativeItem {
+  meeting_id: number;
+  meeting_date: string;
+  meeting_title: string | null;
+  venue: string;
+  type_short: string;
+  type_name: string;
+  item_id: string | null;
+  item_title: string | null;
+  presenter: string | null;
+  organization: string | null;
+  vote_status: string | null;
+  summary_version: number | null;
+  summary_status: string | null;
+  summary_snippet: string;
+}
+
+export interface InitiativeDetail {
+  code: string;
+  description: string | null;
+  items: InitiativeItem[];
+  item_count: number;
+  meeting_count: number;
 }
 
 export interface PublicShareResponse {

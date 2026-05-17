@@ -194,7 +194,8 @@ def _first_sentence(text: str, max_len: int = 180) -> str:
 
 
 def agenda_item_row(row: dict[str, Any], docs: list[schemas.DocumentRef],
-                    summary: dict[str, Any] | None) -> schemas.AgendaItem:
+                    summary: dict[str, Any] | None,
+                    initiative_codes: list[str] | None = None) -> schemas.AgendaItem:
     item_id = row.get("item_id") or ""
     depth = item_id.count(".") if item_id else 0
     s = summary or {}
@@ -221,4 +222,5 @@ def agenda_item_row(row: dict[str, Any], docs: list[schemas.DocumentRef],
         summary_status=s.get("status"),
         summary_updated_at=_iso(s.get("created_at")),
         summary_is_manual=bool(s.get("is_manual")),
+        initiative_codes=initiative_codes or [],
     )

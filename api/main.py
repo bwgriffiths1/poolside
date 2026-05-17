@@ -35,6 +35,7 @@ from .routes import (
     editor_images,
     images,
     ingest,
+    initiatives,
     jobs,
     manual_ingest,
     me,
@@ -128,6 +129,7 @@ app.include_router(config_route.router)
 app.include_router(manual_ingest.router)
 app.include_router(jobs.router)
 app.include_router(search.router)
+app.include_router(initiatives.router)
 app.include_router(notifications.router)
 app.include_router(watches.router)
 app.include_router(share.router)

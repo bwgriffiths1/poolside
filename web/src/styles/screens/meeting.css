@@ -280,6 +280,21 @@
   padding: var(--pad-3) 0;
 }
 
+.initiative-chip {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 6px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  background: var(--accent-tint);
+  color: var(--accent);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  vertical-align: middle;
+}
+.initiative-chip:hover { background: var(--accent-soft); color: #fff; }
+
 .danger-zone {
   margin-top: 48px;
   border: 1px solid var(--accent-soft);

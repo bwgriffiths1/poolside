@@ -5,13 +5,14 @@ import { Topbar } from "../components/Topbar";
 import { Pill } from "../components/Pill";
 import { Tag, VenueTag, TypeTag } from "../components/Tag";
 import { Icon } from "../components/Icon";
-import { api } from "../lib/api";
+import { api, type SummarizeMode } from "../lib/api";
 import { fmtDateRange, extFromFilename } from "../lib/format";
 import { Markdown } from "../lib/markdown";
 import {
   MaterialAssignment,
   PerItemDocControls,
 } from "../components/MaterialAssignment";
+import { Segmented } from "../components/Segmented";
 import { VersionHistory } from "../components/VersionHistory";
 import type { AgendaItem, DocumentRef } from "../types";
 
@@ -520,6 +521,11 @@ export function Meeting() {
   const [searchParams] = useSearchParams();
   const targetItemParam = searchParams.get("item");
   const [showSummaryRunner, setShowSummaryRunner] = useState(false);
+  // Mode selected inside the summarize modal. Default is computed when the
+  // modal opens (see useEffect below) so meetings with existing summaries
+  // pre-select "missing" — the cheap-and-cheerful gap-fill option — while
+  // fresh meetings default to "all".
+  const [summarizeMode, setSummarizeMode] = useState<SummarizeMode>("all");
   // TODO: meeting-level summarize options (briefing style, extract images,
   // force re-run) are not honored by the backend yet — see the parity plan.
   // Per-item re-runs work via AgendaRow's "Re-run" button.
@@ -534,13 +540,25 @@ export function Meeting() {
     onError: (e: Error) => alert(`Refresh failed: ${e.message}`),
   });
 
-  // Estimate fetched lazily when the modal opens.
+  // Estimate fetched lazily when the modal opens. Re-fetches when the user
+  // flips the mode selector so the displayed cost reflects what they're
+  // about to run.
   const estimate = useQuery({
-    queryKey: ["summarize-estimate", meetingId],
-    queryFn: () => api.estimateSummarize(meetingId),
+    queryKey: ["summarize-estimate", meetingId, summarizeMode],
+    queryFn: () => api.estimateSummarize(meetingId, summarizeMode),
     enabled: showSummaryRunner,
     staleTime: 60_000,
   });
+
+  // Pick a smart default mode whenever the modal opens. Meetings with any
+  // existing summary work default to "missing" (cheap gap-fill); empty
+  // meetings only support "all".
+  useEffect(() => {
+    if (!showSummaryRunner) return;
+    const hasAnySummary =
+      (detail?.agenda ?? []).some((i) => i.has_summary) || hasBriefing;
+    setSummarizeMode(hasAnySummary ? "missing" : "all");
+  }, [showSummaryRunner, detail?.agenda, hasBriefing]);
 
   // Active job poller — also wired up when an in-flight job is discovered
   // via getActiveJob on mount.
@@ -632,7 +650,7 @@ export function Meeting() {
   }, [activeJob.data, activeJobId, completedAlerted, qcRefresh, meetingId]);
 
   const startSummarize = useMutation({
-    mutationFn: () => api.startSummarize(meetingId),
+    mutationFn: () => api.startSummarize(meetingId, summarizeMode),
     onSuccess: (res) => {
       setShowSummaryRunner(false);
       setActiveJobId(res.job_id);
@@ -923,13 +941,53 @@ export function Meeting() {
                 <Icon name="x" size={12} />
               </button>
             </div>
+            <div style={{ marginBottom: 14 }}>
+              <Segmented<SummarizeMode>
+                value={summarizeMode}
+                onChange={setSummarizeMode}
+                options={[
+                  { value: "all", label: "Summarize all" },
+                  {
+                    value: "missing",
+                    label: "Summarize missing",
+                    disabled: totals.withSummary === 0 && !hasBriefing,
+                  },
+                  {
+                    value: "briefing",
+                    label: "Briefing only",
+                    disabled: totals.withSummary === 0,
+                  },
+                ]}
+              />
+            </div>
+
             <div
               className="text-sm muted"
               style={{ marginBottom: 14, lineHeight: 1.5 }}
             >
-              Runs the full three-level pipeline: summarize each document, roll
-              up per agenda item, then write the meeting briefing. The job runs
-              in the background — you can close this modal and come back.
+              {summarizeMode === "all" && (
+                <>
+                  Runs the full three-level pipeline: summarize each document,
+                  roll up per agenda item, then write the meeting briefing.
+                  Existing summaries are overwritten.
+                </>
+              )}
+              {summarizeMode === "missing" && (
+                <>
+                  Only items that don't already have a summary will be
+                  processed. The meeting briefing is then regenerated if any
+                  new item summaries were produced.
+                </>
+              )}
+              {summarizeMode === "briefing" && (
+                <>
+                  Reuses existing item-level summaries and regenerates only the
+                  top-line meeting briefing — useful after editing the briefing
+                  prompt or tweaking item summaries.
+                </>
+              )}
+              {" "}The job runs in the background — you can close this modal
+              and come back.
             </div>
 
             <div
@@ -1018,7 +1076,11 @@ export function Meeting() {
                 <Icon name="spark" size={11} />{" "}
                 {startSummarize.isPending
                   ? "Starting…"
-                  : "Run summarization"}
+                  : summarizeMode === "missing"
+                  ? "Summarize missing items"
+                  : summarizeMode === "briefing"
+                  ? "Regenerate briefing"
+                  : "Summarize all"}
               </button>
             </div>
           </div>

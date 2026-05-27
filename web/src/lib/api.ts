@@ -248,10 +248,12 @@ export const api = {
   },
 
   startSummarize: async (
-    meeting_id: number
+    meeting_id: number,
+    mode: SummarizeMode = "all"
   ): Promise<{
     job_id: number;
     already_running: boolean;
+    mode?: SummarizeMode;
     estimated_cost_usd: number | null;
     estimated_input_tokens: number | null;
     estimated_output_tokens: number | null;
@@ -259,6 +261,8 @@ export const api = {
     const res = await fetch(`${BASE}/meetings/${meeting_id}/summarize`, {
       method: "POST",
       credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mode }),
     });
     if (!res.ok) {
       let detail = `${res.status} ${res.statusText}`;
@@ -271,8 +275,10 @@ export const api = {
     return res.json();
   },
 
-  estimateSummarize: (meeting_id: number) =>
-    get<SummarizeEstimate>(`/meetings/${meeting_id}/summarize/estimate`),
+  estimateSummarize: (meeting_id: number, mode: SummarizeMode = "all") =>
+    get<SummarizeEstimate>(
+      `/meetings/${meeting_id}/summarize/estimate?mode=${mode}`
+    ),
 
   getJob: (job_id: number) => get<SummarizeJob>(`/jobs/${job_id}`),
 
@@ -682,6 +688,13 @@ export interface IngestByUrlResult {
   docs: number;
   already_existed: boolean;
 }
+
+/** Which slice of the summarize pipeline to run.
+ *  - "all"      — full re-run (Level 1 + 2 + 3)
+ *  - "missing"  — only items lacking summaries; briefing rebuilds if anything new
+ *  - "briefing" — reuse existing item summaries, regenerate only the briefing
+ */
+export type SummarizeMode = "all" | "missing" | "briefing";
 
 export interface SummarizeEstimateLine {
   level: number;

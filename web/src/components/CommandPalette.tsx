@@ -84,9 +84,14 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
       navigate(`/meeting/${row.m.id}`);
     } else {
       // Summaries route to the briefing reader for meeting-level hits, and
-      // the meeting page for agenda-item hits (which expands the item).
+      // the meeting page for agenda-item hits — with ?item=<item_id> so the
+      // anchor logic auto-expands + scrolls to the matching item.
       if (row.hit.entity_type === "meeting") {
         navigate(`/briefing/${row.hit.meeting_id}`);
+      } else if (row.hit.item_id) {
+        navigate(
+          `/meeting/${row.hit.meeting_id}?item=${encodeURIComponent(row.hit.item_id)}`,
+        );
       } else {
         navigate(`/meeting/${row.hit.meeting_id}`);
       }
@@ -142,7 +147,8 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
                 : "No matches."
               : "Type to search."}
           </div>
-        ) : (
+        ) : null}
+        {rows.length > 0 && (
           <div className="cmd-palette-results" role="listbox">
             {meetingMatches.length > 0 && (
               <div className="cmd-palette-group">Meetings</div>
@@ -196,6 +202,19 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
               );
             })}
           </div>
+        )}
+        {query.trim().length >= 2 && (
+          <button
+            type="button"
+            className="cmd-palette-seeall"
+            onClick={() => {
+              navigate(`/search?q=${encodeURIComponent(query.trim())}`);
+              onClose();
+            }}
+          >
+            See all results for <strong>"{query.trim()}"</strong>
+            <Icon name="arrow-r" size={11} />
+          </button>
         )}
       </div>
     </div>

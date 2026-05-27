@@ -99,7 +99,7 @@ def get_initiative(
                     ai.item_id,
                     ai.title        AS item_title,
                     ai.presenter,
-                    ai.organization,
+                    ai.org           AS organization,
                     ai.vote_status,
                     m.id            AS meeting_id,
                     m.title         AS meeting_title,

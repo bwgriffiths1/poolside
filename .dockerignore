@@ -1,0 +1,29 @@
+.git
+.gitignore
+.DS_Store
+.env
+.claude
+.streamlit/secrets.toml
+
+# Python
+__pycache__
+**/__pycache__
+*.pyc
+*.pyo
+
+# Node
+node_modules
+**/node_modules
+web/dist
+web/dist-ssr
+
+# Local materials / scratch
+nepool-materials
+nyiso-materials
+*.log
+logs
+
+# OS / editor cruft
+*.suo
+.idea
+.vscode

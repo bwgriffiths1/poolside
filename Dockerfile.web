@@ -1,0 +1,24 @@
+# React (Vite) + FastAPI service for Railway.
+# Stage 1 builds the SPA; stage 2 runs uvicorn and serves the build via api/main.py.
+
+FROM node:20-alpine AS web-builder
+WORKDIR /web
+COPY web/package.json web/package-lock.json ./
+RUN npm ci
+COPY web/ ./
+RUN npm run build
+
+FROM python:3.11-slim
+WORKDIR /app
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY api/ ./api/
+COPY pipeline/ ./pipeline/
+COPY prompts/ ./prompts/
+COPY config.yaml ./
+
+COPY --from=web-builder /web/dist ./web/dist
+
+CMD ["sh", "-c", "uvicorn api.main:app --host 0.0.0.0 --port ${PORT:-8000}"]

@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useEffect, useMemo, useState, type MouseEvent } from "react";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Topbar } from "../components/Topbar";
 import { Pill } from "../components/Pill";
@@ -36,6 +36,11 @@ interface AgendaRowProps {
   onCancelEdit: () => void;
   onSaveEdit: (draft: AgendaDraft) => void;
   onDelete: () => void;
+}
+
+function idForAnchor(itemId: string | null | undefined): string {
+  // Stable DOM id derived from item_id, e.g. "7.a" → "item-7-a".
+  return `item-${(itemId || "").replace(/[^a-zA-Z0-9_-]/g, "-") || "0"}`;
 }
 
 function voteClass(vote?: string | null): string {
@@ -191,8 +196,17 @@ function AgendaRow({
 
   const [showVersions, setShowVersions] = useState(false);
 
+  const copyAnchor = (e: MouseEvent) => {
+    e.stopPropagation();
+    const url = `${window.location.origin}/#/meeting/${meetingId}?item=${encodeURIComponent(item.item_id || "")}`;
+    void navigator.clipboard.writeText(url).catch(() => {
+      window.prompt("Copy this URL:", url);
+    });
+  };
+
   return (
     <div
+      id={idForAnchor(item.item_id)}
       className={`agenda-item depth-${item.depth} ${expanded ? "open" : ""}`}
       style={{ paddingLeft: item.depth * 24 }}
     >
@@ -200,7 +214,17 @@ function AgendaRow({
         <div className="agenda-chev">
           <Icon name={expanded ? "chev-d" : "chev-r"} size={12} />
         </div>
-        <div className="agenda-num">{item.item_id || "—"}</div>
+        <div className="agenda-num">
+          {item.item_id || "—"}
+          <span
+            className="agenda-anchor"
+            onClick={copyAnchor}
+            title="Copy link to this item"
+            aria-label="Copy link"
+          >
+            <Icon name="link" size={11} />
+          </span>
+        </div>
         <div className="agenda-title-wrap">
           <div className="agenda-title">
             {item.title}
@@ -493,6 +517,8 @@ export function Meeting() {
 
   const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set([3]));
   const [editingId, setEditingId] = useState<number | null>(null);
+  const [searchParams] = useSearchParams();
+  const targetItemParam = searchParams.get("item");
   const [showSummaryRunner, setShowSummaryRunner] = useState(false);
   // TODO: meeting-level summarize options (briefing style, extract images,
   // force re-run) are not honored by the backend yet — see the parity plan.
@@ -557,6 +583,32 @@ export function Meeting() {
     mutationFn: (jobId: number) => api.cancelJob(jobId),
     onError: (e: Error) => alert(`Cancel failed: ${e.message}`),
   });
+
+  // Anchor links: ?item=7.a → auto-expand + scroll to that agenda item.
+  // We run this once the agenda has loaded; subsequent param changes also
+  // re-trigger so navigating in-app preserves the behavior.
+  useEffect(() => {
+    if (!targetItemParam || !detail?.agenda) return;
+    const target = detail.agenda.find(
+      (it) => (it.item_id ?? "") === targetItemParam,
+    );
+    if (!target) return;
+    setExpandedIds((prev) => {
+      if (prev.has(target.id)) return prev;
+      const next = new Set(prev);
+      next.add(target.id);
+      return next;
+    });
+    // Scroll after the row paints with its expanded body.
+    const slug = idForAnchor(target.item_id);
+    requestAnimationFrame(() => {
+      const el = document.getElementById(slug);
+      const main = document.querySelector(".main") as HTMLElement | null;
+      if (el && main) {
+        main.scrollTo({ top: el.offsetTop - 24, behavior: "smooth" });
+      }
+    });
+  }, [targetItemParam, detail?.agenda]);
 
   // When the polled job hits a terminal state, refresh data + toast once.
   useEffect(() => {

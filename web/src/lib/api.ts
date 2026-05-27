@@ -139,15 +139,36 @@ export const api = {
   schedulerStatus: () =>
     get<SchedulerStatus>("/admin/scheduler", () => ({ running: false, jobs: [] })),
 
-  searchSummaries: async (q: string): Promise<SummarySearchHit[]> => {
+  searchSummaries: async (
+    q: string,
+    opts: {
+      limit?: number;
+      from_date?: string | null;
+      to_date?: string | null;
+      type_short?: string | null;
+      tag?: string | null;
+      presenter?: string | null;
+      status?: "approved" | "draft" | null;
+    } = {},
+  ): Promise<SummarySearchHit[]> => {
     if (!q.trim()) return [];
-    const res = await fetch(
-      `${BASE}/search/summaries?q=${encodeURIComponent(q.trim())}`,
-      { credentials: "include" },
-    );
+    const qs = new URLSearchParams({ q: q.trim() });
+    if (opts.limit) qs.set("limit", String(opts.limit));
+    if (opts.from_date) qs.set("from_date", opts.from_date);
+    if (opts.to_date) qs.set("to_date", opts.to_date);
+    if (opts.type_short) qs.set("type_short", opts.type_short);
+    if (opts.tag) qs.set("tag", opts.tag);
+    if (opts.presenter) qs.set("presenter", opts.presenter);
+    if (opts.status) qs.set("status", opts.status);
+    const res = await fetch(`${BASE}/search/summaries?${qs}`, {
+      credentials: "include",
+    });
     if (!res.ok) return [];
     return res.json();
   },
+
+  listSearchTags: () =>
+    get<{ name: string; tag_type: string }[]>(`/search/tags`, () => []),
 
   usageDashboard: () =>
     get<UsageDashboard>("/admin/usage", () => ({
@@ -826,6 +847,8 @@ export interface SummarySearchHit {
   type_short: string;
   item_id: string | null;
   item_title: string | null;
+  presenter: string | null;
+  organization: string | null;
   snippet: string;
   rank: number;
 }

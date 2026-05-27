@@ -14,3 +14,4 @@ bcrypt
 pdfplumber
 fastapi
 uvicorn[standard]
+apscheduler

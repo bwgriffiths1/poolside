@@ -1534,6 +1534,12 @@ def run_meeting_summarization(
     errors: list[str] = []
     l1_count = 0
     l2_count = 0
+    # Counters for *newly produced* summaries this run. Distinct from
+    # l1_count/l2_count which also include items reused from a prior run.
+    # Used to decide whether Level 3 must regenerate the briefing when the
+    # caller passed force_rerun=False but downstream content changed.
+    l1_created = 0
+    l2_created = 0
 
     # ── Level 1: leaf items (items with no children) ─────────────────────────
     if start_level > 1:
@@ -1579,6 +1585,7 @@ def run_meeting_summarization(
                 )
                 if created:
                     l1_count += 1
+                    l1_created += 1
             except Exception as exc:
                 msg = f"Level 1 error on item {label}: {exc}"
                 logger.error(msg)
@@ -1637,6 +1644,7 @@ def run_meeting_summarization(
             )
             if created:
                 l2_count += 1
+                l2_created += 1
         except Exception as exc:
             msg = f"Level 2 error on item {label}: {exc}"
             logger.error(msg)
@@ -1644,8 +1652,15 @@ def run_meeting_summarization(
 
     # ── Level 3: meeting briefing ─────────────────────────────────────────────
     _progress("Level 3: generating meeting briefing…")
-    # When item_ids is set, always re-run briefing (affected content changed)
-    l3_force = force_rerun or (item_ids is not None)
+    # Force briefing regen whenever the caller asked, item_ids targeted
+    # specific content, or Level 1/2 actually produced new summaries this run
+    # (otherwise an existing briefing would go stale relative to the new
+    # downstream content).
+    l3_force = (
+        force_rerun
+        or (item_ids is not None)
+        or (l1_created + l2_created > 0)
+    )
     existing_mtg = db.get_current_summary("meeting", meeting_id)
     if (not l3_force
             and existing_mtg
@@ -1755,7 +1770,7 @@ def _approx_tokens_from_chars(n_chars: int) -> int:
     return max(1, n_chars // _CHARS_PER_TOKEN)
 
 
-def estimate_summarization_cost(meeting_id: int) -> dict:
+def estimate_summarization_cost(meeting_id: int, mode: str = "all") -> dict:
     """Walk the meeting the same way `run_meeting_summarization` would and
     return a pre-flight cost estimate.
 
@@ -1763,6 +1778,13 @@ def estimate_summarization_cost(meeting_id: int) -> dict:
     (`documents.raw_content`) plus a conservative fallback for docs that
     haven't been extracted yet. Output tokens are assumed to be ~50% of the
     per-level max. The UI should label the figure as approximate.
+
+    `mode` mirrors the runtime mode of the summarize endpoint:
+        * "all"      — full pipeline (Level 1 + 2 + 3), regardless of existing
+                       summaries
+        * "missing"  — at Levels 1/2, skip items that already have a non-stub
+                       detailed summary; Level 3 is always counted (worst case)
+        * "briefing" — only Level 3 (assume existing item summaries are reused)
 
     Returns:
         {
@@ -1815,65 +1837,85 @@ def estimate_summarization_cost(meeting_id: int) -> dict:
     docs_without_text = 0
     items_planned = 0
 
-    # Level 1 — every leaf item with usable docs
-    for item in all_items:
-        if children_of.get(item["id"]):
-            continue
-        docs = db.get_documents_for_item(item["id"])
-        usable = [
-            d for d in docs
-            if not d.get("ceii_skipped")
-            and not d.get("ignored")
-            and (d.get("file_type") or "").lower() in SUMMARIZE_EXTENSIONS
-        ]
-        if not usable:
-            continue
+    def _already_summarized(entity_id: int) -> bool:
+        existing = db.get_current_summary("agenda_item", entity_id)
+        return bool(
+            existing
+            and existing.get("status") not in ("stub", None)
+            and existing.get("detailed")
+        )
 
-        in_chars = len(doc_summary_prompt)
-        for d in usable:
-            raw = d.get("raw_content") or ""
-            if raw:
-                in_chars += len(raw)
-            else:
-                docs_without_text += 1
-                in_chars += _DOC_TOKENS_WHEN_UNEXTRACTED * _CHARS_PER_TOKEN
-        in_tok = _approx_tokens_from_chars(in_chars)
-        out_tok = int(doc_max * _OUTPUT_RATIO_OF_MAX)
-        cost = compute_cost(doc_model, in_tok, out_tok)
-        breakdown.append({
-            "level": 1,
-            "item_id": item.get("item_id"),
-            "model": doc_model,
-            "input_tokens": in_tok,
-            "output_tokens": out_tok,
-            "cost_usd": float(cost),
-        })
-        items_planned += 1
+    include_l1_l2 = mode != "briefing"
+
+    # Level 1 — every leaf item with usable docs
+    if include_l1_l2:
+        for item in all_items:
+            if children_of.get(item["id"]):
+                continue
+            # Skip items that already have a summary when running in "missing"
+            # mode — the runner skips them too, so they don't contribute cost.
+            if mode == "missing" and _already_summarized(item["id"]):
+                continue
+            docs = db.get_documents_for_item(item["id"])
+            usable = [
+                d for d in docs
+                if not d.get("ceii_skipped")
+                and not d.get("ignored")
+                and (d.get("file_type") or "").lower() in SUMMARIZE_EXTENSIONS
+            ]
+            if not usable:
+                continue
+
+            in_chars = len(doc_summary_prompt)
+            for d in usable:
+                raw = d.get("raw_content") or ""
+                if raw:
+                    in_chars += len(raw)
+                else:
+                    docs_without_text += 1
+                    in_chars += _DOC_TOKENS_WHEN_UNEXTRACTED * _CHARS_PER_TOKEN
+            in_tok = _approx_tokens_from_chars(in_chars)
+            out_tok = int(doc_max * _OUTPUT_RATIO_OF_MAX)
+            cost = compute_cost(doc_model, in_tok, out_tok)
+            breakdown.append({
+                "level": 1,
+                "item_id": item.get("item_id"),
+                "model": doc_model,
+                "input_tokens": in_tok,
+                "output_tokens": out_tok,
+                "cost_usd": float(cost),
+            })
+            items_planned += 1
 
     # Level 2 — every parent item with at least one child
-    for item in all_items:
-        kids = children_of.get(item["id"]) or []
-        if not kids:
-            continue
-        # Each child contributes roughly its existing summary length, or a
-        # conservative 3000-char placeholder if we don't have one yet.
-        in_chars = len(agenda_item_prompt)
-        for kid in kids:
-            existing = db.get_current_summary("agenda_item", kid["id"]) or {}
-            body = existing.get("detailed") or ""
-            in_chars += len(body) if body else 3000
-        in_tok = _approx_tokens_from_chars(in_chars)
-        out_tok = int(item_max * _OUTPUT_RATIO_OF_MAX)
-        cost = compute_cost(item_model, in_tok, out_tok)
-        breakdown.append({
-            "level": 2,
-            "item_id": item.get("item_id"),
-            "model": item_model,
-            "input_tokens": in_tok,
-            "output_tokens": out_tok,
-            "cost_usd": float(cost),
-        })
-        items_planned += 1
+    if include_l1_l2:
+        for item in all_items:
+            kids = children_of.get(item["id"]) or []
+            if not kids:
+                continue
+            # Same skip rule for "missing" — parent rollups that already exist
+            # aren't re-run by the pipeline.
+            if mode == "missing" and _already_summarized(item["id"]):
+                continue
+            # Each child contributes roughly its existing summary length, or a
+            # conservative 3000-char placeholder if we don't have one yet.
+            in_chars = len(agenda_item_prompt)
+            for kid in kids:
+                existing = db.get_current_summary("agenda_item", kid["id"]) or {}
+                body = existing.get("detailed") or ""
+                in_chars += len(body) if body else 3000
+            in_tok = _approx_tokens_from_chars(in_chars)
+            out_tok = int(item_max * _OUTPUT_RATIO_OF_MAX)
+            cost = compute_cost(item_model, in_tok, out_tok)
+            breakdown.append({
+                "level": 2,
+                "item_id": item.get("item_id"),
+                "model": item_model,
+                "input_tokens": in_tok,
+                "output_tokens": out_tok,
+                "cost_usd": float(cost),
+            })
+            items_planned += 1
 
     # Level 3 — meeting briefing
     top_items = [

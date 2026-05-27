@@ -4,13 +4,27 @@ from __future__ import annotations
 import logging
 import threading
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Body, Depends, HTTPException, Query
+from pydantic import BaseModel
 
 from pipeline import db_new as db
 from .. import adapters, lifecycle, schemas
 from ..auth import current_user
+
+
+class StartSummarizeBody(BaseModel):
+    """POST body for /meetings/{id}/summarize.
+
+    mode:
+      * "all"      — full re-run (Level 1 + 2 + 3), regenerates everything
+      * "missing"  — only items without an existing summary; briefing rebuilds
+                     if any new item summaries were produced
+      * "briefing" — reuse existing item summaries, regenerate only the
+                     meeting briefing
+    """
+    mode: Literal["all", "missing", "briefing"] = "all"
 
 router = APIRouter(prefix="/api/meetings", tags=["meetings"])
 log = logging.getLogger("poolside.meetings")
@@ -151,6 +165,7 @@ def get_meeting_agenda(meeting_id: int) -> list[schemas.AgendaItem]:
 @router.get("/{meeting_id}/summarize/estimate")
 def estimate_meeting_summarize(
     meeting_id: int,
+    mode: Literal["all", "missing", "briefing"] = Query("all"),
     _: dict = Depends(current_user),
 ) -> dict[str, Any]:
     """Pre-flight cost estimate for the meeting summarize pipeline.
@@ -160,6 +175,8 @@ def estimate_meeting_summarize(
     breakdown. Also returns `committee_stats` summarizing past completed
     summarize_jobs for meetings in the same committee, so the UI can show
     "typical cost / typical duration" alongside the estimate.
+
+    `mode` mirrors the summarize POST body — "all", "missing", or "briefing".
     """
     from pipeline.summarizer import estimate_summarization_cost
 
@@ -168,7 +185,7 @@ def estimate_meeting_summarize(
         raise HTTPException(status_code=404, detail="Meeting not found")
 
     try:
-        estimate = estimate_summarization_cost(meeting_id)
+        estimate = estimate_summarization_cost(meeting_id, mode=mode)
     except Exception as e:
         log.exception("estimate failed for %s: %s", meeting_id, e)
         raise HTTPException(status_code=500, detail=str(e))
@@ -243,9 +260,21 @@ def _job_status(job_id: int) -> str | None:
             return row["status"] if row else None
 
 
-def _run_summarize_job(job_id: int, meeting_id: int, committee_short: str, venue_short: str) -> None:
+def _run_summarize_job(
+    job_id: int,
+    meeting_id: int,
+    committee_short: str,
+    venue_short: str,
+    start_level: int = 1,
+    force_rerun: bool = True,
+) -> None:
     """Daemon-thread entry point: drive run_meeting_summarization while
-    streaming progress and usage back into the summarize_jobs row."""
+    streaming progress and usage back into the summarize_jobs row.
+
+    `start_level` and `force_rerun` come from the summarize mode chosen by
+    the caller (see `StartSummarizeBody`). Defaults match the pre-mode
+    behavior — a full re-run from Level 1.
+    """
     from pipeline.summarizer import (
         capture_usage,
         make_client,
@@ -276,6 +305,8 @@ def _run_summarize_job(job_id: int, meeting_id: int, committee_short: str, venue
                 committee_short=committee_short,
                 venue_short=venue_short,
                 progress_fn=progress,
+                start_level=start_level,
+                force_rerun=force_rerun,
             )
         totals = totals_from_usage_log(usage_log)
     except _JobCancelled:
@@ -320,12 +351,19 @@ def _run_summarize_job(job_id: int, meeting_id: int, committee_short: str, venue
 @router.post("/{meeting_id}/summarize", status_code=202)
 def start_summarize(
     meeting_id: int,
+    body: StartSummarizeBody = Body(default_factory=StartSummarizeBody),
     user: dict = Depends(current_user),
 ) -> dict[str, Any]:
     """Kick off a background summarize job for this meeting.
 
     Returns the job_id and the pre-flight estimate. The actual run happens
     in a daemon thread; poll GET /api/jobs/{job_id} for progress.
+
+    The optional `mode` in the body selects how much work to do:
+      * "all"      (default) — full re-run, regenerates everything
+      * "missing"  — only items lacking summaries; briefing regen if new work
+      * "briefing" — reuse item summaries, regenerate only the briefing
+    Omitting the body keeps the historical default (full re-run).
     """
     from pipeline.summarizer import estimate_summarization_cost
 
@@ -350,7 +388,7 @@ def start_summarize(
 
     # Compute estimate; safe to fail silently — cost is best-effort.
     try:
-        est = estimate_summarization_cost(meeting_id)
+        est = estimate_summarization_cost(meeting_id, mode=body.mode)
     except Exception:
         log.exception("pre-flight estimate failed for %s", meeting_id)
         est = {
@@ -382,9 +420,20 @@ def start_summarize(
     venue_short = row.get("venue_short") or "ISO-NE"
     committee_short = row.get("type_short") or "MC"
 
+    # Translate mode to the run_meeting_summarization params.
+    # "all"      → start_level=1, force_rerun=True   (full re-run)
+    # "missing"  → start_level=1, force_rerun=False  (skip items with summaries)
+    # "briefing" → start_level=3, force_rerun=True   (briefing only)
+    mode_to_args = {
+        "all":      (1, True),
+        "missing":  (1, False),
+        "briefing": (3, True),
+    }
+    start_level, force_rerun = mode_to_args[body.mode]
+
     t = threading.Thread(
         target=_run_summarize_job,
-        args=(job_id, meeting_id, committee_short, venue_short),
+        args=(job_id, meeting_id, committee_short, venue_short, start_level, force_rerun),
         name=f"summarize-job-{job_id}",
         daemon=True,
     )
@@ -393,6 +442,7 @@ def start_summarize(
     return {
         "job_id": job_id,
         "already_running": False,
+        "mode": body.mode,
         "estimated_cost_usd": est.get("estimated_cost_usd"),
         "estimated_input_tokens": est.get("estimated_input_tokens"),
         "estimated_output_tokens": est.get("estimated_output_tokens"),

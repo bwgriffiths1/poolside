@@ -611,3 +611,51 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+/* Per-item "add material" control */
+.add-material-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 8px 0 4px;
+  padding: 5px 10px;
+  font-size: 12px;
+  color: var(--muted);
+  background: transparent;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+.add-material-toggle:hover {
+  color: var(--ink);
+  border-color: var(--muted-soft);
+}
+.add-material {
+  margin: 10px 0;
+  padding: 12px 14px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius);
+  background: var(--bg-elev);
+}
+.add-material-done {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 10px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--accent-tint);
+}
+.doc-manual-badge {
+  margin-left: 8px;
+  padding: 1px 6px;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  vertical-align: middle;
+  color: var(--accent);
+  background: var(--accent-tint);
+  border-radius: var(--radius-sm);
+}

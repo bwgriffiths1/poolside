@@ -682,7 +682,91 @@ export const api = {
     a.remove();
     URL.revokeObjectURL(url);
   },
+
+  // -- Agenda-item materials (attach a memo to a section for summarizing) ---
+
+  addItemMaterialUrl: async (
+    item_id: number,
+    url: string,
+    filename?: string,
+  ): Promise<MaterialResult> =>
+    postJson(`/agenda-items/${item_id}/materials`, {
+      url,
+      filename: filename || undefined,
+    }),
+
+  addItemMaterialFile: async (
+    item_id: number,
+    file: File,
+  ): Promise<MaterialResult> => {
+    const data_b64 = await fileToBase64(file);
+    return postJson(`/agenda-items/${item_id}/materials`, {
+      filename: file.name,
+      mime_type: file.type || "application/octet-stream",
+      data_b64,
+    });
+  },
+
+  deleteDocument: async (doc_id: number): Promise<void> => {
+    const res = await fetch(`${BASE}/documents/${doc_id}`, {
+      method: "DELETE",
+      credentials: "include",
+    });
+    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+  },
+
+  downloadDocumentFile: async (doc: {
+    id: number;
+    filename: string;
+  }): Promise<void> => {
+    const res = await fetch(`${BASE}/documents/${doc.id}/file`, {
+      credentials: "include",
+    });
+    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = doc.filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  },
 };
+
+export interface MaterialResult {
+  document: {
+    id: number;
+    filename: string;
+    type: string;
+    source_url?: string | null;
+    manual: boolean;
+  };
+  extracted_chars: number;
+  summarizable: boolean;
+}
+
+/** POST JSON and surface the server's `detail` message on failure. */
+async function postJson<T>(path: string, body: unknown): Promise<T> {
+  const res = await fetch(`${BASE}${path}`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    let detail = `${res.status} ${res.statusText}`;
+    try {
+      const j = await res.json();
+      if (j?.detail) detail = j.detail;
+    } catch {
+      /* ignore */
+    }
+    throw new Error(detail);
+  }
+  return res.json();
+}
 
 /** Read a File as a bare base64 string (strips the data: URL prefix). */
 function fileToBase64(file: File): Promise<string> {

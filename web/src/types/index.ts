@@ -36,6 +36,7 @@ export interface DocumentRef {
   assigned: boolean;
   ceii?: boolean;
   source_url?: string;
+  manual?: boolean;        // user-attached material (vs scraped)
 }
 
 export interface Attachment {

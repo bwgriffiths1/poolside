@@ -21,7 +21,7 @@ load_dotenv(override=True)
 
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from .auth import current_user, require_secret
@@ -175,7 +175,9 @@ if _DIST.exists():
 
     @app.get("/")
     @app.get("/{path:path}")
-    def spa(path: str = "") -> FileResponse:
+    def spa(path: str = ""):
+        # Unknown API paths get a JSON 404, not a 200 with index.html —
+        # the latter masks typos and confuses monitoring.
         if path.startswith("api/"):
-            return FileResponse(_DIST / "index.html")
+            return JSONResponse(status_code=404, content={"detail": "Not found"})
         return FileResponse(_DIST / "index.html")

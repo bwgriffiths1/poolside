@@ -1,0 +1,56 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install -r requirements.txt ruff httpx
+      # Hard-error lint only: syntax errors, undefined names.
+      - run: ruff check --select E9,F63,F7,F82 api pipeline
+      # App must import and refuse anonymous requests. No DB needed — auth
+      # rejects before any query; migrations fail soft-loudly at lifespan.
+      - name: Auth smoke test
+        env:
+          POOLSIDE_SESSION_SECRET: ci-secret
+          POOLSIDE_SCHEDULER: "off"
+          DATABASE_URL: postgresql://nouser:nopass@127.0.0.1:1/nodb
+        run: |
+          python - <<'EOF'
+          from fastapi.testclient import TestClient
+          import api.main
+
+          # Lifespan runs migrations against a dead DB and must fail hard —
+          # so exercise the app without lifespan for the route checks.
+          c = TestClient(api.main.app)
+          assert c.get("/api/health").status_code == 200
+          for path in ("/api/meetings", "/api/prompts", "/api/notifications"):
+              assert c.get(path).status_code == 401, path
+          assert c.post("/api/admin/discover").status_code == 401
+          assert c.get("/api/nonexistent-endpoint").status_code == 404
+          print("auth smoke test OK")
+          EOF
+
+  web:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+      - run: npm run build

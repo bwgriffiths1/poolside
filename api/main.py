@@ -18,11 +18,12 @@ from pathlib import Path
 from dotenv import load_dotenv  # noqa: E402
 load_dotenv(override=True)
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
+from .auth import current_user, require_secret
 from .migrate import run_migrations
 from .routes import (
     admin,
@@ -56,6 +57,10 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Refuse to boot without a real session-signing secret — deliberately NOT
+    # wrapped in try/except so a misconfigured deploy fails its healthcheck.
+    require_secret()
+
     # Schema migrations on startup — idempotent.
     try:
         ran = run_migrations()
@@ -111,29 +116,38 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# ── Public surface (no session required) ──────────────────────────────
+# auth: login/logout. share + user_tokens: mixed routers whose management
+# endpoints each carry their own Depends(current_user); their /api/public/*
+# endpoints (share render + invite/reset accept) must stay anonymous.
 app.include_router(auth.router)
-app.include_router(me.router)
-app.include_router(meetings.router)
-app.include_router(briefings.router)
-app.include_router(documents.router)
-app.include_router(agenda_items.router)
-app.include_router(prompts.router)
-app.include_router(prompts.config_router)
-app.include_router(summaries.router)
-app.include_router(editor_images.router)
-app.include_router(images.router)
-app.include_router(ingest.router)
-app.include_router(admin.router)
-app.include_router(admin_dashboard.router)
-app.include_router(config_route.router)
-app.include_router(manual_ingest.router)
-app.include_router(jobs.router)
-app.include_router(search.router)
-app.include_router(initiatives.router)
-app.include_router(notifications.router)
-app.include_router(watches.router)
 app.include_router(share.router)
 app.include_router(user_tokens.router)
+
+# ── Everything else requires a valid session cookie ────────────────────
+# Router-level dependency; FastAPI's per-request dependency cache means
+# endpoints that also declare current_user (for the user dict) don't pay twice.
+_AUTH = [Depends(current_user)]
+app.include_router(me.router, dependencies=_AUTH)
+app.include_router(meetings.router, dependencies=_AUTH)
+app.include_router(briefings.router, dependencies=_AUTH)
+app.include_router(documents.router, dependencies=_AUTH)
+app.include_router(agenda_items.router, dependencies=_AUTH)
+app.include_router(prompts.router, dependencies=_AUTH)
+app.include_router(prompts.config_router, dependencies=_AUTH)
+app.include_router(summaries.router, dependencies=_AUTH)
+app.include_router(editor_images.router, dependencies=_AUTH)
+app.include_router(images.router, dependencies=_AUTH)
+app.include_router(ingest.router, dependencies=_AUTH)
+app.include_router(admin.router, dependencies=_AUTH)
+app.include_router(admin_dashboard.router, dependencies=_AUTH)
+app.include_router(config_route.router, dependencies=_AUTH)
+app.include_router(manual_ingest.router, dependencies=_AUTH)
+app.include_router(jobs.router, dependencies=_AUTH)
+app.include_router(search.router, dependencies=_AUTH)
+app.include_router(initiatives.router, dependencies=_AUTH)
+app.include_router(notifications.router, dependencies=_AUTH)
+app.include_router(watches.router, dependencies=_AUTH)
 
 
 @app.get("/api/health")

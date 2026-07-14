@@ -552,3 +552,62 @@
 .agenda-summary-body .md-table td:first-child {
   font-weight: 500;
 }
+
+/* Files portal — user-uploaded attachments */
+.file-drop {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 22px 16px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-elev);
+  color: var(--muted);
+  cursor: pointer;
+  text-align: center;
+  transition: border-color 0.12s ease, background 0.12s ease;
+}
+.file-drop:hover {
+  border-color: var(--muted-soft);
+}
+.file-drop.is-over {
+  border-color: var(--accent);
+  background: var(--accent-tint);
+  color: var(--accent);
+}
+.file-drop-text {
+  font-size: 13px;
+  color: var(--ink);
+}
+.file-drop-text strong {
+  font-weight: 600;
+}
+.file-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 12px;
+}
+.file-row {
+  display: grid;
+  grid-template-columns: 16px 1fr auto auto;
+  gap: 10px;
+  align-items: center;
+  padding: 8px 12px;
+  background: var(--bg-elev);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+}
+.file-row-main {
+  min-width: 0;
+}
+.file-row-name {
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

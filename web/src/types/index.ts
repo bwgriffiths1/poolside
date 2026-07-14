@@ -38,6 +38,17 @@ export interface DocumentRef {
   source_url?: string;
 }
 
+export interface Attachment {
+  id: number;
+  meeting_id: number;
+  filename: string;
+  mime_type: string;
+  size_bytes: number;
+  note?: string | null;
+  uploaded_by?: string | null;
+  created_at?: string | null;
+}
+
 export interface AgendaItem {
   id: number;
   item_id: string;         // outline id e.g. "3", "3.1"

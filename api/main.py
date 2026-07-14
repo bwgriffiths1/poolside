@@ -30,6 +30,7 @@ from .routes import (
     admin,
     admin_dashboard,
     agenda_items,
+    attachments,
     auth,
     briefings,
     config as config_route,
@@ -145,6 +146,7 @@ app.include_router(me.router, dependencies=_AUTH)
 app.include_router(meetings.router, dependencies=_AUTH)
 app.include_router(briefings.router, dependencies=_AUTH)
 app.include_router(documents.router, dependencies=_AUTH)
+app.include_router(attachments.router, dependencies=_AUTH)
 app.include_router(agenda_items.router, dependencies=_AUTH)
 app.include_router(prompts.router, dependencies=_AUTH)
 app.include_router(prompts.config_router, dependencies=_AUTH)

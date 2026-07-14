@@ -18,16 +18,19 @@ load_dotenv()
 # Connection pool
 # ---------------------------------------------------------------------------
 
-_pool: psycopg2.pool.SimpleConnectionPool | None = None
+# ThreadedConnectionPool: FastAPI serves sync handlers from a threadpool and
+# summarize/scheduler jobs run on their own threads — SimpleConnectionPool's
+# getconn/putconn are not safe under that concurrency.
+_pool: psycopg2.pool.ThreadedConnectionPool | None = None
 
 
-def _get_pool() -> psycopg2.pool.SimpleConnectionPool:
+def _get_pool() -> psycopg2.pool.ThreadedConnectionPool:
     global _pool
     if _pool is None:
         url = os.environ.get("DATABASE_URL")
         if not url:
             raise EnvironmentError("DATABASE_URL is not set. Add it to .env.")
-        _pool = psycopg2.pool.SimpleConnectionPool(1, 10, dsn=url)
+        _pool = psycopg2.pool.ThreadedConnectionPool(1, 10, dsn=url)
     return _pool
 
 
@@ -333,38 +336,66 @@ def get_agenda_items(meeting_id: int) -> list[dict]:
             return [dict(r) for r in cur.fetchall()]
 
 
-def clear_agenda_for_meeting(meeting_id: int) -> None:
+def clear_agenda_for_meeting(meeting_id: int, preserve_human_work: bool = True) -> None:
     """
-    Delete all agenda items (and their summaries/tags) for a meeting,
-    so the meeting can be cleanly re-ingested.
-    item_documents cascade automatically from agenda_items.
+    Delete agenda items (and their summaries/tags) for a meeting so it can
+    be re-ingested. item_documents cascade automatically from agenda_items.
+
+    By default, human work survives the re-ingest: agenda items that have an
+    approved or manually-edited summary version are kept intact (row,
+    versions, tags), and approved/manual meeting-level briefing versions are
+    retained. Pass preserve_human_work=False for the old scorched-earth
+    behavior.
     """
     with _conn() as conn:
         with _cursor(conn) as cur:
-            # Polymorphic rows that reference agenda_items by ID
+            keep_ids: list[int] = []
+            if preserve_human_work:
+                cur.execute("""
+                    SELECT DISTINCT entity_id FROM summary_versions
+                    WHERE entity_type = 'agenda_item'
+                      AND entity_id IN (
+                          SELECT id FROM agenda_items WHERE meeting_id = %s
+                      )
+                      AND (status = 'approved' OR is_manual)
+                """, (meeting_id,))
+                keep_ids = [r["entity_id"] for r in cur.fetchall()]
+
+            # Polymorphic rows that reference agenda_items by ID.
+            # ('{}'::int[] when keep_ids is empty — matches nothing.)
             cur.execute("""
                 DELETE FROM entity_tags
                 WHERE entity_type = 'agenda_item'
                   AND entity_id IN (
                       SELECT id FROM agenda_items WHERE meeting_id = %s
                   )
-            """, (meeting_id,))
+                  AND NOT (entity_id = ANY(%s::int[]))
+            """, (meeting_id, keep_ids))
             cur.execute("""
                 DELETE FROM summary_versions
                 WHERE entity_type = 'agenda_item'
                   AND entity_id IN (
                       SELECT id FROM agenda_items WHERE meeting_id = %s
                   )
-            """, (meeting_id,))
-            cur.execute("""
-                DELETE FROM summary_versions
-                WHERE entity_type = 'meeting' AND entity_id = %s
-            """, (meeting_id,))
+                  AND NOT (entity_id = ANY(%s::int[]))
+            """, (meeting_id, keep_ids))
+            if preserve_human_work:
+                cur.execute("""
+                    DELETE FROM summary_versions
+                    WHERE entity_type = 'meeting' AND entity_id = %s
+                      AND NOT (status = 'approved' OR is_manual)
+                """, (meeting_id,))
+            else:
+                cur.execute("""
+                    DELETE FROM summary_versions
+                    WHERE entity_type = 'meeting' AND entity_id = %s
+                """, (meeting_id,))
             # Cascade removes item_documents
-            cur.execute(
-                "DELETE FROM agenda_items WHERE meeting_id = %s",
-                (meeting_id,),
-            )
+            cur.execute("""
+                DELETE FROM agenda_items
+                WHERE meeting_id = %s
+                  AND NOT (id = ANY(%s::int[]))
+            """, (meeting_id, keep_ids))
 
 
 def update_agenda_item(row_id: int, **fields) -> None:

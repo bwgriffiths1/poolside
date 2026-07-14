@@ -235,10 +235,20 @@ def ingest_npc_meeting(
             parsed_items = fallback
 
     # ── 6. Insert agenda items ──────────────────────────────────────────
+    # Items kept by clear_agenda_for_meeting (approved/manual summaries)
+    # must not be re-inserted; reuse their row ids.
     item_id_map: dict[str, int] = {}  # item_id → DB row id
+    _existing = {
+        r["item_id"]: r["id"]
+        for r in db.get_agenda_items(meeting_id)
+        if r.get("item_id")
+    }
 
     for seq, item in enumerate(parsed_items):
         raw_item_id = item["item_id"]
+        if raw_item_id in _existing:
+            item_id_map[raw_item_id] = _existing[raw_item_id]
+            continue
         depth = _item_depth(raw_item_id)
         parent_raw = _parent_item_id(raw_item_id)
         parent_db_id = item_id_map.get(parent_raw) if parent_raw else None

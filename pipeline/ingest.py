@@ -126,13 +126,28 @@ def _insert_agenda_items(
     from the item_id dot-notation hierarchy.
 
     Returns a mapping {item_id_str → db_row_id} for use in doc assignment.
+
+    Items that already exist for this meeting (same item_id) are NOT
+    re-inserted — clear_agenda_for_meeting keeps rows with approved/manual
+    summaries, and those must survive a re-ingest without duplicating.
+    Existing rows still land in the returned map so doc assignment and
+    parent linking keep working.
     """
     id_map: dict[str, int] = {}  # item_id → DB id
+    existing: dict[str, int] = {
+        r["item_id"]: r["id"]
+        for r in db.get_agenda_items(meeting_id)
+        if r.get("item_id")
+    }
 
     parsed_items = _inherit_wmpp(parsed_items)
 
     for seq, item in enumerate(parsed_items):
         raw_item_id = item["item_id"]
+        if raw_item_id in existing:
+            id_map[raw_item_id] = existing[raw_item_id]
+            logger.debug("  kept existing agenda item %s (human-edited)", raw_item_id)
+            continue
         depth = _item_depth(raw_item_id)
         parent_raw = _parent_item_id(raw_item_id)
         parent_db_id = id_map.get(parent_raw) if parent_raw else None

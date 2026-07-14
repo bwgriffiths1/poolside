@@ -16,19 +16,43 @@ import { MEETINGS, RECENT_INGESTS } from "./fixtures";
 const BASE = import.meta.env.VITE_API_BASE_URL || "/api";
 const USE_FIXTURES = import.meta.env.VITE_USE_FIXTURES === "true";
 
+// Routes that work without a session — never bounce these to /login.
+const PUBLIC_PATHS = ["/login", "/share/", "/accept/"];
+
+/** Session expired or missing: send the user to the login screen rather than
+ *  letting fixture fallbacks render misleading empty states. */
+function handle401(): void {
+  const p = window.location.pathname;
+  if (!PUBLIC_PATHS.some((pub) => p.startsWith(pub))) {
+    window.location.assign("/login");
+  }
+}
+
 async function get<T>(path: string, fallback?: () => T): Promise<T> {
   if (USE_FIXTURES && fallback) return fallback();
+  let res: Response;
   try {
-    const res = await fetch(`${BASE}${path}`, { credentials: "include" });
-    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
-    return (await res.json()) as T;
+    res = await fetch(`${BASE}${path}`, { credentials: "include" });
   } catch (err) {
+    // Network-level failure only — API down, offline.
     if (fallback) {
       console.warn(`[api] ${path} failed, using fixture:`, err);
       return fallback();
     }
     throw err;
   }
+  if (res.status === 401) {
+    handle401();
+    throw new Error("401 Unauthorized");
+  }
+  if (!res.ok) {
+    if (fallback) {
+      console.warn(`[api] ${path} returned ${res.status}, using fixture`);
+      return fallback();
+    }
+    throw new Error(`${res.status} ${res.statusText}`);
+  }
+  return (await res.json()) as T;
 }
 
 export const api = {
@@ -163,6 +187,10 @@ export const api = {
     const res = await fetch(`${BASE}/search/summaries?${qs}`, {
       credentials: "include",
     });
+    if (res.status === 401) {
+      handle401();
+      return [];
+    }
     if (!res.ok) return [];
     return res.json();
   },
@@ -901,6 +929,10 @@ async function mutate(path: string, method: string, body?: unknown): Promise<voi
     headers: { "Content-Type": "application/json" },
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
+  if (res.status === 401) {
+    handle401();
+    throw new Error("401 Unauthorized");
+  }
   if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
 }
 

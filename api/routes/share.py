@@ -10,11 +10,13 @@ intentionally NOT protected — that's the whole point.
 """
 from __future__ import annotations
 
+import base64
 import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import Response
 
 from pipeline import db_new as db
 from .. import adapters, briefing_parser
@@ -107,14 +109,12 @@ def revoke_share(
     return {"revoked": ok}
 
 
-# ── Public, no-auth render endpoint ────────────────────────────────────
+# ── Public, no-auth render endpoints ───────────────────────────────────
 
 
-@router.get("/public/share/{token}")
-def public_share_render(token: str) -> dict[str, Any]:
-    """Public briefing payload — same shape as /api/meetings/:id/briefing,
-    but reachable without a session cookie. Returns 404 for missing,
-    revoked, or expired tokens."""
+def _load_valid_share(token: str) -> dict[str, Any]:
+    """Fetch a share token row joined to its meeting; raise 404/410 for
+    missing, revoked, or expired tokens."""
     with db._conn() as conn:
         with db._cursor(conn) as cur:
             cur.execute(
@@ -140,6 +140,15 @@ def public_share_render(token: str) -> dict[str, Any]:
     expires_at = row.get("expires_at")
     if expires_at and expires_at < datetime.now(timezone.utc):
         raise HTTPException(status_code=410, detail="Share link expired")
+    return row
+
+
+@router.get("/public/share/{token}")
+def public_share_render(token: str) -> dict[str, Any]:
+    """Public briefing payload — same shape as /api/meetings/:id/briefing,
+    but reachable without a session cookie. Returns 404 for missing,
+    revoked, or expired tokens."""
+    row = _load_valid_share(token)
 
     summary = db.get_current_summary("meeting", row["meeting_id"])
     if summary is None:
@@ -148,6 +157,10 @@ def public_share_render(token: str) -> dict[str, Any]:
     md = adapters.resolve_image_refs(
         summary.get("detailed") or summary.get("one_line") or ""
     )
+    # The session-gated image routes 401 for anonymous share viewers, so
+    # rewrite image URLs to the token-scoped public equivalents below.
+    md = md.replace("/api/images/", f"/api/public/share/{token}/images/")
+    md = md.replace("/api/editor-images/", f"/api/public/share/{token}/editor-images/")
     meta = {
         "title": f"{row.get('type_name') or ''} — {row.get('meeting_date') or ''}",
         "subtitle": f"{row.get('venue_name') or ''} · {row.get('location') or ''}",
@@ -163,3 +176,54 @@ def public_share_render(token: str) -> dict[str, Any]:
         "meeting_date": str(row.get("meeting_date") or ""),
         "briefing": briefing.model_dump(),
     }
+
+
+@router.get("/public/share/{token}/images/{image_id}")
+def public_share_document_image(token: str, image_id: int) -> Response:
+    """Document-extracted image for a shared briefing. Only serves images
+    whose source document belongs to the shared meeting."""
+    row = _load_valid_share(token)
+    with db._conn() as conn:
+        with db._cursor(conn) as cur:
+            cur.execute(
+                """SELECT di.image_b64
+                     FROM document_images di
+                     JOIN documents d ON d.id = di.document_id
+                    WHERE di.id = %s AND d.meeting_id = %s""",
+                (image_id, row["meeting_id"]),
+            )
+            img = cur.fetchone()
+    if not img or not img["image_b64"]:
+        raise HTTPException(status_code=404, detail="Image not found")
+    try:
+        raw = base64.b64decode(img["image_b64"])
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Corrupt image bytes: {e}")
+    return Response(
+        content=raw,
+        media_type="image/png",
+        headers={"Cache-Control": "public, max-age=86400"},
+    )
+
+
+@router.get("/public/share/{token}/editor-images/{image_id}")
+def public_share_editor_image(token: str, image_id: int) -> Response:
+    """Editor-pasted image for a shared briefing, scoped to the shared
+    meeting."""
+    row = _load_valid_share(token)
+    with db._conn() as conn:
+        with db._cursor(conn) as cur:
+            cur.execute(
+                """SELECT mime_type, data FROM editor_images
+                    WHERE id = %s AND meeting_id = %s""",
+                (image_id, row["meeting_id"]),
+            )
+            img = cur.fetchone()
+    if img is None:
+        raise HTTPException(status_code=404, detail="Image not found")
+    raw = bytes(img["data"]) if isinstance(img["data"], memoryview) else img["data"]
+    return Response(
+        content=raw,
+        media_type=img["mime_type"] or "image/png",
+        headers={"Cache-Control": "public, max-age=86400"},
+    )

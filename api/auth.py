@@ -4,11 +4,10 @@ Issues an HTTP-only signed cookie after a successful local password check.
 Mirrors the cookie shape used by pipeline/auth.py so the same DB users work
 in both apps. OAuth providers can hydrate the same cookie later.
 
-TODO: only `/api/me`, `/api/admin/config`, and `/api/admin/ingest-by-url`
-currently require auth via `current_user`. Existing meeting/briefing/admin
-routes still respond unauthenticated. Before exposing this beyond localhost,
-add `Depends(current_user)` to every protected router (or wire a global
-middleware) and set `POOLSIDE_COOKIE_SECURE=1` so the cookie is HTTPS-only.
+Every router except the explicit public surface (auth, health, /api/public/*)
+is gated with a router-level `Depends(current_user)` in api/main.py. The
+signing secret must be provided via POOLSIDE_SESSION_SECRET; for local
+development without one, set POOLSIDE_INSECURE_DEV=1 explicitly.
 """
 from __future__ import annotations
 
@@ -26,7 +25,25 @@ _MAX_AGE = 7 * 24 * 3600  # 1 week
 
 
 def _secret() -> bytes:
-    return os.environ.get("POOLSIDE_SESSION_SECRET", "dev-secret-change-me").encode()
+    s = os.environ.get("POOLSIDE_SESSION_SECRET")
+    if s:
+        return s.encode()
+    if os.environ.get("POOLSIDE_INSECURE_DEV") == "1":
+        return b"dev-secret-change-me"
+    raise RuntimeError(
+        "POOLSIDE_SESSION_SECRET is not set. Generate one with "
+        "`python -c 'import secrets; print(secrets.token_urlsafe(48))'` and set it "
+        "in the environment, or set POOLSIDE_INSECURE_DEV=1 for local development."
+    )
+
+
+def require_secret() -> None:
+    """Startup guard: crash loudly if no usable signing secret is configured.
+
+    Called from the app lifespan so a misconfigured deploy fails its
+    healthcheck instead of silently signing cookies with a known default.
+    """
+    _secret()
 
 
 def _sign(payload: str) -> str:
@@ -65,7 +82,9 @@ def set_session_cookie(response: Response, email: str) -> None:
         max_age=_MAX_AGE,
         httponly=True,
         samesite="lax",
-        secure=os.environ.get("POOLSIDE_COOKIE_SECURE", "0") == "1",
+        # Secure by default — opt OUT for plain-http local dev (Safari won't
+        # set Secure cookies on http://localhost).
+        secure=os.environ.get("POOLSIDE_COOKIE_SECURE", "1") == "1",
         path="/",
     )
 

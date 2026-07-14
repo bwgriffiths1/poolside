@@ -516,7 +516,7 @@ export function Meeting() {
   const hasBriefing =
     !!briefing && (briefing.sections.length > 0 || briefing.tldr.length > 0);
 
-  const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set([3]));
+  const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
   const [editingId, setEditingId] = useState<number | null>(null);
   const [searchParams] = useSearchParams();
   const targetItemParam = searchParams.get("item");

@@ -36,13 +36,6 @@ const GROUPS: NavGroup[] = [
     ],
   },
   {
-    label: "Dev",
-    items: [
-      { to: "/deepdive", icon: "spark", label: "Deep Dive" },
-      { to: "/bulk", icon: "refresh", label: "Bulk Summarize" },
-    ],
-  },
-  {
     label: "Account",
     items: [
       { to: "/admin", icon: "spark", label: "Admin · Usage" },

@@ -1359,6 +1359,39 @@ def _collect_leaf_summaries(
 # Level 3 — Meeting briefing
 # ---------------------------------------------------------------------------
 
+def _briefing_summary_excerpt(md: str, max_chars: int = 3500) -> str:
+    """The Key Takeaways + Executive Summary portion of a briefing (everything
+    before the Agenda Item Summaries), lightly truncated — used as prior context
+    so a new briefing can reason about continuity without ingesting whole prior
+    briefings."""
+    low = md.lower()
+    cut = low.find("## agenda item summaries")
+    excerpt = (md[:cut] if cut != -1 else md).strip()
+    excerpt = excerpt.lstrip("-").strip()  # drop a leading '---' rule
+    if len(excerpt) > max_chars:
+        excerpt = excerpt[:max_chars].rsplit("\n", 1)[0].rstrip() + "\n\n…(truncated)"
+    return excerpt
+
+
+def _build_prior_context_block(meeting_id: int, within_days: int = 60) -> str:
+    """Assemble labelled excerpts of recent prior-meeting briefings for the
+    [PRIOR CONTEXT] section, or '' if none are available."""
+    try:
+        priors = db.get_prior_meeting_briefings(meeting_id, within_days=within_days)
+    except Exception as e:  # never let prior-context lookup break a briefing
+        logger.warning("prior-context lookup failed for meeting %d: %s", meeting_id, e)
+        return ""
+    parts = []
+    for p in priors:
+        exc = _briefing_summary_excerpt(p.get("detailed") or "")
+        if exc:
+            label = p.get("meeting_date", "")
+            title = p.get("title") or ""
+            heading = f"### Prior meeting — {label}" + (f" ({title})" if title else "")
+            parts.append(f"{heading}\n\n{exc}")
+    return "\n\n---\n\n".join(parts)
+
+
 def _run_meeting_briefing(
     meeting_id: int,
     top_level_items: list[dict],
@@ -1422,12 +1455,26 @@ def _run_meeting_briefing(
     # overall meeting themes, flow, presenters, and action items
     structure_block = _meeting_structure_block(all_items)
     items_block     = "\n\n---\n\n".join(parts)
-    context_block   = f"{structure_block}\n\n---\n\n{items_block}"
+
+    # Prior-meeting context (recent same-committee briefings) feeds the
+    # prompt's [PRIOR CONTEXT] section for continuity / trend analysis.
+    prior_block = _build_prior_context_block(meeting_id)
+    prior_section = prior_block if prior_block else "None available."
+
+    context_block = (
+        f"[PRIOR CONTEXT]\n\n{prior_section}\n\n---\n\n"
+        f"[THIS MEETING — AGENDA STRUCTURE & ITEM SUMMARIES]\n\n"
+        f"{structure_block}\n\n---\n\n{items_block}"
+    )
 
     if "[AGENDA ITEMS]" in briefing_prompt:
         prompt = briefing_prompt.replace("[AGENDA ITEMS]", context_block)
     else:
         prompt = briefing_prompt + "\n\n" + context_block
+
+    if prior_block:
+        logger.info("Level 3 — meeting %d: injected %d prior-briefing excerpt(s)",
+                    meeting_id, prior_block.count("### Prior meeting"))
 
     # Collect images referenced across all item summaries
     all_image_ids: list[int] = []

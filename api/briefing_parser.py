@@ -69,12 +69,13 @@ def parse_briefing_markdown(md: str, meta: dict[str, Any]) -> schemas.Briefing:
     i = 0
     n = len(lines)
 
-    tldr: list[str] = []
     takeaways: list[str] = []  # from a dedicated "## Key Takeaways" section
+    exec_blocks: list[dict[str, Any]] = []  # from "## Executive Summary"
     sections: list[schemas.BriefingSection] = []
     cur_section: dict[str, Any] | None = None
     cur_body: list[dict[str, Any]] = []
     cur_next: list[str] | None = None
+    cur_top_id: str | None = None  # item_id of the most recent depth-0 section
     in_executive = False
     in_takeaways = False
     in_agenda = False
@@ -87,12 +88,35 @@ def parse_briefing_markdown(md: str, meta: dict[str, Any]) -> schemas.Briefing:
             id=cur_section["id"],
             kind="agenda",
             item_id=cur_section["item_id"],
+            depth=cur_section.get("depth", 0),
             title=cur_section["title"],
             vote=cur_section.get("vote"),
             body=[_block_from_dict(b) for b in cur_body],
             next_steps=cur_next,
         ))
         cur_section = None
+        cur_body = []
+        cur_next = None
+
+    def open_section(head_line: str, item_id: str, title: str) -> None:
+        """Start a new agenda section, computing depth from heading level and
+        item-id lineage. `## n — Title` is depth 0 (top-level item / group
+        header); `### n.x — Title` nested under its matching `## n` parent is
+        depth 1. An h3 with no matching parent falls back to depth 0 so older
+        flat briefings are unchanged."""
+        nonlocal cur_section, cur_body, cur_next, cur_top_id
+        is_sub = head_line.startswith("### ")
+        if is_sub and cur_top_id is not None and item_id.startswith(cur_top_id + "."):
+            depth = 1
+        else:
+            depth = 0
+            cur_top_id = item_id
+        cur_section = {
+            "id": _slug(f"item-{item_id}-{title}"),
+            "item_id": item_id,
+            "title": title,
+            "depth": depth,
+        }
         cur_body = []
         cur_next = None
 
@@ -109,14 +133,7 @@ def parse_briefing_markdown(md: str, meta: dict[str, Any]) -> schemas.Briefing:
             in_agenda = True
             if cur_section is not None:
                 flush_section()
-            item_id, title = sec_match.group(1), sec_match.group(2).strip()
-            cur_section = {
-                "id": _slug(f"item-{item_id}-{title}"),
-                "item_id": item_id,
-                "title": title,
-            }
-            cur_body = []
-            cur_next = None
+            open_section(line, sec_match.group(1), sec_match.group(2).strip())
             i += 1
             continue
 
@@ -141,20 +158,44 @@ def parse_briefing_markdown(md: str, meta: dict[str, Any]) -> schemas.Briefing:
             continue
 
         if in_executive:
-            # Collect bullets/sentences into tldr (fallback path — see above).
-            if line.startswith("- ") or line.startswith("* "):
-                tldr.append(line[2:].strip())
-            elif line.startswith("**") and line.rstrip().endswith("**"):
-                # Sub-headers like **Key Developments** — not takeaway content.
-                pass
-            elif line and not line.startswith("#") and not line.startswith("---"):
-                # Treat each sentence-ish line as a bullet if no bullets present.
-                if not tldr:
-                    for sent in re.split(r"(?<=[.!?])\s+", line):
-                        s = sent.strip()
-                        if s:
-                            tldr.append(s)
+            # Capture the Executive Summary as rendered blocks. Bold standalone
+            # lines (**Key Developments**) become sub-headings; contiguous
+            # bullets collapse into one paragraph block; everything else is prose.
+            stripped = line.strip()
+            if not stripped or stripped == "---":
+                i += 1
+                continue
+            if (stripped.startswith("**") and stripped.endswith("**")
+                    and stripped.count("**") == 2):
+                exec_blocks.append({"kind": "h", "text": stripped.strip("*").strip()})
+                i += 1
+                continue
+            if stripped.startswith("- ") or stripped.startswith("* "):
+                bullets: list[str] = []
+                while i < n:
+                    ls = lines[i].strip()
+                    if ls.startswith("- ") or ls.startswith("* "):
+                        bullets.append("• " + ls[2:].strip())
+                        i += 1
+                        continue
+                    if not ls:
+                        i += 1
+                        break
+                    break
+                if bullets:
+                    exec_blocks.append({"kind": "p", "text": "\n".join(bullets)})
+                continue
+            para = [stripped]
             i += 1
+            while i < n:
+                nx = lines[i].strip()
+                if (not nx or nx.startswith("#") or nx.startswith("- ")
+                        or nx.startswith("* ") or nx == "---"
+                        or (nx.startswith("**") and nx.endswith("**") and nx.count("**") == 2)):
+                    break
+                para.append(nx)
+                i += 1
+            exec_blocks.append({"kind": "p", "text": " ".join(para).strip()})
             continue
 
         if in_agenda:
@@ -162,14 +203,7 @@ def parse_briefing_markdown(md: str, meta: dict[str, Any]) -> schemas.Briefing:
             if m:
                 if cur_section is not None:
                     flush_section()
-                item_id, title = m.group(1), m.group(2).strip()
-                cur_section = {
-                    "id": _slug(f"item-{item_id}-{title}"),
-                    "item_id": item_id,
-                    "title": title,
-                }
-                cur_body = []
-                cur_next = None
+                open_section(line, m.group(1), m.group(2).strip())
                 i += 1
                 continue
 
@@ -278,7 +312,8 @@ def parse_briefing_markdown(md: str, meta: dict[str, Any]) -> schemas.Briefing:
         model=meta.get("model", ""),
         word_count=meta.get("word_count", _word_count(md)),
         reading_time=meta.get("reading_time", max(1, _word_count(md) // 250)),
-        tldr=(takeaways or tldr)[:5],
+        tldr=takeaways[:5],
+        executive_summary=[_block_from_dict(b) for b in exec_blocks],
         sections=sections,
     )
 

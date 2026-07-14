@@ -280,6 +280,50 @@
   font-size: 16px;
   text-transform: uppercase;
 }
+
+/* Executive summary — rendered prose block above the agenda sections */
+.briefing-exec .b-exec-body { max-width: 72ch; }
+.briefing-exec .b-exec-body .b-p:first-of-type {
+  font-size: 16.5px;
+  color: var(--ink);
+}
+
+/* Top-level agenda item (## n) — a group-header divider, set in small caps */
+.briefing-section.b-group {
+  border-top-width: 2px;
+  border-top-color: var(--border);
+}
+.b-group > .b-section-head { align-items: center; }
+.b-group .b-h2 {
+  font-variant-caps: small-caps;
+  letter-spacing: 0.02em;
+  font-size: 23px;
+  color: var(--ink);
+}
+[data-aesthetic="minimal"] .b-group .b-h2,
+[data-aesthetic="terminal"] .b-group .b-h2 {
+  font-variant-caps: normal;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* Sub-items (### n.x) nested beneath their group header */
+.briefing-section.b-depth-1 {
+  border-top: 0;
+  margin-top: var(--pad-4);
+  margin-left: 20px;
+  padding-top: var(--pad-3);
+  padding-left: 20px;
+  border-left: 2px solid var(--border-soft);
+}
+.b-depth-1 > .b-section-head { grid-template-columns: 40px 1fr auto; }
+.b-depth-1 .b-section-num { font-size: 18px; }
+.b-depth-1 .b-h2 { font-size: 20px; }
+
+/* TOC: indent sub-items under their parent */
+.b-toc li.toc-sub button { padding-left: 18px; }
+.b-toc li.toc-sub .toc-num { font-size: 11px; opacity: 0.8; }
+
 .b-section-vote {
   display: inline-block;
   margin-top: 6px;

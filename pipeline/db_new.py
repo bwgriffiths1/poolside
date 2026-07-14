@@ -1119,6 +1119,47 @@ def get_current_summary(entity_type: str, entity_id: int) -> dict | None:
             return dict(row) if row else None
 
 
+def get_prior_meeting_briefings(
+    meeting_id: int, within_days: int = 60, limit: int = 3
+) -> list[dict]:
+    """Return current briefings for prior meetings of the SAME committee whose
+    date falls within `within_days` before this meeting, most recent first.
+
+    Each dict: {id, meeting_date, title, detailed}. Only meetings that actually
+    have a briefing with body text are returned. Used to populate the
+    [PRIOR CONTEXT] section of the Level 3 briefing prompt.
+    """
+    with _conn() as conn:
+        with _cursor(conn) as cur:
+            cur.execute(
+                """
+                SELECT id, meeting_date, title
+                  FROM meetings
+                 WHERE meeting_type_id = (SELECT meeting_type_id FROM meetings WHERE id = %s)
+                   AND meeting_date <  (SELECT meeting_date FROM meetings WHERE id = %s)
+                   AND meeting_date >= (SELECT meeting_date FROM meetings WHERE id = %s)
+                                       - make_interval(days => %s)
+                   AND id <> %s
+                 ORDER BY meeting_date DESC
+                 LIMIT %s
+                """,
+                (meeting_id, meeting_id, meeting_id, within_days, meeting_id, limit),
+            )
+            rows = [dict(r) for r in cur.fetchall()]
+
+    out: list[dict] = []
+    for r in rows:
+        summ = get_current_summary("meeting", r["id"])
+        if summ and (summ.get("detailed") or "").strip():
+            out.append({
+                "id": r["id"],
+                "meeting_date": str(r["meeting_date"]),
+                "title": r.get("title") or "",
+                "detailed": summ["detailed"],
+            })
+    return out
+
+
 def list_summary_versions(entity_type: str, entity_id: int) -> list[dict]:
     """Return all summary versions for an entity, newest first."""
     with _conn() as conn:

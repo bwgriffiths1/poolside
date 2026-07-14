@@ -87,6 +87,8 @@ export interface BriefingSection {
   id: string;
   kind: "agenda" | "rollup";
   item_id: string;
+  // 0 = top-level agenda item (group header); 1 = sub-item nested beneath it.
+  depth?: number;
   title: string;
   vote?: string;
   body: BriefingBlock[];
@@ -102,6 +104,7 @@ export interface Briefing {
   word_count: number;
   reading_time: number;
   tldr: string[];
+  executive_summary?: BriefingBlock[];
   sections: BriefingSection[];
 }
 

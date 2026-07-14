@@ -171,6 +171,16 @@ def _insert_agenda_items(
         id_map[raw_item_id] = row["id"]
         logger.debug("  inserted agenda item %s: %s", raw_item_id, item["title"])
 
+    # Guarantee every dotted item has a correctly-placed, linked parent —
+    # even when the agenda never listed the top-line item explicitly.
+    stubs = db.ensure_agenda_hierarchy(meeting_id)
+    if stubs:
+        logger.info("  created %d parent stub(s) for orphaned sub-items", stubs)
+        for r in db.get_agenda_items(meeting_id):
+            iid = r.get("item_id")
+            if iid and iid not in id_map:
+                id_map[iid] = r["id"]
+
     return id_map
 
 

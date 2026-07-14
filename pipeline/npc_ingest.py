@@ -272,6 +272,7 @@ def ingest_npc_meeting(
         item_id_map[raw_item_id] = row["id"]
         logger.debug("  inserted agenda item %s: %s", raw_item_id, item["title"])
 
+    db.ensure_agenda_hierarchy(meeting_id)
     logger.info("  %d agenda item(s) inserted", len(item_id_map))
 
     # ── 7. Map combined PDF sections to agenda items ────────────────────

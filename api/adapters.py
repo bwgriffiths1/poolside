@@ -93,45 +93,14 @@ def meeting_list_row(row: dict[str, Any], tags: list[str] | None = None,
 
 
 def materialize_missing_parents(meeting_id: int) -> int:
-    """Create real DB rows for any sub-items whose parent doesn't exist.
-
-    e.g. if items 7.a, 7.b, 7.c exist but no item 7, insert a placeholder
-    row for "7" so analysts can rename / edit it like any other item.
-
-    Idempotent — only inserts a parent if it's genuinely missing.
-    Returns the number of parents created.
-    """
+    """Normalize the meeting's agenda tree: create placeholder parents for
+    orphaned sub-items, link parent_id/depth, and order parents immediately
+    before their children. Idempotent; also self-heals meetings ingested
+    before the hierarchy pass existed (late-appended parents at the end of
+    the agenda). Returns the number of parents created."""
     from pipeline import db_new as db
 
-    rows = db.get_agenda_items(meeting_id)
-    have: set[str] = {r["item_id"] for r in rows if r.get("item_id")}
-    needed: list[tuple[str, int]] = []  # (parent_item_id, suggested_seq)
-    seen: set[str] = set()
-
-    for r in rows:
-        iid = r.get("item_id") or ""
-        if "." not in iid:
-            continue
-        parent_iid = iid.rsplit(".", 1)[0]
-        if parent_iid in have or parent_iid in seen:
-            continue
-        seen.add(parent_iid)
-        needed.append((parent_iid, r.get("seq") or 0))
-
-    if not needed:
-        return 0
-
-    for parent_iid, ref_seq in needed:
-        db.insert_agenda_item(
-            meeting_id=meeting_id,
-            title="(no title)",
-            seq=max(0, ref_seq - 1),  # place just before the first sub-item
-            depth=0,
-            item_id=parent_iid,
-            prefix=f"a{parent_iid.zfill(2)}_" if parent_iid.isdigit() else None,
-            auto_sub=False,
-        )
-    return len(needed)
+    return db.ensure_agenda_hierarchy(meeting_id)
 
 
 def synthesize_missing_parents(items: list[schemas.AgendaItem]) -> list[schemas.AgendaItem]:

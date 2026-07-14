@@ -36,8 +36,21 @@ function TOC({
         <li className={active === "top" ? "on" : ""}>
           <button onClick={() => onJump("top")}>Headline &amp; TL;DR</button>
         </li>
+        {briefing.executive_summary && briefing.executive_summary.length > 0 && (
+          <li className={active === "exec" ? "on" : ""}>
+            <button onClick={() => onJump("exec")}>
+              <span className="toc-num" />
+              <span>Executive summary</span>
+            </button>
+          </li>
+        )}
         {briefing.sections.map((s) => (
-          <li key={s.id} className={active === s.id ? "on" : ""}>
+          <li
+            key={s.id}
+            className={`${active === s.id ? "on" : ""}${
+              (s.depth ?? 0) === 1 ? " toc-sub" : ""
+            }`}
+          >
             <button onClick={() => onJump(s.id)}>
               <span className="toc-num">{s.item_id}</span>
               <span>{s.title}</span>
@@ -110,7 +123,13 @@ export function Briefing() {
   const isApproved = approval.data?.status === "approved";
   const refs = useRef<Record<string, HTMLElement | null>>({});
   const sectionIds = briefing
-    ? ["top", ...briefing.sections.map((s) => s.id), "decisions", "sources"]
+    ? [
+        "top",
+        ...(briefing.executive_summary?.length ? ["exec"] : []),
+        ...briefing.sections.map((s) => s.id),
+        "decisions",
+        "sources",
+      ]
     : ["top"];
   const active = useScrollSpy(sectionIds, refs, "top");
 
@@ -337,13 +356,33 @@ export function Briefing() {
           </section>
           )}
 
-          {briefing.sections.map((s) => (
+          {briefing.executive_summary && briefing.executive_summary.length > 0 && (
+            <section
+              ref={(el) => {
+                refs.current.exec = el;
+              }}
+              className="briefing-section briefing-exec"
+            >
+              <div className="b-eyebrow">Executive summary</div>
+              <div className="b-section-body b-exec-body">
+                {briefing.executive_summary.map((b, i) => (
+                  <BlockRenderer key={i} block={b} />
+                ))}
+              </div>
+            </section>
+          )}
+
+          {briefing.sections.map((s) => {
+            const depth = s.depth ?? 0;
+            return (
             <section
               key={s.id}
               ref={(el) => {
                 refs.current[s.id] = el;
               }}
-              className="briefing-section"
+              className={`briefing-section b-depth-${depth}${
+                depth === 0 ? " b-group" : ""
+              }`}
             >
               <div className="b-section-head">
                 <div className="b-section-num">{s.item_id}</div>
@@ -366,11 +405,13 @@ export function Briefing() {
                 </button>
               </div>
 
-              <div className="b-section-body">
-                {s.body.map((b, i) => (
-                  <BlockRenderer key={i} block={b} />
-                ))}
-              </div>
+              {s.body.length > 0 && (
+                <div className="b-section-body">
+                  {s.body.map((b, i) => (
+                    <BlockRenderer key={i} block={b} />
+                  ))}
+                </div>
+              )}
 
               {s.next_steps && s.next_steps.length > 0 && (
                 <div className="b-next">
@@ -385,7 +426,8 @@ export function Briefing() {
                 </div>
               )}
             </section>
-          ))}
+            );
+          })}
 
           {hasDecisions(briefing) && (
             <section

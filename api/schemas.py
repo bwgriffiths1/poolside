@@ -104,6 +104,9 @@ class BriefingSection(BaseModel):
     id: str
     kind: Literal["agenda", "rollup"]
     item_id: str
+    # 0 = top-level agenda item (## n — Title); 1 = sub-item (### n.x — Title).
+    # Depth-0 sections that carry no body of their own act as group headers.
+    depth: int = 0
     title: str
     vote: Optional[str] = None
     body: list[BriefingBlock]
@@ -119,6 +122,9 @@ class Briefing(BaseModel):
     word_count: int
     reading_time: int
     tldr: list[str]
+    # Executive Summary prose (Key Developments / Critical Decisions / etc.),
+    # parsed as blocks. Empty for briefings that have no exec-summary section.
+    executive_summary: list[BriefingBlock] = []
     sections: list[BriefingSection]
 
 

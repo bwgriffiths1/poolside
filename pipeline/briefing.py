@@ -555,6 +555,22 @@ def _render_v2_exec_summary(doc: Document, exec_lines: list[str]) -> None:
             _v2_bold_runs(p, line)
 
 
+_ITEM_HEAD_SEP = re.compile(r"^(.*?)\s*[:—–]\s*(.+)$")
+
+
+def _split_item_heading(h: str) -> tuple[str, str]:
+    """Split an agenda heading like '3 — Title' or '3.a: Title' into
+    (number, title). Splits on the FIRST colon / em-dash / en-dash so an
+    en-dash inside the title (e.g. 'Reforms – Seasonal') is preserved."""
+    m = _ITEM_HEAD_SEP.match(h)
+    if m:
+        return m.group(1).strip(), m.group(2).strip()
+    m2 = re.match(r"^(\S+)\s+-\s+(.+)$", h)  # spaced-hyphen fallback
+    if m2:
+        return m2.group(1).strip(), m2.group(2).strip()
+    return h.strip(), ""
+
+
 def _v2_parse_briefing_md(text: str) -> dict:
     """Parse Claude's briefing markdown into structured data for the v2 renderer."""
     lines = text.splitlines()
@@ -599,11 +615,19 @@ def _v2_parse_briefing_md(text: str) -> dict:
     while i < len(lines):
         s = lines[i].strip()
         if s.startswith("## "):
-            h = s[3:].strip().lower()
-            if "executive summary" in h: mode = "exec"; i += 1; continue
-            elif "agenda item" in h:
+            h = s[3:].strip()
+            hl = h.lower()
+            if "executive summary" in hl: mode = "exec"; i += 1; continue
+            elif "agenda item" in hl:
                 mode = "items"
                 if cur: data["items"].append(cur); cur = None
+                i += 1; continue
+            elif mode == "items":
+                # Top-level agenda item, e.g. "## 3 — CAR-SA" — a group header
+                # owning the ### sub-items below it (depth 0).
+                if cur: data["items"].append(cur)
+                n, t = _split_item_heading(h)
+                cur = {"number": n, "title": t, "depth": 0, "body": [], "next_steps": []}
                 i += 1; continue
             else: i += 1; continue
         if s.startswith("#### "):
@@ -613,12 +637,8 @@ def _v2_parse_briefing_md(text: str) -> dict:
             i += 1; continue
         if s.startswith("### "):
             if cur: data["items"].append(cur)
-            h3 = s[4:].strip()
-            if ":" in h3:
-                n, t = h3.split(":", 1)
-                cur = {"number": n.strip(), "title": t.strip(), "body": [], "next_steps": []}
-            else:
-                cur = {"number": h3, "title": "", "body": [], "next_steps": []}
+            n, t = _split_item_heading(s[4:].strip())
+            cur = {"number": n, "title": t, "depth": 1, "body": [], "next_steps": []}
             mode = "items"; i += 1; continue
         if not s or s == "---": i += 1; continue
         if mode == "exec":
@@ -864,9 +884,17 @@ def generate_docx_bytes(
     _v2_pborder(p, "bottom", 8, _CYAN_HEX, space=4)
 
     for item in data["items"]:
-        p = doc.add_paragraph(); _v2_spacing(p, before=Pt(19), after=Pt(7))
-        _v2_run(p, item["number"], size=Pt(11), bold=True, color=_CYAN)
-        _v2_run(p, "  " + item["title"], size=Pt(11), bold=True, color=_CHARCOAL)
+        depth = item.get("depth", 1)
+        if depth == 0:
+            # Top-level agenda item — larger, rule-underlined group header.
+            p = doc.add_paragraph(); _v2_spacing(p, before=Pt(24), after=Pt(8))
+            _v2_run(p, item["number"], size=Pt(14), bold=True, color=_CYAN)
+            _v2_run(p, "  " + item["title"], size=Pt(14), bold=True, color=_CHARCOAL)
+            _v2_pborder(p, "bottom", 6, _GRAY_MID_HEX, space=3)
+        else:
+            p = doc.add_paragraph(); _v2_spacing(p, before=Pt(16), after=Pt(7))
+            _v2_run(p, item["number"], size=Pt(11), bold=True, color=_CYAN)
+            _v2_run(p, "  " + item["title"], size=Pt(11), bold=True, color=_CHARCOAL)
         # Body paragraphs (tables, images rendered as Word tables/pictures)
         _render_v2_body_lines(doc, item["body"])
         if item["next_steps"]:

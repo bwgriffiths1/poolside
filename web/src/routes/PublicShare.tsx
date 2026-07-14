@@ -27,7 +27,12 @@ export function PublicShare() {
 
   const refs = useRef<Record<string, HTMLElement | null>>({});
   const sectionIds = data?.briefing
-    ? ["top", ...data.briefing.sections.map((s) => s.id), "sources"]
+    ? [
+        "top",
+        ...(data.briefing.executive_summary?.length ? ["exec"] : []),
+        ...data.briefing.sections.map((s) => s.id),
+        "sources",
+      ]
     : ["top"];
   const active = useScrollSpy(sectionIds, refs, "top");
 
@@ -116,13 +121,33 @@ export function PublicShare() {
           </section>
           )}
 
-          {b.sections.map((s) => (
+          {b.executive_summary && b.executive_summary.length > 0 && (
+            <section
+              ref={(el) => {
+                refs.current.exec = el;
+              }}
+              className="briefing-section briefing-exec"
+            >
+              <div className="b-eyebrow">Executive summary</div>
+              <div className="b-section-body b-exec-body">
+                {b.executive_summary.map((blk, i) => (
+                  <BlockRenderer key={i} block={blk} />
+                ))}
+              </div>
+            </section>
+          )}
+
+          {b.sections.map((s) => {
+            const depth = s.depth ?? 0;
+            return (
             <section
               key={s.id}
               ref={(el) => {
                 refs.current[s.id] = el;
               }}
-              className="briefing-section"
+              className={`briefing-section b-depth-${depth}${
+                depth === 0 ? " b-group" : ""
+              }`}
             >
               <div className="b-section-head">
                 <div className="b-section-num">{s.item_id}</div>
@@ -131,11 +156,13 @@ export function PublicShare() {
                   {s.vote && <div className="b-section-vote">{s.vote}</div>}
                 </div>
               </div>
-              <div className="b-section-body">
-                {s.body.map((blk, i) => (
-                  <BlockRenderer key={i} block={blk} />
-                ))}
-              </div>
+              {s.body.length > 0 && (
+                <div className="b-section-body">
+                  {s.body.map((blk, i) => (
+                    <BlockRenderer key={i} block={blk} />
+                  ))}
+                </div>
+              )}
               {s.next_steps && s.next_steps.length > 0 && (
                 <div className="b-next">
                   <div className="b-next-label">Next steps</div>
@@ -147,7 +174,8 @@ export function PublicShare() {
                 </div>
               )}
             </section>
-          ))}
+            );
+          })}
 
           <footer className="briefing-footer">
             <div className="muted text-sm">

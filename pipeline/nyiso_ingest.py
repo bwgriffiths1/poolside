@@ -176,6 +176,8 @@ def ingest_nyiso_meeting(
         item_id_map[item["item_id"]] = row["id"]
         logger.debug("  inserted agenda item %s: %s", item["item_id"], item["title"])
 
+    db.ensure_agenda_hierarchy(db_meeting_id)
+
     # -- 6. Map documents to agenda items ---------------------------------
     if parsed_items and doc_db_rows:
         file_mapping = map_files_to_agenda_items(files, parsed_items)

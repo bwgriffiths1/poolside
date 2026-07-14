@@ -398,6 +398,121 @@ def clear_agenda_for_meeting(meeting_id: int, preserve_human_work: bool = True) 
             """, (meeting_id, keep_ids))
 
 
+def ensure_agenda_hierarchy(meeting_id: int) -> int:
+    """Normalize a meeting's agenda tree. Idempotent; safe to run after any
+    ingest/parse pass or on read.
+
+    Guarantees, for every dotted item_id ("3.a", "2.b", "1.A.i"):
+      1. A parent row exists ("3", "2", "1.A") — created as a "(no title)"
+         stub if the agenda never listed it explicitly.
+      2. The child's parent_id points at that row, and depth matches the
+         item_id's dot count.
+      3. seq ordering puts each parent immediately before its first child.
+         (Re-parses can append a late-discovered parent at the end of the
+         agenda — e.g. "3" landing after 3.a–3.q — which broke display
+         order and rollup grouping.)
+
+    Returns the number of parent stubs created.
+    """
+    items = get_agenda_items(meeting_id)  # ordered by seq
+    if not items:
+        return 0
+
+    def _first_by_iid(rows: list[dict]) -> dict[str, dict]:
+        out: dict[str, dict] = {}
+        for r in rows:
+            iid = r.get("item_id")
+            if iid and iid not in out:
+                out[iid] = r
+        return out
+
+    by_iid = _first_by_iid(items)
+
+    # 1. Create missing parents (all ancestor levels), as stubs at the end —
+    #    the renumbering below moves them into position.
+    created = 0
+    for r in list(items):
+        iid = r.get("item_id") or ""
+        while "." in iid:
+            iid = iid.rsplit(".", 1)[0]
+            if iid and iid not in by_iid:
+                row = insert_agenda_item(
+                    meeting_id=meeting_id,
+                    title="(no title)",
+                    seq=len(items) + created,
+                    depth=iid.count("."),
+                    item_id=iid,
+                    prefix=f"a{iid.zfill(2)}_" if iid.isdigit() else None,
+                    auto_sub=False,
+                )
+                by_iid[iid] = row
+                created += 1
+
+    if created:
+        items = get_agenda_items(meeting_id)
+        by_iid = _first_by_iid(items)
+
+    # 2. Fix parent_id links and depth.
+    with _conn() as conn:
+        with _cursor(conn) as cur:
+            for r in items:
+                iid = r.get("item_id") or ""
+                want_depth = iid.count(".")
+                want_parent = (
+                    by_iid[iid.rsplit(".", 1)[0]]["id"]
+                    if "." in iid and iid.rsplit(".", 1)[0] in by_iid
+                    else None
+                )
+                # Don't null out a hand-set parent when the item_id has no dots.
+                if "." in iid and (r.get("parent_id") != want_parent or r.get("depth") != want_depth):
+                    cur.execute(
+                        "UPDATE agenda_items SET parent_id = %s, depth = %s WHERE id = %s",
+                        (want_parent, want_depth, r["id"]),
+                    )
+                    r["parent_id"], r["depth"] = want_parent, want_depth
+
+    # 3. Renumber: depth-first walk where every subtree is positioned at the
+    #    earliest seq found within it, so a late-appended parent adopts its
+    #    first child's slot. Children keep their relative order.
+    children: dict[int | None, list[dict]] = {}
+    for r in items:
+        pid = r.get("parent_id")
+        if pid is not None and not any(x["id"] == pid for x in items):
+            pid = None  # parent row belongs to another meeting/gone — treat as root
+        children.setdefault(pid, []).append(r)
+
+    subtree_min: dict[int, int] = {}
+
+    def _min_seq(r: dict) -> int:
+        rid = r["id"]
+        if rid not in subtree_min:
+            m = r["seq"]
+            for c in children.get(rid, []):
+                m = min(m, _min_seq(c))
+            subtree_min[rid] = m
+        return subtree_min[rid]
+
+    ordered: list[dict] = []
+
+    def _walk(rows: list[dict]) -> None:
+        for r in sorted(rows, key=lambda x: (_min_seq(x), x["seq"], x["id"])):
+            ordered.append(r)
+            _walk(children.get(r["id"], []))
+
+    _walk(children.get(None, []))
+
+    with _conn() as conn:
+        with _cursor(conn) as cur:
+            for new_seq, r in enumerate(ordered):
+                if r["seq"] != new_seq:
+                    cur.execute(
+                        "UPDATE agenda_items SET seq = %s WHERE id = %s",
+                        (new_seq, r["id"]),
+                    )
+
+    return created
+
+
 def update_agenda_item(row_id: int, **fields) -> None:
     """Update editable metadata fields on an agenda item."""
     allowed = {"title", "item_id", "prefix", "presenter", "org", "vote_status", "wmpp_id", "time_slot", "notes"}

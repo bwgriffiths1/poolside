@@ -46,6 +46,7 @@ class DocumentRef(BaseModel):
     assigned: bool
     ceii: bool = False
     source_url: Optional[str] = None
+    manual: bool = False
 
 
 class AgendaItem(BaseModel):

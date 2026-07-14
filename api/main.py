@@ -36,6 +36,7 @@ from .routes import (
     config as config_route,
     documents,
     editor_images,
+    item_materials,
     images,
     ingest,
     initiatives,
@@ -147,6 +148,7 @@ app.include_router(meetings.router, dependencies=_AUTH)
 app.include_router(briefings.router, dependencies=_AUTH)
 app.include_router(documents.router, dependencies=_AUTH)
 app.include_router(attachments.router, dependencies=_AUTH)
+app.include_router(item_materials.router, dependencies=_AUTH)
 app.include_router(agenda_items.router, dependencies=_AUTH)
 app.include_router(prompts.router, dependencies=_AUTH)
 app.include_router(prompts.config_router, dependencies=_AUTH)

@@ -123,6 +123,7 @@ def document_row(row: dict[str, Any]) -> schemas.DocumentRef:
         assigned=bool(row.get("agenda_item_id")),
         ceii=bool(row.get("is_ceii")),
         source_url=row.get("source_url"),
+        manual=bool(row.get("manual")),
     )
 
 

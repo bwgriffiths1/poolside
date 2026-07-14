@@ -677,6 +677,91 @@ def set_document_raw_content(document_id: int, raw_content: str) -> None:
             )
 
 
+def get_document(document_id: int) -> dict | None:
+    """Fetch a single document row (no bytes), or None."""
+    with _conn() as conn:
+        with _cursor(conn) as cur:
+            cur.execute("SELECT * FROM documents WHERE id = %s", (document_id,))
+            row = cur.fetchone()
+            return dict(row) if row else None
+
+
+def _unique_filename(cur, meeting_id: int, filename: str) -> str:
+    """Return `filename`, or `name (2).ext` etc, so a manual add never
+    collides with (and clobbers) an existing document for the meeting."""
+    cur.execute(
+        "SELECT filename FROM documents WHERE meeting_id = %s", (meeting_id,)
+    )
+    existing = {r["filename"] for r in cur.fetchall()}
+    if filename not in existing:
+        return filename
+    stem, dot, ext = filename.rpartition(".")
+    base, suffix = (stem, f".{ext}") if dot else (filename, "")
+    n = 2
+    while f"{base} ({n}){suffix}" in existing:
+        n += 1
+    return f"{base} ({n}){suffix}"
+
+
+def add_manual_document(
+    meeting_id: int,
+    filename: str,
+    file_type: str | None = None,
+    source_url: str | None = None,
+    raw_content: str | None = None,
+) -> dict:
+    """Insert a user-added document (flagged manual). Unlike upsert_document
+    this never overwrites an existing row — the filename is de-duplicated
+    first — so manually-attached memos are independent of scraped materials.
+    """
+    with _conn() as conn:
+        with _cursor(conn) as cur:
+            safe_name = _unique_filename(cur, meeting_id, filename)
+            cur.execute("""
+                INSERT INTO documents
+                    (meeting_id, filename, file_type, source_url,
+                     raw_content, manual)
+                VALUES (%s, %s, %s, %s, %s, true)
+                RETURNING *
+            """, (meeting_id, safe_name, file_type, source_url, raw_content))
+            return dict(cur.fetchone())
+
+
+def store_document_file(document_id: int, mime_type: str, data: bytes) -> None:
+    """Persist the raw bytes of an uploaded manual document (side table)."""
+    with _conn() as conn:
+        with _cursor(conn) as cur:
+            cur.execute("""
+                INSERT INTO document_files (document_id, mime_type, size_bytes, data)
+                VALUES (%s, %s, %s, %s)
+                ON CONFLICT (document_id)
+                DO UPDATE SET mime_type  = EXCLUDED.mime_type,
+                              size_bytes = EXCLUDED.size_bytes,
+                              data       = EXCLUDED.data
+            """, (document_id, mime_type, len(data), psycopg2.Binary(data)))
+
+
+def get_document_file(document_id: int) -> dict | None:
+    """Fetch stored bytes for an uploaded document, or None."""
+    with _conn() as conn:
+        with _cursor(conn) as cur:
+            cur.execute(
+                "SELECT mime_type, size_bytes, data FROM document_files WHERE document_id = %s",
+                (document_id,),
+            )
+            row = cur.fetchone()
+            return dict(row) if row else None
+
+
+def delete_document(document_id: int) -> bool:
+    """Delete a document and everything hanging off it (item_documents,
+    document_images, document_files all cascade). Returns True if removed."""
+    with _conn() as conn:
+        with _cursor(conn) as cur:
+            cur.execute("DELETE FROM documents WHERE id = %s", (document_id,))
+            return cur.rowcount > 0
+
+
 # ---------------------------------------------------------------------------
 # Document images
 # ---------------------------------------------------------------------------

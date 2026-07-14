@@ -6,6 +6,7 @@ both of which are reachable by URL from the command palette.
 """
 from __future__ import annotations
 
+import html
 from datetime import date
 from typing import Any
 
@@ -128,7 +129,11 @@ def search_summaries(
                 'english',
                 COALESCE(cv.detailed, cv.one_line, ''),
                 websearch_to_tsquery('english', %(q)s),
-                'MaxFragments=1, MaxWords=22, MinWords=10, ShortWord=2'
+                -- Highlight with inert markers, NOT <b> tags: the source text
+                -- is scraped/user-edited markdown, and the frontend renders
+                -- this snippet as HTML. We escape it in Python below and only
+                -- then turn the markers into real <b> tags.
+                'StartSel=@@HLS@@, StopSel=@@HLE@@, MaxFragments=1, MaxWords=22, MinWords=10, ShortWord=2'
             ) AS snippet,
             m.id              AS meeting_id,
             m.title           AS meeting_title,
@@ -160,10 +165,15 @@ def search_summaries(
             cur.execute(sql, params)
             rows = [dict(r) for r in cur.fetchall()]
 
-    # Normalize dates to ISO strings.
+    # Normalize dates to ISO strings, and make snippets safe to render as
+    # HTML: escape everything, then convert the highlight markers to <b>.
+    # The frontend uses dangerouslySetInnerHTML on this field — without the
+    # escape, scraped/user-edited summary text is a stored-XSS vector.
     for r in rows:
         d = r.get("meeting_date")
         if d is not None and hasattr(d, "isoformat"):
             r["meeting_date"] = d.isoformat()
+        snippet = html.escape(r.get("snippet") or "", quote=False)
+        r["snippet"] = snippet.replace("@@HLS@@", "<b>").replace("@@HLE@@", "</b>")
 
     return rows

@@ -9,6 +9,7 @@ the Vite + React frontend in /web.
 from __future__ import annotations
 
 import logging
+import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -61,15 +62,27 @@ async def lifespan(app: FastAPI):
     # wrapped in try/except so a misconfigured deploy fails its healthcheck.
     require_secret()
 
-    # Schema migrations on startup — idempotent.
+    # Schema bootstrap + migrations on startup. Deliberately NOT caught:
+    # serving against a broken/missing schema is worse than failing the
+    # healthcheck and keeping the previous deployment live.
+    ran = run_migrations()
+    if ran:
+        log.info("migrations ran: %s", ", ".join(ran))
+    else:
+        log.info("no pending migrations")
+
+    # Seed the admin user on fresh databases (idempotent; used to live in
+    # the retired Streamlit start.sh).
     try:
-        ran = run_migrations()
-        if ran:
-            log.info("migrations ran: %s", ", ".join(ran))
-        else:
-            log.info("no pending migrations")
+        admin_email = os.environ.get("ADMIN_EMAIL")
+        admin_password = os.environ.get("ADMIN_PASSWORD")
+        if admin_email and admin_password:
+            from pipeline.auth import create_user, get_user_by_email
+            if get_user_by_email(admin_email) is None:
+                create_user(email=admin_email, name="Admin", password=admin_password)
+                log.info("seeded admin user %s", admin_email)
     except Exception as e:
-        log.exception("migration failure: %s", e)
+        log.warning("admin seed failed: %s", e)
 
     # Reap any summarize jobs that were running when the previous process
     # died (we have no way to resume them, so mark them failed).

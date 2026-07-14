@@ -150,8 +150,18 @@ def ingest_nyiso_meeting(
         logger.warning("  No agenda PDF found in file list")
 
     # -- 5. Insert agenda items (flat, depth=0) ---------------------------
+    # Items kept by clear_agenda_for_meeting (approved/manual summaries)
+    # must not be re-inserted; reuse their row ids.
     item_id_map: dict[str, int] = {}  # item_id_str -> DB row id
+    _existing = {
+        r["item_id"]: r["id"]
+        for r in db.get_agenda_items(db_meeting_id)
+        if r.get("item_id")
+    }
     for seq, item in enumerate(parsed_items):
+        if item["item_id"] in _existing:
+            item_id_map[item["item_id"]] = _existing[item["item_id"]]
+            continue
         row = db.insert_agenda_item(
             meeting_id=db_meeting_id,
             title=item["title"],

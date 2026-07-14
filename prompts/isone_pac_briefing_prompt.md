@@ -35,6 +35,15 @@ Produce the briefing in this exact structure:
 
 ---
 
+## Key Takeaways
+
+Exactly 3-5 bullets. Each bullet is ONE sentence of at most 25 words stating
+a conclusion or market consequence — not background, not process narration.
+A reader should grasp the meeting's significance from these bullets alone.
+Do not repeat these bullets verbatim elsewhere in the briefing.
+
+---
+
 ## Executive Summary
 
 This section is the most important part of the briefing. It should be

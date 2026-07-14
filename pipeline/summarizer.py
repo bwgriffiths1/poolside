@@ -673,9 +673,32 @@ def capture_usage() -> Iterator[list[dict]]:
         _usage_local.log = None
 
 
+def _first_text(msg) -> str:
+    """Text of the first text block. `msg.content[0]` is NOT reliable — on
+    adaptive-thinking models the first block can be a thinking block, which
+    used to crash the old `content[0].text` access."""
+    return next((b.text for b in msg.content if getattr(b, "type", "") == "text"), "")
+
+
+def _model_output_cap(model: str) -> int:
+    """Max output tokens the model accepts — a truncation retry must not
+    exceed this or the retry itself 400s (Haiku caps at 64K)."""
+    return 64000 if "haiku" in model else 128000
+
+
+def _is_retryable(exc: Exception) -> bool:
+    """Typed retry classification: rate limits, 5xx/overloaded, and network
+    errors are retryable; other API errors (400s etc.) are not."""
+    import anthropic
+    if isinstance(exc, (anthropic.RateLimitError, anthropic.APIConnectionError)):
+        return True
+    return isinstance(exc, anthropic.APIStatusError) and exc.status_code >= 500
+
+
 def _call_llm(client, model: str, prompt: str, max_tokens: int = 4096,
               max_retries: int = 3, label: str = "") -> str:
-    """Streaming LLM call with retry on rate-limit and truncation handling."""
+    """Streaming LLM call with typed retry on rate-limit/5xx/network errors
+    and truncation handling."""
     import time as _time
     current_max = max_tokens
     for attempt in range(max_retries):
@@ -687,10 +710,10 @@ def _call_llm(client, model: str, prompt: str, max_tokens: int = 4096,
             ) as stream:
                 msg = stream.get_final_message()
             _record_usage(model, msg)
-            text = _clean_output(msg.content[0].text.strip())
+            text = _clean_output(_first_text(msg).strip())
             if msg.stop_reason == "max_tokens":
-                retry_max = min(current_max * 2, 65536)
-                if retry_max > current_max:
+                retry_max = min(current_max * 2, _model_output_cap(model))
+                if retry_max > current_max and attempt < max_retries - 1:
                     logger.warning(
                         "Output truncated at %d tokens%s — retrying with %d",
                         current_max, f" ({label})" if label else "", retry_max,
@@ -703,13 +726,20 @@ def _call_llm(client, model: str, prompt: str, max_tokens: int = 4096,
                 )
             return text
         except Exception as exc:
-            if "rate_limit" in str(exc).lower() and attempt < max_retries - 1:
+            if _is_retryable(exc) and attempt < max_retries - 1:
                 wait = 30 * (attempt + 1)
-                logger.warning("Rate limited (attempt %d/%d), waiting %ds...",
-                               attempt + 1, max_retries, wait)
+                logger.warning("Retryable API error (%s, attempt %d/%d), waiting %ds...",
+                               type(exc).__name__, attempt + 1, max_retries, wait)
                 _time.sleep(wait)
             else:
                 raise
+    # Unreachable in normal flow (every path above returns, raises, or
+    # continues with attempts remaining) — but never fall through to an
+    # implicit None: callers store the return value as the summary body.
+    raise RuntimeError(
+        f"LLM call produced no result after {max_retries} attempts"
+        + (f" ({label})" if label else "")
+    )
 
 
 def _call_llm_multimodal(
@@ -773,25 +803,33 @@ def _call_llm_multimodal(
             ) as stream:
                 msg = stream.get_final_message()
             _record_usage(model, msg)
-            text = _clean_output(msg.content[0].text.strip())
+            text = _clean_output(_first_text(msg).strip())
             if msg.stop_reason == "max_tokens":
-                retry_max = min(current_max * 2, 65536)
-                if retry_max > current_max:
+                retry_max = min(current_max * 2, _model_output_cap(model))
+                if retry_max > current_max and attempt < max_retries - 1:
                     logger.warning(
                         "Output truncated at %d tokens%s — retrying with %d",
                         current_max, f" ({label})" if label else "", retry_max,
                     )
                     current_max = retry_max
                     continue
+                logger.warning(
+                    "Output still truncated at %d tokens%s — returning partial result",
+                    current_max, f" ({label})" if label else "",
+                )
             return text
         except Exception as exc:
-            if "rate_limit" in str(exc).lower() and attempt < max_retries - 1:
+            if _is_retryable(exc) and attempt < max_retries - 1:
                 wait = 30 * (attempt + 1)
-                logger.warning("Rate limited (attempt %d/%d), waiting %ds...",
-                               attempt + 1, max_retries, wait)
+                logger.warning("Retryable API error (%s, attempt %d/%d), waiting %ds...",
+                               type(exc).__name__, attempt + 1, max_retries, wait)
                 _time.sleep(wait)
             else:
                 raise
+    raise RuntimeError(
+        f"LLM call produced no result after {max_retries} attempts"
+        + (f" ({label})" if label else "")
+    )
 
 
 # ---------------------------------------------------------------------------

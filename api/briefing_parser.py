@@ -70,11 +70,13 @@ def parse_briefing_markdown(md: str, meta: dict[str, Any]) -> schemas.Briefing:
     n = len(lines)
 
     tldr: list[str] = []
+    takeaways: list[str] = []  # from a dedicated "## Key Takeaways" section
     sections: list[schemas.BriefingSection] = []
     cur_section: dict[str, Any] | None = None
     cur_body: list[dict[str, Any]] = []
     cur_next: list[str] | None = None
     in_executive = False
+    in_takeaways = False
     in_agenda = False
 
     def flush_section() -> None:
@@ -120,6 +122,7 @@ def parse_briefing_markdown(md: str, meta: dict[str, Any]) -> schemas.Briefing:
 
         if line.startswith("## "):
             heading = line[3:].strip().lower()
+            in_takeaways = "takeaway" in heading
             in_executive = "summary" in heading or "highlights" in heading
             in_agenda = "agenda" in heading
             if cur_section is not None:
@@ -127,10 +130,23 @@ def parse_briefing_markdown(md: str, meta: dict[str, Any]) -> schemas.Briefing:
             i += 1
             continue
 
+        # Dedicated "## Key Takeaways" section (prompts emit this as of
+        # 2026-07): each bullet is one takeaway. Preferred over the
+        # executive-summary scrape below, which stays as the fallback for
+        # briefings stored before the prompt change.
+        if in_takeaways:
+            if line.startswith("- ") or line.startswith("* "):
+                takeaways.append(line[2:].strip())
+            i += 1
+            continue
+
         if in_executive:
-            # Collect bullets/sentences into tldr.
+            # Collect bullets/sentences into tldr (fallback path — see above).
             if line.startswith("- ") or line.startswith("* "):
                 tldr.append(line[2:].strip())
+            elif line.startswith("**") and line.rstrip().endswith("**"):
+                # Sub-headers like **Key Developments** — not takeaway content.
+                pass
             elif line and not line.startswith("#") and not line.startswith("---"):
                 # Treat each sentence-ish line as a bullet if no bullets present.
                 if not tldr:
@@ -262,7 +278,7 @@ def parse_briefing_markdown(md: str, meta: dict[str, Any]) -> schemas.Briefing:
         model=meta.get("model", ""),
         word_count=meta.get("word_count", _word_count(md)),
         reading_time=meta.get("reading_time", max(1, _word_count(md) // 250)),
-        tldr=tldr[:5],
+        tldr=(takeaways or tldr)[:5],
         sections=sections,
     )
 

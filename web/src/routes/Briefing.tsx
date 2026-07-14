@@ -321,6 +321,7 @@ export function Briefing() {
             </section>
           )}
 
+          {briefing.tldr.length > 0 && (
           <section className="briefing-tldr">
             <div className="b-eyebrow">Key takeaways</div>
             <ol>
@@ -334,6 +335,7 @@ export function Briefing() {
               ))}
             </ol>
           </section>
+          )}
 
           {briefing.sections.map((s) => (
             <section

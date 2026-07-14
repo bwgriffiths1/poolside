@@ -100,6 +100,7 @@ export function PublicShare() {
             </div>
           </header>
 
+          {b.tldr.length > 0 && (
           <section className="briefing-tldr">
             <div className="b-eyebrow">Key takeaways</div>
             <ol>
@@ -113,6 +114,7 @@ export function PublicShare() {
               ))}
             </ol>
           </section>
+          )}
 
           {b.sections.map((s) => (
             <section

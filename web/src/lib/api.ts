@@ -5,6 +5,7 @@
 // "not found" / "no briefing" empty state — no fictional data ever leaks in.
 
 import type {
+  Attachment,
   Briefing,
   CurrentUser,
   IngestJob,
@@ -619,7 +620,83 @@ export const api = {
     a.remove();
     URL.revokeObjectURL(url);
   },
+
+  // -- Meeting attachments (Files portal) ----------------------------------
+
+  listAttachments: (meeting_id: number): Promise<{ attachments: Attachment[] }> =>
+    get(`/meetings/${meeting_id}/attachments`, () => ({ attachments: [] })),
+
+  uploadAttachment: async (
+    meeting_id: number,
+    file: File,
+    note?: string,
+  ): Promise<Attachment> => {
+    const data_b64 = await fileToBase64(file);
+    const res = await fetch(`${BASE}/meetings/${meeting_id}/attachments`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        filename: file.name,
+        mime_type: file.type || "application/octet-stream",
+        data_b64,
+        note: note || undefined,
+      }),
+    });
+    if (!res.ok) {
+      let detail = `${res.status} ${res.statusText}`;
+      try {
+        const j = await res.json();
+        if (j?.detail) detail = j.detail;
+      } catch {
+        /* ignore */
+      }
+      throw new Error(detail);
+    }
+    return res.json();
+  },
+
+  deleteAttachment: async (attachment_id: number): Promise<void> => {
+    const res = await fetch(`${BASE}/attachments/${attachment_id}`, {
+      method: "DELETE",
+      credentials: "include",
+    });
+    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+  },
+
+  downloadAttachment: async (att: {
+    id: number;
+    filename: string;
+  }): Promise<void> => {
+    const res = await fetch(`${BASE}/attachments/${att.id}/download`, {
+      credentials: "include",
+    });
+    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = att.filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  },
 };
+
+/** Read a File as a bare base64 string (strips the data: URL prefix). */
+function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result as string;
+      const comma = result.indexOf(",");
+      resolve(comma >= 0 ? result.slice(comma + 1) : result);
+    };
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+}
 
 export interface SummaryPayload {
   entity_type: "meeting" | "agenda_item";

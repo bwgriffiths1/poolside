@@ -1233,3 +1233,80 @@ def delete_deep_dive_report(report_id: int) -> None:
         with _cursor(conn) as cur:
             cur.execute("DELETE FROM deep_dive_reports WHERE id = %s",
                         (report_id,))
+
+
+# ---------------------------------------------------------------------------
+# Meeting attachments  — user-uploaded files (Files portal)
+# ---------------------------------------------------------------------------
+
+def _attachment_meta(row: dict) -> dict:
+    """Metadata-only projection (never carries the `data` blob)."""
+    return {
+        "id": row["id"],
+        "meeting_id": row["meeting_id"],
+        "filename": row["filename"],
+        "mime_type": row["mime_type"],
+        "size_bytes": row["size_bytes"],
+        "note": row.get("note"),
+        "uploaded_by": row.get("uploaded_by"),
+        "created_at": row["created_at"].isoformat() if row.get("created_at") else None,
+    }
+
+
+def create_meeting_attachment(
+    meeting_id: int,
+    filename: str,
+    mime_type: str,
+    data: bytes,
+    note: str | None = None,
+    uploaded_by: str | None = None,
+) -> dict:
+    """Store an uploaded file for a meeting. Returns metadata (no blob)."""
+    with _conn() as conn:
+        with _cursor(conn) as cur:
+            cur.execute("""
+                INSERT INTO meeting_attachments
+                    (meeting_id, filename, mime_type, size_bytes, note, data, uploaded_by)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                RETURNING id, meeting_id, filename, mime_type, size_bytes,
+                          note, uploaded_by, created_at
+            """, (meeting_id, filename, mime_type, len(data), note,
+                  psycopg2.Binary(data), uploaded_by))
+            return _attachment_meta(dict(cur.fetchone()))
+
+
+def get_meeting_attachments(meeting_id: int) -> list[dict]:
+    """List attachment metadata for a meeting (newest first, no blobs)."""
+    with _conn() as conn:
+        with _cursor(conn) as cur:
+            cur.execute("""
+                SELECT id, meeting_id, filename, mime_type, size_bytes,
+                       note, uploaded_by, created_at
+                FROM meeting_attachments
+                WHERE meeting_id = %s
+                ORDER BY created_at DESC, id DESC
+            """, (meeting_id,))
+            return [_attachment_meta(dict(r)) for r in cur.fetchall()]
+
+
+def get_meeting_attachment(attachment_id: int) -> dict | None:
+    """Fetch one attachment INCLUDING its `data` blob, or None."""
+    with _conn() as conn:
+        with _cursor(conn) as cur:
+            cur.execute("""
+                SELECT id, meeting_id, filename, mime_type, size_bytes,
+                       note, uploaded_by, created_at, data
+                FROM meeting_attachments
+                WHERE id = %s
+            """, (attachment_id,))
+            row = cur.fetchone()
+            return dict(row) if row else None
+
+
+def delete_meeting_attachment(attachment_id: int) -> bool:
+    """Delete an attachment. Returns True if a row was removed."""
+    with _conn() as conn:
+        with _cursor(conn) as cur:
+            cur.execute("DELETE FROM meeting_attachments WHERE id = %s",
+                        (attachment_id,))
+            return cur.rowcount > 0

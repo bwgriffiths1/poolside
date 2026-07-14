@@ -32,6 +32,8 @@ import {
   Link2,
   Copy,
   Trash2,
+  Paperclip,
+  Upload,
 } from "lucide-react";
 
 const REGISTRY = {
@@ -68,6 +70,8 @@ const REGISTRY = {
   link: Link2,
   copy: Copy,
   trash: Trash2,
+  paperclip: Paperclip,
+  upload: Upload,
 } as const;
 
 export type IconName = keyof typeof REGISTRY;

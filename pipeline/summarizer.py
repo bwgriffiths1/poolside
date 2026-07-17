@@ -1122,6 +1122,17 @@ def extract_and_store_images(
     return _extract_and_store_images(doc, meeting_folder=meeting_folder, min_px=min_px)
 
 
+def call_llm(
+    client, model: str, prompt: str,
+    max_tokens: int = 4096,
+    max_retries: int = 3,
+    label: str = "",
+) -> str:
+    """Public wrapper for _call_llm (text-only)."""
+    return _call_llm(client, model, prompt, max_tokens=max_tokens,
+                     max_retries=max_retries, label=label)
+
+
 def call_llm_multimodal(
     client, model: str, text_prompt: str,
     images: list[dict],

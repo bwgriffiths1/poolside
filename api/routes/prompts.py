@@ -91,6 +91,8 @@ def list_prompts() -> dict[str, Any]:
          "hint": "LLM fallback that assigns docs to agenda items"},
         {"label": "Deep dive", **meta("deep_dive_prompt"),
          "hint": "Cross-meeting analysis reports"},
+        {"label": "Monthly roundup", **meta("monthly_roundup_prompt"),
+         "hint": "Cross-committee monthly state of play"},
         {"label": "Keyword extraction", **meta("keyword_extraction_prompt"),
          "hint": "Tag generation"},
     ]
@@ -118,7 +120,7 @@ def list_prompts() -> dict[str, Any]:
     known_slugs = {
         "general_context_prompt", "doc_summary_prompt", "agenda_item_prompt",
         "agenda_parse_prompt", "doc_match_prompt", "deep_dive_prompt",
-        "keyword_extraction_prompt",
+        "keyword_extraction_prompt", "monthly_roundup_prompt",
     }
     for v in venues_out:
         for c in v["committees"]:

@@ -5,6 +5,8 @@ import { Meetings } from "./routes/Meetings";
 import { Meeting } from "./routes/Meeting";
 import { Briefings } from "./routes/Briefings";
 import { Briefing } from "./routes/Briefing";
+import { Roundups } from "./routes/Roundups";
+import { Roundup } from "./routes/Roundup";
 import { Add } from "./routes/Add";
 import { Editor } from "./routes/Editor";
 import { Prompts } from "./routes/Prompts";
@@ -30,6 +32,8 @@ export function App() {
           <Route path="/meeting/:id" element={<Meeting />} />
           <Route path="/briefings" element={<Briefings />} />
           <Route path="/briefing/:id" element={<Briefing />} />
+          <Route path="/roundups" element={<Roundups />} />
+          <Route path="/roundup/:id" element={<Roundup />} />
           <Route path="/initiatives" element={<Initiatives />} />
           <Route path="/initiatives/:code" element={<InitiativeDetail />} />
           <Route path="/search" element={<Search />} />

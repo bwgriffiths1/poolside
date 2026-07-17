@@ -194,3 +194,71 @@ def agenda_item_row(row: dict[str, Any], docs: list[schemas.DocumentRef],
         summary_is_manual=bool(s.get("is_manual")),
         initiative_codes=initiative_codes or [],
     )
+
+
+# ── Monthly roundups ────────────────────────────────────────────────────
+
+
+def _month_key(d: Any) -> str:
+    """DATE (first-of-month) → 'YYYY-MM'."""
+    return str(d)[:7]
+
+
+def _month_label(d: Any) -> str:
+    """DATE (first-of-month) → 'June 2026'."""
+    if isinstance(d, date):
+        return d.strftime("%B %Y")
+    try:
+        parsed = date.fromisoformat(str(d)[:10])
+        return parsed.strftime("%B %Y")
+    except ValueError:
+        return str(d)
+
+
+def roundup_source_row(row: dict[str, Any]) -> schemas.RoundupSource:
+    return schemas.RoundupSource(
+        meeting_id=row["id"],
+        type_short=row.get("type_short") or "",
+        type_name=row.get("type_name") or "",
+        meeting_date=_iso(row.get("meeting_date")) or "",
+        end_date=_iso(row.get("end_date")),
+        title=row.get("title") or "",
+    )
+
+
+def roundup_row(row: dict[str, Any],
+                sources: list[dict[str, Any]] | None = None,
+                include_report: bool = True) -> schemas.Roundup:
+    return schemas.Roundup(
+        id=row["id"],
+        venue=row.get("venue_short") or "",
+        month=_month_key(row["month"]),
+        month_label=_month_label(row["month"]),
+        status=row.get("status") or "draft",
+        model_id=row.get("model_id"),
+        report_md=(row.get("report_md") if include_report else None),
+        error_message=row.get("error_message"),
+        progress_text=row.get("progress_text"),
+        input_tokens=row.get("input_tokens"),
+        output_tokens=row.get("output_tokens"),
+        cost_usd=(float(row["cost_usd"]) if row.get("cost_usd") is not None else None),
+        created_by=row.get("created_by"),
+        created_at=_iso(row.get("created_at")) or "",
+        updated_at=_iso(row.get("updated_at")) or "",
+        sources=[roundup_source_row(s) for s in (sources or [])],
+    )
+
+
+def roundup_month_row(month_row: dict[str, Any] | None,
+                      roundup: dict[str, Any] | None) -> schemas.RoundupMonth:
+    """Merge a list_roundup_months row with its roundup row (either may be
+    None — a roundup can outlive its briefings, and most months have no
+    roundup yet)."""
+    month_val = (month_row or {}).get("month") or (roundup or {}).get("month")
+    return schemas.RoundupMonth(
+        month=_month_key(month_val),
+        month_label=_month_label(month_val),
+        briefing_count=int((month_row or {}).get("briefing_count") or 0),
+        committees=sorted((month_row or {}).get("committees") or []),
+        roundup=(roundup_row(roundup, include_report=False) if roundup else None),
+    )

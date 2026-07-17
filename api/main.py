@@ -46,6 +46,7 @@ from .routes import (
     meetings,
     notifications,
     prompts,
+    roundups,
     search,
     share,
     summaries,
@@ -146,6 +147,7 @@ _AUTH = [Depends(current_user)]
 app.include_router(me.router, dependencies=_AUTH)
 app.include_router(meetings.router, dependencies=_AUTH)
 app.include_router(briefings.router, dependencies=_AUTH)
+app.include_router(roundups.router, dependencies=_AUTH)
 app.include_router(documents.router, dependencies=_AUTH)
 app.include_router(attachments.router, dependencies=_AUTH)
 app.include_router(item_materials.router, dependencies=_AUTH)

@@ -124,3 +124,41 @@ export interface CurrentUser {
   email: string;
   initials: string;
 }
+
+export type RoundupStatus = "draft" | "generating" | "complete" | "error";
+
+export interface RoundupSource {
+  meeting_id: number;
+  type_short: string;
+  type_name: string;
+  meeting_date: string;
+  end_date?: string | null;
+  title: string;
+}
+
+export interface Roundup {
+  id: number;
+  venue: string;
+  month: string; // "YYYY-MM"
+  month_label: string; // "June 2026"
+  status: RoundupStatus;
+  model_id?: string | null;
+  report_md?: string | null;
+  error_message?: string | null;
+  progress_text?: string | null;
+  input_tokens?: number | null;
+  output_tokens?: number | null;
+  cost_usd?: number | null;
+  created_by?: string | null;
+  created_at: string;
+  updated_at: string;
+  sources: RoundupSource[];
+}
+
+export interface RoundupMonth {
+  month: string;
+  month_label: string;
+  briefing_count: number;
+  committees: string[];
+  roundup: Roundup | null;
+}

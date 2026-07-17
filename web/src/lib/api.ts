@@ -11,6 +11,8 @@ import type {
   IngestJob,
   MeetingDetail,
   MeetingListItem,
+  Roundup,
+  RoundupMonth,
 } from "../types";
 import { MEETINGS, RECENT_INGESTS } from "./fixtures";
 
@@ -732,6 +734,27 @@ export const api = {
     a.click();
     a.remove();
     URL.revokeObjectURL(url);
+  },
+
+  // -- Monthly roundups (cross-committee state of play) ---------------------
+
+  roundups: (venue = "ISO-NE") =>
+    get<RoundupMonth[]>(
+      `/roundups?venue=${encodeURIComponent(venue)}`,
+      () => [],
+    ),
+
+  roundup: (id: number) => get<Roundup>(`/roundups/${id}`),
+
+  generateRoundup: (venue: string, month: string): Promise<Roundup> =>
+    postJson(`/roundups/generate`, { venue, month }),
+
+  deleteRoundup: async (id: number): Promise<void> => {
+    const res = await fetch(`${BASE}/roundups/${id}`, {
+      method: "DELETE",
+      credentials: "include",
+    });
+    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
   },
 };
 

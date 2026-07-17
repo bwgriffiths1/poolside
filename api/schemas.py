@@ -128,6 +128,47 @@ class Briefing(BaseModel):
     sections: list[BriefingSection]
 
 
+RoundupStatus = Literal["draft", "generating", "complete", "error"]
+
+
+class RoundupSource(BaseModel):
+    meeting_id: int
+    type_short: str
+    type_name: str
+    meeting_date: str
+    end_date: Optional[str] = None
+    title: str = ""
+
+
+class Roundup(BaseModel):
+    id: int
+    venue: str
+    month: str          # "YYYY-MM"
+    month_label: str    # "June 2026"
+    status: RoundupStatus
+    model_id: Optional[str] = None
+    report_md: Optional[str] = None
+    error_message: Optional[str] = None
+    progress_text: Optional[str] = None
+    input_tokens: Optional[int] = None
+    output_tokens: Optional[int] = None
+    cost_usd: Optional[float] = None
+    created_by: Optional[str] = None
+    created_at: str
+    updated_at: str
+    sources: list[RoundupSource] = []
+
+
+class RoundupMonth(BaseModel):
+    """One month row on the Roundups page: what briefings exist, and the
+    roundup row (report body stripped) if one has been generated."""
+    month: str
+    month_label: str
+    briefing_count: int
+    committees: list[str]
+    roundup: Optional[Roundup] = None
+
+
 class IngestJob(BaseModel):
     id: str
     meeting_id: int

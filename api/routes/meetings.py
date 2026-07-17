@@ -252,6 +252,22 @@ class _JobCancelled(Exception):
     pass
 
 
+def _active_job_id(meeting_id: int) -> int | None:
+    """Most recent queued/running/cancelling job for this meeting, if any."""
+    with db._conn() as conn:
+        with db._cursor(conn) as cur:
+            cur.execute(
+                """SELECT id FROM summarize_jobs
+                    WHERE meeting_id = %s
+                      AND status IN ('queued', 'running', 'cancelling')
+                 ORDER BY started_at DESC
+                    LIMIT 1""",
+                (meeting_id,),
+            )
+            row = cur.fetchone()
+            return row["id"] if row else None
+
+
 def _job_status(job_id: int) -> str | None:
     with db._conn() as conn:
         with db._cursor(conn) as cur:
@@ -371,20 +387,12 @@ def start_summarize(
     if row is None:
         raise HTTPException(status_code=404, detail="Meeting not found")
 
-    # Refuse to stack jobs: if one is already in flight, return its id.
-    with db._conn() as conn:
-        with db._cursor(conn) as cur:
-            cur.execute(
-                """SELECT id FROM summarize_jobs
-                    WHERE meeting_id = %s
-                      AND status IN ('queued', 'running')
-                 ORDER BY started_at DESC
-                    LIMIT 1""",
-                (meeting_id,),
-            )
-            existing = cur.fetchone()
-    if existing:
-        return {"job_id": existing["id"], "already_running": True}
+    # Fast path: if a job is already in flight, skip the estimate work and
+    # return its id. The real admission guard is the atomic INSERT below —
+    # this check alone would be a check-then-insert race.
+    existing = _active_job_id(meeting_id)
+    if existing is not None:
+        return {"job_id": existing, "already_running": True}
 
     # Compute estimate; safe to fail silently — cost is best-effort.
     try:
@@ -399,6 +407,9 @@ def start_summarize(
 
     created_by = (user.get("email") if isinstance(user, dict) else None) or "unknown"
 
+    # Atomic claim against uq_summarize_jobs_one_active (migration 010):
+    # if another request won the race, no row is inserted and we report the
+    # winner's job instead of starting a second thread.
     with db._conn() as conn:
         with db._cursor(conn) as cur:
             cur.execute(
@@ -406,6 +417,9 @@ def start_summarize(
                        (meeting_id, status, estimated_input_tokens,
                         estimated_output_tokens, estimated_cost_usd, created_by)
                    VALUES (%s, 'queued', %s, %s, %s, %s)
+                   ON CONFLICT (meeting_id)
+                       WHERE status IN ('queued', 'running', 'cancelling')
+                       DO NOTHING
                 RETURNING id""",
                 (
                     meeting_id,
@@ -415,7 +429,11 @@ def start_summarize(
                     created_by,
                 ),
             )
-            job_id = cur.fetchone()["id"]
+            row_claimed = cur.fetchone()
+    if row_claimed is None:
+        existing = _active_job_id(meeting_id)
+        return {"job_id": existing, "already_running": True}
+    job_id = row_claimed["id"]
 
     venue_short = row.get("venue_short") or "ISO-NE"
     committee_short = row.get("type_short") or "MC"

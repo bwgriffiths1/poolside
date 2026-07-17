@@ -87,7 +87,9 @@ async def lifespan(app: FastAPI):
         log.warning("admin seed failed: %s", e)
 
     # Reap any summarize jobs that were running when the previous process
-    # died (we have no way to resume them, so mark them failed).
+    # died (we have no way to resume them, so mark them failed). 'cancelling'
+    # is included: its thread is just as dead, and leaving it would pin the
+    # meeting's "active job" (and its unique-active slot) forever.
     try:
         from pipeline import db_new as _db
         with _db._conn() as _conn:
@@ -97,7 +99,7 @@ async def lifespan(app: FastAPI):
                           SET status = 'failed',
                               error = COALESCE(error, 'server restarted mid-run'),
                               finished_at = NOW()
-                        WHERE status IN ('queued', 'running')"""
+                        WHERE status IN ('queued', 'running', 'cancelling')"""
                 )
                 if _cur.rowcount:
                     log.info("reaped %d stale summarize_jobs row(s)", _cur.rowcount)

@@ -39,22 +39,33 @@ def list_meetings(
     rows = db.list_meetings_overview(
         venue_short=venue, past_days=past_days, future_days=future_days
     )
-    out: list[schemas.MeetingListItem] = []
-    for row in rows:
-        # tags: pull from tag_links via meeting
+    # One batched tags query instead of two extra queries per meeting —
+    # this endpoint used to make ~2N pool checkouts per dashboard load.
+    # item_count comes from list_meetings_overview's SQL (meeting_list_row
+    # falls back to row["item_count"] when item_count isn't passed).
+    tags_by_meeting: dict[int, list[str]] = {}
+    ids = [row["id"] for row in rows]
+    if ids:
         try:
-            tag_rows = db.get_tags_for_entity("meeting", row["id"])
-            tags = [t["name"] for t in tag_rows]
+            with db._conn() as conn:
+                with db._cursor(conn) as cur:
+                    cur.execute(
+                        """SELECT et.entity_id, t.name
+                             FROM tags t
+                             JOIN entity_tags et ON et.tag_id = t.id
+                            WHERE et.entity_type = 'meeting'
+                              AND et.entity_id = ANY(%s)
+                         ORDER BY t.tag_type, t.name""",
+                        (ids,),
+                    )
+                    for r in cur.fetchall():
+                        tags_by_meeting.setdefault(r["entity_id"], []).append(r["name"])
         except Exception:
-            tags = []
-        # item_count: rough count of agenda rows
-        try:
-            agenda_rows = db.get_agenda_items(row["id"])
-            item_count = len(agenda_rows)
-        except Exception:
-            item_count = 0
-        out.append(adapters.meeting_list_row(row, tags=tags, item_count=item_count))
-    return out
+            log.exception("batch tag fetch failed — returning meetings untagged")
+    return [
+        adapters.meeting_list_row(row, tags=tags_by_meeting.get(row["id"], []))
+        for row in rows
+    ]
 
 
 @router.get("/{meeting_id}", response_model=schemas.MeetingDetail)

@@ -574,7 +574,8 @@ def _split_item_heading(h: str) -> tuple[str, str]:
 def _v2_parse_briefing_md(text: str) -> dict:
     """Parse Claude's briefing markdown into structured data for the v2 renderer."""
     lines = text.splitlines()
-    data = {"title": "", "subtitle": "", "date": "", "exec_summary": [], "items": []}
+    data = {"title": "", "subtitle": "", "date": "", "takeaways": [],
+            "exec_summary": [], "items": []}
     i = 0
 
     # H1 (optional — Claude's briefing prompt does not require one)
@@ -617,7 +618,9 @@ def _v2_parse_briefing_md(text: str) -> dict:
         if s.startswith("## "):
             h = s[3:].strip()
             hl = h.lower()
-            if "executive summary" in hl: mode = "exec"; i += 1; continue
+            # Same trigger as api/briefing_parser.py: any "takeaway" heading.
+            if "takeaway" in hl: mode = "takeaways"; i += 1; continue
+            elif "executive summary" in hl: mode = "exec"; i += 1; continue
             elif "agenda item" in hl:
                 mode = "items"
                 if cur: data["items"].append(cur); cur = None
@@ -641,7 +644,12 @@ def _v2_parse_briefing_md(text: str) -> dict:
             cur = {"number": n, "title": t, "depth": 1, "body": [], "next_steps": []}
             mode = "items"; i += 1; continue
         if not s or s == "---": i += 1; continue
-        if mode == "exec":
+        if mode == "takeaways":
+            # One bullet per ranked takeaway; non-bullet lines are ignored,
+            # matching parse_briefing_markdown.
+            if s.startswith("- ") or s.startswith("* "):
+                data["takeaways"].append(s[2:].strip())
+        elif mode == "exec":
             exec_lines.append(s)
         elif mode == "items" and cur is not None:
             ns = re.match(r"^\*\*Next Steps[:\s]*\*\*\s*(.*)", s, re.IGNORECASE)
@@ -872,6 +880,15 @@ def generate_docx_bytes(
     _v2_run(p, data["date"], size=Pt(12), color=_GRAY_TEXT)
     p = doc.add_paragraph(); _v2_spacing(p, before=Pt(0), after=Pt(0))
     _v2_pborder(p, "bottom", 4, _GRAY_MID_HEX)
+
+    if data["takeaways"]:
+        p = doc.add_paragraph(); _v2_spacing(p, before=Pt(22), after=Pt(11))
+        _v2_run(p, "KEY TAKEAWAYS", size=Pt(10), bold=True, color=_CHARCOAL)
+        _v2_pborder(p, "bottom", 8, _CYAN_HEX, space=4)
+        for rank, tk in enumerate(data["takeaways"], 1):
+            p = doc.add_paragraph(); _v2_spacing(p, before=Pt(0), after=Pt(6))
+            _v2_run(p, f"{rank}.  ", size=Pt(10.5), bold=True, color=_CYAN)
+            _v2_bold_runs(p, tk, size=Pt(10.5), color=_CHARCOAL)
 
     p = doc.add_paragraph(); _v2_spacing(p, before=Pt(22), after=Pt(11))
     _v2_run(p, "EXECUTIVE SUMMARY", size=Pt(10), bold=True, color=_CHARCOAL)

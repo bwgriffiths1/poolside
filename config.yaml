@@ -60,25 +60,8 @@ summarization:
   # calls run at once. 1 = sequential; clamped to 1..8 in code. Level 3
   # (the briefing) is always a single call.
   parallel_workers: 3
-  models:
-    document: claude-sonnet-4-6
-    rollup: claude-haiku-4-5
-    briefing: claude-opus-4-5
-  max_input_chars: 180000
-  chunk_chars: 60000
-  max_response_tokens: 4096
-  skip_extensions:
-  - .ics
-  - .zip
-  - .xlsx
-  - .csv
-  - .txt
-  skip_filename_patterns:
-  - _actions_letter
-  - _meeting_minutes
-  - _motions_letter
-  - _minutes_
-  - _minutes.
+  # Models + token budgets live in prompts/model_config.json (editable in
+  # the UI, stored as a DB override — see pipeline/appconfig.py).
   images:
     enabled: true
     min_size_px: 200
@@ -86,6 +69,3 @@ summarization:
     extract_from:
     - .pdf
     - .pptx
-  doc_prompt_path: prompts/doc_summary_prompt.md
-  agenda_item_prompt_path: prompts/agenda_item_prompt.md
-  briefing_prompt_path: prompts/isone_mc_briefing_prompt.md

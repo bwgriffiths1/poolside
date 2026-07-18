@@ -1,23 +1,20 @@
-"""Config routes — read/write the ISO-NE bits of config.yaml.
+"""Config routes — the ISO-NE bits of the runtime config.
 
-Keys outside the managed set (summarization etc.) are preserved on PUT.
+Reads return the merged view (repo config.yaml defaults + app_config DB
+overrides, see pipeline/appconfig.py). Writes touch ONLY the two managed
+keys in the DB, so redeploys can't clobber edits and unmanaged keys are
+untouched by construction.
 """
 from __future__ import annotations
 
-import copy
-from pathlib import Path
-from typing import Any
-
-import yaml
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 
 import pipeline.db_new as db
+from pipeline import appconfig
 from ..auth import current_user
 
 router = APIRouter(prefix="/api/admin", tags=["config"])
-
-CONFIG_PATH = Path(__file__).resolve().parent.parent.parent / "config.yaml"
 
 
 class Committee(BaseModel):
@@ -32,19 +29,9 @@ class ConfigPayload(BaseModel):
     committees: list[Committee]
 
 
-def _load() -> dict[str, Any]:
-    with CONFIG_PATH.open() as fh:
-        return yaml.safe_load(fh) or {}
-
-
-def _save(data: dict[str, Any]) -> None:
-    with CONFIG_PATH.open("w") as fh:
-        yaml.dump(data, fh, default_flow_style=False, allow_unicode=True, sort_keys=False)
-
-
 @router.get("/config", response_model=ConfigPayload)
 def get_config(_: dict = Depends(current_user)) -> ConfigPayload:
-    cfg = _load()
+    cfg = appconfig.get_config()
     committees = [
         Committee(
             name=c.get("name", ""),
@@ -63,24 +50,17 @@ def get_config(_: dict = Depends(current_user)) -> ConfigPayload:
 @router.put("/config", response_model=ConfigPayload)
 def put_config(
     body: ConfigPayload,
-    _: dict = Depends(current_user),
+    user: dict = Depends(current_user),
 ) -> ConfigPayload:
-    # Preserve any keys we don't manage (summarization etc.).
-    on_disk = _load()
-    new_cfg = copy.deepcopy(on_disk)
-    new_cfg["lookahead_days"] = int(body.lookahead_days)
-
     clean = [
         {"name": c.name, "short": c.short, "url": c.url, "active": c.active}
         for c in body.committees
         if c.name.strip() or c.url.strip()
     ]
-    new_cfg["committees"] = clean
-
-    try:
-        _save(new_cfg)
-    except OSError as e:
-        raise HTTPException(status_code=500, detail=f"Could not write config.yaml: {e}")
+    updated_by = (user.get("email") if isinstance(user, dict) else None) or "ui"
+    appconfig.set_config_key("lookahead_days", int(body.lookahead_days),
+                             updated_by=updated_by)
+    appconfig.set_config_key("committees", clean, updated_by=updated_by)
 
     # Ensure each committee has a matching meeting_type row in the DB.
     venue = db.get_venue("ISO-NE")
@@ -93,4 +73,4 @@ def put_config(
                     # Don't fail the whole save over a duplicate row, etc.
                     pass
 
-    return get_config(_)
+    return get_config(user)

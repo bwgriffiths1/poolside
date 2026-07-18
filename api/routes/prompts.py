@@ -1,20 +1,21 @@
-"""Prompt library — read/write the markdown prompts under prompts/.
+"""Prompt library — read/write prompts as DB overrides over the repo files.
 
-Mirrors the Streamlit page at v2_pages/prompt_library.py. All prompts are
-flat files; no DB rows. Slug pattern:
+The repo's prompts/*.md are the defaults; edits land in the prompt_overrides
+table (see pipeline/appconfig.py) so they survive redeploys and ride the
+nightly backup. DELETE reverts a slug to its repo default. Slug pattern:
   general_context_prompt           shared context
   doc_summary_prompt               shared document summariser
   agenda_item_prompt               default per-item prompt
   agenda_parse_prompt              pipeline: agenda parser
   doc_match_prompt                 pipeline: doc → item matcher
   deep_dive_prompt                 feature: deep dive reports
+  monthly_roundup_prompt           feature: monthly roundups
   keyword_extraction_prompt        feature: keyword extraction
   {venue}_{committee}_briefing_prompt   per venue + committee
   {venue}_{committee}_agenda_item_prompt
 """
 from __future__ import annotations
 
-import json
 import re
 from datetime import datetime, timezone
 from pathlib import Path
@@ -22,13 +23,13 @@ from typing import Any
 
 from fastapi import APIRouter, Body, HTTPException
 
+from pipeline import appconfig
 from pipeline import db_new as db
 
 router = APIRouter(prefix="/api/prompts", tags=["prompts"])
 config_router = APIRouter(prefix="/api/model-config", tags=["prompts"])
 
 _PROMPTS_DIR = Path(__file__).resolve().parent.parent.parent / "prompts"
-_CONFIG_PATH = _PROMPTS_DIR / "model_config.json"
 
 _SLUG_RE = re.compile(r"^[a-z0-9_]+$")
 _VENUE_SLUG_MAP = {"ISO-NE": "isone"}
@@ -39,15 +40,10 @@ def _venue_to_slug(short_name: str) -> str:
 
 
 def _safe_slug(slug: str) -> str:
-    """Reject anything that isn't a plain `[a-z0-9_]` slug to keep us inside
-    the prompts/ directory."""
+    """Reject anything that isn't a plain `[a-z0-9_]` slug."""
     if not slug or not _SLUG_RE.match(slug):
         raise HTTPException(status_code=400, detail=f"Invalid slug: {slug!r}")
     return slug
-
-
-def _prompt_path(slug: str) -> Path:
-    return _PROMPTS_DIR / f"{_safe_slug(slug)}.md"
 
 
 # ── Index ───────────────────────────────────────────────────────────────────
@@ -55,22 +51,32 @@ def _prompt_path(slug: str) -> Path:
 
 @router.get("")
 def list_prompts() -> dict[str, Any]:
-    """Return every prompt grouped by category, with venue/committee context
-    drawn from the DB so the frontend can render the right tab hierarchy.
-    """
-    if not _PROMPTS_DIR.exists():
-        return {"shared": [], "pipeline": [], "venues": [], "extras": []}
+    """Every prompt grouped by category, with venue/committee context from
+    the DB. A prompt "exists" when it has a repo file OR a DB override;
+    `overridden` tells the UI which ones have live edits."""
+    files = {p.stem: p for p in _PROMPTS_DIR.glob("*.md")} if _PROMPTS_DIR.exists() else {}
+    overrides = appconfig.get_prompt_overrides()
 
-    files = {p.stem: p for p in _PROMPTS_DIR.glob("*.md")}
-
-    def meta(slug: str) -> dict[str, Any] | None:
+    def meta(slug: str) -> dict[str, Any]:
+        ov = overrides.get(slug)
+        if ov is not None:
+            modified = ov["updated_at"]
+            return {
+                "slug": slug,
+                "exists": True,
+                "overridden": True,
+                "size": len(ov["content"].encode("utf-8")),
+                "modified": modified.isoformat() if hasattr(modified, "isoformat") else str(modified),
+            }
         p = files.get(slug)
         if p is None:
-            return {"slug": slug, "exists": False, "size": 0, "modified": None}
+            return {"slug": slug, "exists": False, "overridden": False,
+                    "size": 0, "modified": None}
         stat = p.stat()
         return {
             "slug": slug,
             "exists": True,
+            "overridden": False,
             "size": stat.st_size,
             "modified": datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat(),
         }
@@ -116,7 +122,7 @@ def list_prompts() -> dict[str, Any]:
             "committees": committees,
         })
 
-    # Anything in prompts/ we haven't surfaced yet
+    # Anything on disk or overridden that we haven't surfaced yet
     known_slugs = {
         "general_context_prompt", "doc_summary_prompt", "agenda_item_prompt",
         "agenda_parse_prompt", "doc_match_prompt", "deep_dive_prompt",
@@ -128,10 +134,10 @@ def list_prompts() -> dict[str, Any]:
                 if c[k] and c[k].get("exists"):
                     known_slugs.add(c[k]["slug"])
     extras = []
-    for slug in sorted(files.keys()):
+    for slug in sorted(set(files.keys()) | set(overrides.keys())):
         if slug in known_slugs:
             continue
-        extras.append({"slug": slug, **(meta(slug) or {})})
+        extras.append({"slug": slug, **meta(slug)})
 
     return {
         "shared": shared,
@@ -146,41 +152,60 @@ def list_prompts() -> dict[str, Any]:
 
 @router.get("/{slug}")
 def get_prompt(slug: str) -> dict[str, Any]:
-    path = _prompt_path(slug)
-    if not path.exists():
-        return {"slug": slug, "exists": False, "content": ""}
+    slug = _safe_slug(slug)
+    overrides = appconfig.get_prompt_overrides()
+    ov = overrides.get(slug)
+    path = _PROMPTS_DIR / f"{slug}.md"
+    if ov is None and not path.exists():
+        return {"slug": slug, "exists": False, "overridden": False, "content": ""}
+    if ov is not None:
+        content = ov["content"]
+        ts = ov["updated_at"]
+        modified = ts.isoformat() if hasattr(ts, "isoformat") else str(ts)
+    else:
+        content = path.read_text(encoding="utf-8")
+        modified = datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc).isoformat()
     return {
         "slug": slug,
         "exists": True,
-        "content": path.read_text(encoding="utf-8"),
-        "size": path.stat().st_size,
-        "modified": datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc).isoformat(),
+        "overridden": ov is not None,
+        "content": content,
+        "size": len(content.encode("utf-8")),
+        "modified": modified,
     }
 
 
 @router.put("/{slug}")
 def save_prompt(slug: str, body: dict[str, str] = Body(...)) -> dict[str, Any]:
+    slug = _safe_slug(slug)
     content = body.get("content")
     if content is None:
         raise HTTPException(status_code=400, detail="`content` is required")
-    path = _prompt_path(slug)
-    _PROMPTS_DIR.mkdir(parents=True, exist_ok=True)
-    path.write_text(content, encoding="utf-8")
-    stat = path.stat()
+    appconfig.set_prompt(slug, content, updated_by="ui")
     return {
         "slug": slug,
-        "size": stat.st_size,
-        "modified": datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat(),
+        "overridden": True,
+        "size": len(content.encode("utf-8")),
+        "modified": datetime.now(timezone.utc).isoformat(),
     }
 
 
 @router.delete("/{slug}")
-def delete_prompt(slug: str) -> dict[str, str]:
-    path = _prompt_path(slug)
-    if not path.exists():
-        raise HTTPException(status_code=404, detail="Prompt not found")
-    path.unlink()
-    return {"status": "ok"}
+def delete_prompt(slug: str) -> dict[str, Any]:
+    """Remove the DB override so the repo default shows through again.
+    Repo defaults themselves can't be deleted from the UI (the container
+    filesystem is ephemeral — deleting there never stuck anyway)."""
+    slug = _safe_slug(slug)
+    if appconfig.delete_prompt_override(slug):
+        return {"status": "reverted",
+                "exists": (_PROMPTS_DIR / f"{slug}.md").exists()}
+    if (_PROMPTS_DIR / f"{slug}.md").exists():
+        raise HTTPException(
+            status_code=400,
+            detail="This prompt has no override to remove — it is the repo "
+                   "default. Edit it instead, or change the file in git.",
+        )
+    raise HTTPException(status_code=404, detail="Prompt not found")
 
 
 # ── Model config ────────────────────────────────────────────────────────────
@@ -194,32 +219,23 @@ _DEFAULT_MODELS = {
     "meeting_max_tokens": 32768,
 }
 
+# Optional keys the roundup feature reads (falls back to meeting_* when unset).
+_OPTIONAL_MODEL_KEYS = {"roundup_model", "roundup_max_tokens"}
+
 
 @config_router.get("")
 def get_model_config() -> dict[str, Any]:
-    if _CONFIG_PATH.exists():
-        try:
-            return {**_DEFAULT_MODELS, **json.loads(_CONFIG_PATH.read_text())}
-        except Exception:
-            pass
-    return _DEFAULT_MODELS.copy()
+    return {**_DEFAULT_MODELS, **appconfig.get_model_config()}
 
 
 @config_router.put("")
 def save_model_config(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
     # Whitelist keys to avoid writing arbitrary fields.
-    allowed = set(_DEFAULT_MODELS.keys())
+    allowed = set(_DEFAULT_MODELS.keys()) | _OPTIONAL_MODEL_KEYS
     cfg = {k: v for k, v in body.items() if k in allowed}
     if not cfg:
         raise HTTPException(status_code=400, detail="No recognised fields in body")
-    # Merge with whatever's already on disk
-    existing: dict[str, Any] = {}
-    if _CONFIG_PATH.exists():
-        try:
-            existing = json.loads(_CONFIG_PATH.read_text())
-        except Exception:
-            pass
-    merged = {**existing, **cfg}
-    _PROMPTS_DIR.mkdir(parents=True, exist_ok=True)
-    _CONFIG_PATH.write_text(json.dumps(merged, indent=2), encoding="utf-8")
-    return merged
+    # Merge over what's already effective (file defaults + prior override).
+    merged = {**appconfig.get_model_config(), **cfg}
+    appconfig.set_model_config(merged, updated_by="ui")
+    return {**_DEFAULT_MODELS, **merged}

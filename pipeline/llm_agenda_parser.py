@@ -218,10 +218,9 @@ def _call_llm_tool(
 # ---------------------------------------------------------------------------
 
 def _load_prompt(slug: str) -> str:
-    path = _PROMPTS_DIR / f"{slug}.md"
-    if path.exists():
-        return path.read_text(encoding="utf-8")
-    return ""
+    """DB override first, repo file fallback — see pipeline/appconfig.py."""
+    from pipeline import appconfig
+    return appconfig.get_prompt(slug)
 
 
 # ---------------------------------------------------------------------------

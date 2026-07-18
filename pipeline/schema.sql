@@ -282,3 +282,20 @@ CREATE TABLE IF NOT EXISTS roundup_meetings (
 
 CREATE INDEX IF NOT EXISTS idx_monthly_roundups_month ON monthly_roundups (venue_id, month DESC);
 CREATE INDEX IF NOT EXISTS idx_roundup_meetings_meeting ON roundup_meetings (meeting_id);
+
+-- -----------------------------------------------------------------------------
+-- 15. Runtime config overrides  — see pipeline/appconfig.py and migration 011
+-- -----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS app_config (
+    key        TEXT PRIMARY KEY,
+    value      JSONB NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_by TEXT
+);
+
+CREATE TABLE IF NOT EXISTS prompt_overrides (
+    slug       TEXT PRIMARY KEY,
+    content    TEXT NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_by TEXT
+);

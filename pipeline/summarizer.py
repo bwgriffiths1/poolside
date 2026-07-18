@@ -74,21 +74,19 @@ def make_client():
 # ---------------------------------------------------------------------------
 
 def _load_prompt(slug: str) -> str:
-    path = _PROMPTS_DIR / f"{slug}.md"
-    if path.exists():
-        return path.read_text(encoding="utf-8")
-    return ""
+    """DB override first, repo file fallback — see pipeline/appconfig.py."""
+    from pipeline import appconfig
+    return appconfig.get_prompt(slug)
 
 
 def _load_model_config() -> dict:
-    path = _PROMPTS_DIR / "model_config.json"
+    """Defaults ← prompts/model_config.json ← app_config DB override."""
+    from pipeline import appconfig
     defaults = {**_DEFAULT_MODELS, **_DEFAULT_MAX_TOKENS}
-    if path.exists():
-        try:
-            return {**defaults, **json.loads(path.read_text(encoding="utf-8"))}
-        except Exception:
-            pass
-    return defaults
+    try:
+        return {**defaults, **appconfig.get_model_config()}
+    except Exception:
+        return defaults
 
 
 _VENUE_SLUG = {
@@ -266,12 +264,12 @@ def _load_image_config() -> dict:
         "max_per_item": 10,
         "extract_from": [".pdf", ".pptx"],
     }
-    if cfg_path.exists():
-        try:
-            cfg = yaml.safe_load(cfg_path.read_text(encoding="utf-8"))
-            return {**defaults, **cfg.get("summarization", {}).get("images", {})}
-        except Exception:
-            pass
+    try:
+        from pipeline import appconfig
+        cfg = appconfig.get_config()
+        return {**defaults, **cfg.get("summarization", {}).get("images", {})}
+    except Exception:
+        pass
     return defaults
 
 
@@ -1576,9 +1574,9 @@ def _load_parallel_workers() -> int:
     API rate limits and the 10-connection DB pool, wide enough that a
     20-item meeting stops being 20 sequential LLM calls. 1 = sequential
     (same code path, single worker). Level 3 is always one call."""
-    cfg_path = _REPO_ROOT / "config.yaml"
     try:
-        cfg = yaml.safe_load(cfg_path.read_text(encoding="utf-8")) or {}
+        from pipeline import appconfig
+        cfg = appconfig.get_config()
         n = int(cfg.get("summarization", {}).get("parallel_workers", 3))
     except Exception:
         n = 3

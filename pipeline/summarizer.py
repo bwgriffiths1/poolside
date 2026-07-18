@@ -884,6 +884,44 @@ def _run_item_doc_summary(
     Stores result as a new summary_version (entity_type='agenda_item').
     Returns True if a summary was created, False if no usable docs found.
     """
+    detailed = _summarize_item_docs(
+        item, client, model, doc_summary_prompt,
+        max_tokens=max_tokens,
+        extract_images=extract_images,
+        meeting_folder=meeting_folder,
+    )
+    if detailed is None:
+        return False
+
+    db.create_summary_version(
+        entity_type="agenda_item",
+        entity_id=item["id"],
+        one_line=None,
+        detailed=detailed,
+        model_id=model,
+        is_manual=False,
+        status="draft",
+        created_by="system",
+    )
+    return True
+
+
+def _summarize_item_docs(
+    item: dict,
+    client,
+    model: str,
+    doc_summary_prompt: str,
+    max_tokens: int = 4096,
+    extract_images: bool = False,
+    meeting_folder: Path | None = None,
+) -> str | None:
+    """
+    Produce the document-group summary text for `item`'s directly-attached
+    documents WITHOUT persisting it. Returns None when the item has no
+    usable documents (or none yielded text). Callers decide whether the
+    text becomes the item's summary (leaf Level 1) or one input to a
+    Level 2 rollup (parents with their own materials).
+    """
     docs = db.get_documents_for_item(item["id"])
     usable = [
         d for d in docs
@@ -895,7 +933,7 @@ def _run_item_doc_summary(
     if not usable:
         logger.debug("Item %s (%s): no usable documents — skipping Level 1",
                      item.get("item_id"), item["title"])
-        return False
+        return None
 
     # Extract text for each doc (and images if enabled)
     text_parts = []
@@ -922,7 +960,7 @@ def _run_item_doc_summary(
     if not text_parts:
         logger.warning("Item %s (%s): all docs returned empty text",
                        item.get("item_id"), item["title"])
-        return False
+        return None
 
     combined_text      = "\n\n---\n\n".join(text_parts)
     combined_filenames = ", ".join(d["filename"] for d in usable if d["filename"])
@@ -985,17 +1023,7 @@ def _run_item_doc_summary(
     if extract_images and all_images and detailed:
         detailed = _replace_keep_images_inline(detailed, all_images)
 
-    db.create_summary_version(
-        entity_type="agenda_item",
-        entity_id=item["id"],
-        one_line=None,
-        detailed=detailed,
-        model_id=model,
-        is_manual=False,
-        status="draft",
-        created_by="system",
-    )
-    return True
+    return detailed
 
 
 def _extract_kept_images(llm_output: str, all_images: list[dict]) -> list[dict]:
@@ -1159,6 +1187,13 @@ def extract_and_store_images(
 def get_committee_prompts(committee_short: str, venue_short: str = "ISO-NE") -> tuple[str, str]:
     """Public wrapper for _get_committee_prompts — used by api/resummarize.py."""
     return _get_committee_prompts(committee_short, venue_short)
+
+
+def summarize_item_docs_text(*args, **kwargs):
+    """Public wrapper for _summarize_item_docs — the doc-group summary text
+    for an item's own documents, without persisting (used by api/resummarize
+    to feed a parent's own materials into its rollup)."""
+    return _summarize_item_docs(*args, **kwargs)
 
 
 def run_item_doc_summary(*args, **kwargs):
@@ -1780,6 +1815,15 @@ def run_meeting_summarization(
             if item_ids is not None and item["id"] not in item_ids:
                 continue
 
+            # Leaf items only. Parents are summarized at Level 2, where their
+            # own directly-attached docs feed the rollup — running L1 here
+            # produced a summary the rollup immediately superseded (double
+            # LLM spend, and the parent's own material vanished from the
+            # final rollup), while in "missing" mode the fresh L1 draft made
+            # the Level 2 skip-guard bypass the rollup entirely.
+            if children_of.get(item["id"]):
+                continue
+
             docs = db.get_documents_for_item(item["id"])
             has_docs = any(
                 not d.get("ceii_skipped") and not d.get("ignored")
@@ -1830,13 +1874,15 @@ def run_meeting_summarization(
     parent_items_sorted = sorted(parent_items, key=lambda x: -x.get("depth", 0))
 
     # When item_ids filter is set, only re-roll-up parents whose children
-    # include affected items
+    # include affected items — or that are affected themselves (e.g. a
+    # material landed directly on the parent; its L1 pass happens inside
+    # the rollup now).
     affected_parent_ids: set[int] | None = None
     if item_ids is not None:
         affected_parent_ids = set()
         for parent in parent_items_sorted:
             children = children_of.get(parent["id"], [])
-            if any(c["id"] in item_ids for c in children):
+            if parent["id"] in item_ids or any(c["id"] in item_ids for c in children):
                 affected_parent_ids.add(parent["id"])
 
     # Parents at the SAME depth are independent of each other, but deeper
@@ -1871,6 +1917,39 @@ def run_meeting_summarization(
                 summ = db.get_current_summary("agenda_item", child["id"])
                 if summ and summ.get("detailed"):
                     child_summaries.append((child, summ))
+
+            # The parent's own directly-attached materials feed the rollup as
+            # one extra input, summarized with the Level 1 model first.
+            own_text = _summarize_item_docs(
+                parent, client, doc_model, doc_summary_prompt,
+                max_tokens=doc_max_tokens,
+                extract_images=do_images,
+                meeting_folder=meeting_folder,
+            )
+
+            if own_text and not child_summaries:
+                # No child content yet — the own-docs summary IS the item's
+                # summary (same outcome the old parent L1 pass produced,
+                # without the overwrite race).
+                db.create_summary_version(
+                    entity_type="agenda_item",
+                    entity_id=parent["id"],
+                    one_line=None,
+                    detailed=own_text,
+                    model_id=doc_model,
+                    is_manual=False,
+                    status="draft",
+                    created_by="system",
+                )
+                return True
+
+            if own_text:
+                child_summaries.append((
+                    {"item_id": parent.get("item_id"),
+                     "title": "Materials filed directly under this item"},
+                    {"detailed": own_text},
+                ))
+
             if not child_summaries:
                 return None  # nothing to roll up — not an error, not a count
             return _run_item_rollup(
@@ -2135,9 +2214,44 @@ def estimate_summarization_cost(meeting_id: int, mode: str = "all") -> dict:
             # aren't re-run by the pipeline.
             if mode == "missing" and _already_summarized(item["id"]):
                 continue
+
+            # A parent's own directly-attached docs get a doc-group summary
+            # first (doc model), whose output then feeds the rollup — mirror
+            # the runner's Level 2 worker.
+            own_out_chars = 0
+            own_docs = db.get_documents_for_item(item["id"])
+            own_usable = [
+                d for d in own_docs
+                if not d.get("ceii_skipped")
+                and not d.get("ignored")
+                and (d.get("file_type") or "").lower() in SUMMARIZE_EXTENSIONS
+            ]
+            if own_usable:
+                own_in_chars = len(doc_summary_prompt)
+                for d in own_usable:
+                    raw = d.get("raw_content") or ""
+                    if raw:
+                        own_in_chars += len(raw)
+                    else:
+                        docs_without_text += 1
+                        own_in_chars += _DOC_TOKENS_WHEN_UNEXTRACTED * _CHARS_PER_TOKEN
+                own_in_tok = _approx_tokens_from_chars(own_in_chars)
+                own_out_tok = int(doc_max * _OUTPUT_RATIO_OF_MAX)
+                cost = compute_cost(doc_model, own_in_tok, own_out_tok)
+                breakdown.append({
+                    "level": 1,
+                    "item_id": item.get("item_id"),
+                    "model": doc_model,
+                    "input_tokens": own_in_tok,
+                    "output_tokens": own_out_tok,
+                    "cost_usd": float(cost),
+                })
+                items_planned += 1
+                own_out_chars = own_out_tok * _CHARS_PER_TOKEN
+
             # Each child contributes roughly its existing summary length, or a
             # conservative 3000-char placeholder if we don't have one yet.
-            in_chars = len(agenda_item_prompt)
+            in_chars = len(agenda_item_prompt) + own_out_chars
             for kid in kids:
                 existing = db.get_current_summary("agenda_item", kid["id"]) or {}
                 body = existing.get("detailed") or ""

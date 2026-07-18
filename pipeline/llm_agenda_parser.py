@@ -512,7 +512,7 @@ def parse_agenda_hybrid(
 
     Args:
         agenda_bytes: raw .docx (or .pdf) bytes
-        venue: e.g. "ISO-NE", "NYISO"
+        venue: e.g. "ISO-NE"
         committee: e.g. "MC", "RC"
         mode: "regex_only", "llm_only", "llm_verify", "llm_fallback"
         config: optional config dict with agenda_parsing section

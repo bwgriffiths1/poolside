@@ -1,7 +1,6 @@
 """Config routes — read/write the ISO-NE bits of config.yaml.
 
-NYISO sections in the file are deliberately not exposed through this surface,
-and any NYISO keys on disk are preserved on PUT.
+Keys outside the managed set (summarization etc.) are preserved on PUT.
 """
 from __future__ import annotations
 
@@ -66,7 +65,7 @@ def put_config(
     body: ConfigPayload,
     _: dict = Depends(current_user),
 ) -> ConfigPayload:
-    # Preserve any keys we don't manage (NYISO, summarization, etc.).
+    # Preserve any keys we don't manage (summarization etc.).
     on_disk = _load()
     new_cfg = copy.deepcopy(on_disk)
     new_cfg["lookahead_days"] = int(body.lookahead_days)

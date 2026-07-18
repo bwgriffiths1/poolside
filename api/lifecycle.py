@@ -78,6 +78,6 @@ def is_at_least(current: LifecycleStatus, target: LifecycleStatus) -> bool:
 
 
 def hash_agenda_doc(content: bytes) -> str:
-    """SHA-256 of raw agenda doc bytes — used to detect when ISO-NE / NYISO
+    """SHA-256 of raw agenda doc bytes — used to detect when the venue
     has posted an updated agenda PDF and we should re-parse."""
     return hashlib.sha256(content).hexdigest()

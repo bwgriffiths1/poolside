@@ -44,9 +44,9 @@ def discover_all_venues() -> dict[str, Any]:
     """Scrape configured ISO-NE committee calendars; create stub rows for
     any unknown meetings. Returns the count of new meetings per venue.
 
-    NYISO is currently out of scope for the Vite UI — its scraper still
-    lives in v2_pages/ingest_meeting.py (Streamlit-side). Reintroduce a
-    venue key here when the NYISO ingest flow is ported.
+    ISO-NE is the only venue with a live scraper. To add another venue,
+    give it a discovery block here, a scraper module in pipeline/, and a
+    prompt set — see the 2026-07 architecture review for the adapter shape.
     """
     cfg = _load_config()
     results: dict[str, int] = {}

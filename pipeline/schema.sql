@@ -192,7 +192,7 @@ ON CONFLICT (venue_id, short_name) DO NOTHING;
 
 -- NYISO venue
 INSERT INTO venues (name, short_name, website, active) VALUES
-    ('NYISO', 'NYISO', 'https://www.nyiso.com', true)
+    ('NYISO', 'NYISO', 'https://www.nyiso.com', false)
 ON CONFLICT (short_name) DO NOTHING;
 
 -- NYISO meeting types

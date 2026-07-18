@@ -85,7 +85,7 @@ def refresh_meeting_documents(
     """
     Check for new documents on a meeting's source and map them to agenda items.
 
-    1. Re-scrapes the document list from the source (ISO-NE or NYISO API)
+    1. Re-scrapes the document list from the source (ISO-NE event API)
     2. Compares against existing documents in the DB
     3. Upserts genuinely new documents
     4. Maps new docs to existing agenda items (prefix matching + LLM)
@@ -115,13 +115,18 @@ def refresh_meeting_documents(
     # Get existing filenames
     existing_filenames = db.get_existing_filenames(meeting_id)
 
-    # Scrape current doc list from source
+    # Scrape current doc list from source. Only ISO-NE has a live scraper —
+    # NYISO support was removed 2026-07 after sitting unreachable since the
+    # Streamlit UI was retired. Historical non-ISO-NE rows stay readable;
+    # they just can't be refreshed.
     scraped_docs: list[dict] = []
+    if venue_short != "ISO-NE":
+        result.errors.append(
+            f"Venue {venue_short} has no active scraper — refresh skipped"
+        )
+        return result
     try:
-        if venue_short == "NYISO":
-            scraped_docs = _scrape_nyiso_docs(meeting, config, session)
-        else:
-            scraped_docs = fetch_event_docs(str(external_id), session=session)
+        scraped_docs = fetch_event_docs(str(external_id), session=session)
     except Exception as exc:
         result.errors.append(f"Scrape failed: {exc}")
         return result
@@ -340,34 +345,6 @@ def _handle_npc_combined_refresh(
     logger.info("  Created %d new virtual section doc(s) from combined PDF",
                 len(result["virtual_docs"]))
     return result
-
-
-# ---------------------------------------------------------------------------
-# NYISO doc scrape helper
-# ---------------------------------------------------------------------------
-
-def _scrape_nyiso_docs(
-    meeting: dict,
-    config: dict,
-    session: requests.Session | None = None,
-) -> list[dict]:
-    """Scrape NYISO meeting files. Requires committee config for API call."""
-    from pipeline.nyiso_scraper import fetch_meeting_files
-
-    type_short = meeting.get("type_short", "")
-    external_id = meeting.get("external_id")
-
-    # Find the NYISO committee config to get folder IDs
-    for committee in config.get("nyiso_committees", []):
-        if committee["short"].upper() == type_short.upper():
-            files = fetch_meeting_files(committee, str(external_id), session=session)
-            return [
-                {"filename": f["filename"], "url": f.get("url"), "ceii": False}
-                for f in files
-            ]
-
-    logger.warning("Could not find NYISO committee config for %s", type_short)
-    return []
 
 
 # ---------------------------------------------------------------------------

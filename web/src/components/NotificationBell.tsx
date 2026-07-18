@@ -45,6 +45,20 @@ function describe(n: NotificationRow): { title: string; sub: string } {
       sub: p.error ?? "",
     };
   }
+  if (n.kind === "materials_new") {
+    const p = n.payload as {
+      label?: string;
+      new_doc_count?: number;
+      affected_item_ids?: number[];
+    };
+    const items = p.affected_item_ids?.length
+      ? `, ${p.affected_item_ids.length} agenda item(s) affected`
+      : "";
+    return {
+      title: `New materials — ${p.label ?? "meeting"}`,
+      sub: `${p.new_doc_count ?? "?"} new document(s)${items} — summaries may be stale.`,
+    };
+  }
   return { title: n.kind, sub: "" };
 }
 

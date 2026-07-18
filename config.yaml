@@ -84,6 +84,10 @@ agenda_parsing:
   escalation_model: claude-sonnet-4-6
 
 summarization:
+  # When true, the refresh cron auto-runs an item-scoped re-summarize as new
+  # documents land on an already-summarized meeting (unattended LLM spend).
+  # When false (default), a materials_new notification is raised instead.
+  auto_resummarize: false
   models:
     document: claude-sonnet-4-6
     rollup: claude-haiku-4-5

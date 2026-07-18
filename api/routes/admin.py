@@ -12,7 +12,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 from pathlib import Path
 
-from pipeline import db_new as db
+from pipeline import db
 from pipeline.ingest import cleanup_zip_expansion
 
 from .. import lifecycle, orchestrator

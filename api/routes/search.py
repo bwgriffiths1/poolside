@@ -12,7 +12,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, Query
 
-from pipeline import db_new as db
+from pipeline import db
 from ..auth import current_user
 
 router = APIRouter(prefix="/api/search", tags=["search"])

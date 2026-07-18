@@ -9,7 +9,7 @@ import logging
 from datetime import date, timedelta
 from typing import Any
 
-from pipeline import db_new as db
+from pipeline import db
 from pipeline import scraper as pl_scraper
 
 from .. import lifecycle, orchestrator

@@ -30,7 +30,7 @@ import requests
 from fastapi import APIRouter, Body, Depends, HTTPException
 from fastapi.responses import Response
 
-from pipeline import db_new as db
+from pipeline import db
 from pipeline import summarizer
 from ..auth import current_user
 

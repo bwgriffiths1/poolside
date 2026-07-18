@@ -1,5 +1,5 @@
 """
-pipeline/db_new.py — Connection pool and CRUD helpers for the redesigned schema.
+pipeline/db.py — Connection pool and CRUD helpers for the redesigned schema.
 
 DATABASE_URL format: postgresql://user:password@host:port/dbname
 Set it in .env for local development.

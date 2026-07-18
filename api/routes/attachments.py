@@ -17,7 +17,7 @@ from urllib.parse import quote
 from fastapi import APIRouter, Body, Depends, HTTPException
 from fastapi.responses import Response
 
-from pipeline import db_new as db
+from pipeline import db
 from ..auth import current_user
 
 router = APIRouter(tags=["attachments"])

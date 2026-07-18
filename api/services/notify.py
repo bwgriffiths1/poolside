@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from pipeline import db_new as db
+from pipeline import db
 
 def create_notification(
     kind: str,

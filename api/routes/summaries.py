@@ -1,6 +1,6 @@
 """Summary read/write endpoints — the heart of the rich-text editor.
 
-Wraps pipeline/db_new.py:save_manual_summary and get_current_summary so the
+Wraps pipeline/db.py:save_manual_summary and get_current_summary so the
 new full-page editor (web/src/routes/Editor.tsx) can:
   - load the current draft for a meeting or agenda item
   - save user-edited markdown as a new approved version (superseding the prior)
@@ -11,7 +11,7 @@ from typing import Any, Literal
 
 from fastapi import APIRouter, Body, HTTPException
 
-from pipeline import db_new as db
+from pipeline import db
 from .. import lifecycle
 
 router = APIRouter(tags=["summaries"])

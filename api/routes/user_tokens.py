@@ -15,7 +15,7 @@ from typing import Any
 
 from fastapi import APIRouter, Body, Depends, HTTPException
 
-from pipeline import db_new as db
+from pipeline import db
 from pipeline.auth import (
     create_user,
     get_user_by_email,

@@ -18,7 +18,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import Response
 
-from pipeline import db_new as db
+from pipeline import db
 from .. import adapters, briefing_parser
 from ..auth import current_user
 

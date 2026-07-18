@@ -20,7 +20,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from pipeline import db_new as db
+from pipeline import db
 from pipeline.summarizer import (
     get_committee_prompts,
     load_model_config,

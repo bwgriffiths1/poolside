@@ -314,7 +314,7 @@ State the developer needs to model (per screen):
 
 ## Backend wiring
 
-The existing `pipeline/db_new.py` and `pipeline/auth.py` modules define the backend contract — the new front end should consume the same database via a thin REST/RPC layer. Suggested endpoints:
+The existing `pipeline/db.py` and `pipeline/auth.py` modules define the backend contract — the new front end should consume the same database via a thin REST/RPC layer. Suggested endpoints:
 
 ```
 GET    /api/meetings?past_days=60&future_days=90       → Overview list

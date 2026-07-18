@@ -1,6 +1,6 @@
 """Document → agenda-item assignment endpoints.
 
-Wraps the existing pipeline/db_new.py primitives so the web UI can:
+Wraps the existing pipeline/db.py primitives so the web UI can:
   - see unassigned / assigned / ignored documents for a meeting
   - assign an unassigned doc to an item
   - reassign an already-assigned doc to a different item
@@ -12,7 +12,7 @@ from __future__ import annotations
 from typing import Any
 from fastapi import APIRouter, Body, HTTPException
 
-from pipeline import db_new as db
+from pipeline import db
 
 router = APIRouter(tags=["documents"])
 

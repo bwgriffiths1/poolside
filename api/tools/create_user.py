@@ -12,7 +12,7 @@ import getpass
 import sys
 
 from pipeline.auth import create_user, get_user_by_email, hash_password
-from pipeline.db_new import _conn, _cursor
+from pipeline.db import _conn, _cursor
 
 
 def _update_password_and_name(email: str, name: str, password: str) -> dict:

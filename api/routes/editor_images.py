@@ -16,7 +16,7 @@ from typing import Any
 from fastapi import APIRouter, Body, HTTPException
 from fastapi.responses import Response
 
-from pipeline import db_new as db
+from pipeline import db
 
 router = APIRouter(prefix="/api/editor-images", tags=["editor-images"])
 

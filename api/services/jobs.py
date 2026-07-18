@@ -9,7 +9,7 @@ import threading
 from datetime import datetime, timezone
 from typing import Any
 
-from pipeline import db_new as db
+from pipeline import db
 
 from .. import lifecycle
 

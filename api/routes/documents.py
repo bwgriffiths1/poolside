@@ -13,7 +13,6 @@ from typing import Any
 from fastapi import APIRouter, Body, HTTPException
 
 from pipeline import db_new as db
-from .. import adapters, schemas
 
 router = APIRouter(tags=["documents"])
 

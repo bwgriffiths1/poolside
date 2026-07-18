@@ -16,7 +16,6 @@ from datetime import date, timedelta
 from pathlib import Path
 
 import requests
-import yaml
 
 import pipeline.db_new as db
 from pipeline.agenda_parser import map_docs_to_agenda_items
@@ -282,7 +281,7 @@ def _handle_npc_combined_refresh(
 
     Returns {"virtual_docs": [...], "errors": [...]}.
     """
-    from pipeline.npc_ingest import find_combined_pdf, _slugify
+    from pipeline.npc_ingest import find_combined_pdf
     from pipeline.npc_combined_parser import parse_combined_pdf
     from pipeline.npc_ingest import _SKIP_SECTION_TYPES
 

@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import logging
 import hashlib
-from pathlib import Path
 from typing import Any
 
 import requests
@@ -18,11 +17,11 @@ import requests
 from pipeline import db_new as db
 from pipeline import refresh as pl_refresh
 from pipeline.ingest import (
-    _download_bytes,
-    _find_agenda_doc,
-    _insert_agenda_items,
-    _inherit_wmpp,
-    _tag_initiative_codes,
+    download_bytes,
+    find_agenda_doc,
+    inherit_wmpp,
+    insert_agenda_items,
+    tag_initiative_codes,
 )
 from pipeline.llm_agenda_parser import parse_agenda_hybrid
 from pipeline.agenda_parser import parse_agenda_from_docx
@@ -65,7 +64,7 @@ def try_parse_agenda(meeting_id: int, config: dict) -> dict[str, Any]:
         {"filename": d["filename"], "url": d.get("source_url"), "_db": d}
         for d in docs
     ]
-    agenda = _find_agenda_doc(candidates)
+    agenda = find_agenda_doc(candidates)
     if agenda is None:
         return {"parsed": False, "n_items": 0, "agenda_filename": None,
                 "reason": "no document name matches agenda heuristic"}
@@ -78,7 +77,7 @@ def try_parse_agenda(meeting_id: int, config: dict) -> dict[str, Any]:
 
     log.info("Downloading agenda doc for meeting %s: %s", meeting_id, agenda["filename"])
     session = requests.Session()
-    agenda_bytes = _download_bytes(url, session)
+    agenda_bytes = download_bytes(url, session)
     if not agenda_bytes:
         return {"parsed": False, "n_items": 0,
                 "agenda_filename": agenda["filename"],
@@ -111,12 +110,12 @@ def try_parse_agenda(meeting_id: int, config: dict) -> dict[str, Any]:
                 "agenda_filename": agenda["filename"],
                 "reason": "parser returned 0 items"}
 
-    parsed_items = _inherit_wmpp(parsed_items)
-    item_id_map = _insert_agenda_items(meeting_id, parsed_items)
+    parsed_items = inherit_wmpp(parsed_items)
+    item_id_map = insert_agenda_items(meeting_id, parsed_items)
     for item in parsed_items:
         dbid = item_id_map.get(item["item_id"])
         if dbid and item.get("initiative_codes"):
-            _tag_initiative_codes(dbid, item["initiative_codes"])
+            tag_initiative_codes(dbid, item["initiative_codes"])
 
     # Record the hash + timestamp so we can detect future re-parses
     agenda_hash = hashlib.sha256(agenda_bytes).hexdigest()
@@ -179,7 +178,7 @@ def refresh_with_agenda(meeting_id: int, config: dict) -> dict[str, Any]:
         try:
             # The refresh helper only assigns NEW docs — we need to manually
             # run the assignment pass over the already-existing docs.
-            _assign_existing_docs(meeting_id, config)
+            assign_existing_docs(meeting_id, config)
             out["steps"].append({"step": "assign_existing_docs", "ok": True})
         except Exception as e:
             log.exception("assign_existing_docs failed: %s", e)
@@ -232,7 +231,7 @@ def _handle_stale_summaries(
         # Item-scoped re-run: L1/L2 restricted to the affected items,
         # L3 briefing always regenerates. Admission dedupe applies — if a
         # job is already active this reports it instead of stacking.
-        from .routes.meetings import start_summarize_job
+        from .services.jobs import start_summarize_job
 
         res = start_summarize_job(
             meeting_id, mode="all", item_ids=affected, created_by="auto-resummarize",
@@ -243,7 +242,7 @@ def _handle_stale_summaries(
 
     # Default: notify. Also the fallback in auto mode when every new doc is
     # unassigned (an item-scoped run couldn't cover them).
-    from .routes.notifications import create_notification
+    from .services.notify import create_notification
 
     label = f"{meeting.get('type_short') or ''} {meeting.get('meeting_date') or ''}".strip()
     create_notification(
@@ -260,7 +259,7 @@ def _handle_stale_summaries(
             "new_docs": len(new_docs), "affected_items": len(affected)}
 
 
-def _assign_existing_docs(meeting_id: int, config: dict) -> None:
+def assign_existing_docs(meeting_id: int, config: dict) -> None:
     """Run regex + LLM doc-to-item assignment over ALL existing unassigned
     documents for a meeting. The standard refresh only assigns NEW docs;
     this is for the case where docs were ingested before the agenda was parsed.

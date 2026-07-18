@@ -13,7 +13,7 @@ from fastapi import Depends
 
 from .. import adapters, briefing_parser, schemas
 from ..auth import current_user
-from .notifications import fan_out_to_watchers
+from ..services.notify import fan_out_to_watchers
 
 router = APIRouter(prefix="/api/meetings", tags=["briefings"])
 

@@ -27,7 +27,7 @@ def _notify_job_failed(job: str, exc: Exception) -> None:
     doesn't flood the bell."""
     try:
         from pipeline import db_new as db
-        from .routes.notifications import create_notification
+        from .services.notify import create_notification
 
         with db._conn() as conn:
             with db._cursor(conn) as cur:
@@ -51,7 +51,7 @@ def _notify_job_failed(job: str, exc: Exception) -> None:
 
 
 def _discover_job() -> None:
-    from .routes.admin import discover_all_venues
+    from .services.discovery import discover_all_venues
 
     try:
         res = discover_all_venues()
@@ -63,7 +63,7 @@ def _discover_job() -> None:
 
 
 def _refresh_job() -> None:
-    from .routes.admin import refresh_upcoming_meetings
+    from .services.discovery import refresh_upcoming_meetings
 
     try:
         res = refresh_upcoming_meetings()
@@ -80,7 +80,7 @@ def _drift_alarm_job() -> None:
     """
     from datetime import datetime, timedelta, timezone
     from pipeline import db_new as db
-    from .routes.notifications import create_notification
+    from .services.notify import create_notification
 
     try:
         with db._conn() as conn:

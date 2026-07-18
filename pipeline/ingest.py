@@ -15,9 +15,7 @@ meeting_dict  — as returned by scraper.scrape_calendar (one element)
 doc_list      — list of {filename, url} dicts from scraper.fetch_event_docs
 config        — loaded config.yaml dict
 """
-import io
 import logging
-import os
 from pathlib import Path
 
 import requests
@@ -438,3 +436,14 @@ def cleanup_zip_expansion(meeting_id: int) -> dict[str, int]:
             un_ignored = cur.rowcount or 0
 
     return {"deleted_children": deleted_children, "un_ignored_zips": un_ignored}
+
+
+# ---------------------------------------------------------------------------
+# Public API — used by api/orchestrator.py. The underscore originals stay for
+# internal callers; these names are the supported surface.
+# ---------------------------------------------------------------------------
+download_bytes = _download_bytes
+find_agenda_doc = _find_agenda_doc
+insert_agenda_items = _insert_agenda_items
+inherit_wmpp = _inherit_wmpp
+tag_initiative_codes = _tag_initiative_codes

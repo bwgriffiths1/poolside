@@ -10,7 +10,6 @@ Public API:
   llm_match_docs(agenda_items, filenames, venue, model) -> dict[str, list]
 """
 import io
-import json
 import logging
 import time as _time
 from pathlib import Path
@@ -18,7 +17,6 @@ from pathlib import Path
 from pipeline.agenda_parser import (
     item_id_to_prefix,
     parse_agenda_from_docx,
-    map_docs_to_agenda_items,
 )
 
 logger = logging.getLogger(__name__)

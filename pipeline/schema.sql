@@ -249,3 +249,36 @@ CREATE TABLE IF NOT EXISTS deep_dive_documents (
 );
 
 CREATE INDEX IF NOT EXISTS idx_deep_dive_docs_report ON deep_dive_documents (report_id);
+
+-- -----------------------------------------------------------------------------
+-- 13. Monthly roundups  — one cross-committee "state of play" per venue/month
+-- -----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS monthly_roundups (
+    id            SERIAL PRIMARY KEY,
+    venue_id      INT NOT NULL REFERENCES venues(id),
+    month         DATE NOT NULL,                  -- first day of the month
+    status        TEXT NOT NULL DEFAULT 'draft',  -- draft | generating | complete | error
+    model_id      TEXT,
+    report_md     TEXT,
+    error_message TEXT,
+    progress_text TEXT,
+    input_tokens  INT,
+    output_tokens INT,
+    cost_usd      NUMERIC(10, 4),
+    created_by    TEXT DEFAULT 'system',
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (venue_id, month)
+);
+
+-- -----------------------------------------------------------------------------
+-- 14. Roundup meetings  — junction: roundup → source meetings (provenance)
+-- -----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS roundup_meetings (
+    roundup_id INT NOT NULL REFERENCES monthly_roundups(id) ON DELETE CASCADE,
+    meeting_id INT NOT NULL REFERENCES meetings(id) ON DELETE CASCADE,
+    PRIMARY KEY (roundup_id, meeting_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_monthly_roundups_month ON monthly_roundups (venue_id, month DESC);
+CREATE INDEX IF NOT EXISTS idx_roundup_meetings_meeting ON roundup_meetings (meeting_id);

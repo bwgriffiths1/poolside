@@ -80,9 +80,12 @@ function inline(text: string): ReactNode[] {
 interface MarkdownProps {
   source: string;
   className?: string;
+  /** Render `## ` as a real h2 instead of flattening to h3 — for documents
+   *  (like roundups) whose two-level section hierarchy is load-bearing. */
+  preserveH2?: boolean;
 }
 
-export function Markdown({ source, className }: MarkdownProps) {
+export function Markdown({ source, className, preserveH2 }: MarkdownProps) {
   const lines = source.split("\n");
   const blocks: ReactNode[] = [];
   let i = 0;
@@ -108,7 +111,13 @@ export function Markdown({ source, className }: MarkdownProps) {
       continue;
     }
     if (trimmed.startsWith("## ")) {
-      blocks.push(<h3 key={key++}>{inline(trimmed.slice(3))}</h3>);
+      blocks.push(
+        preserveH2 ? (
+          <h2 key={key++}>{inline(trimmed.slice(3))}</h2>
+        ) : (
+          <h3 key={key++}>{inline(trimmed.slice(3))}</h3>
+        )
+      );
       i += 1;
       continue;
     }

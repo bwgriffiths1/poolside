@@ -24,6 +24,7 @@ const GROUPS: NavGroup[] = [
       { to: "/overview", icon: "calendar", label: "Overview" },
       { to: "/meetings", icon: "list", label: "Meetings", matchPrefix: "/meeting" },
       { to: "/briefings", icon: "book", label: "Briefings", matchPrefix: "/briefing" },
+      { to: "/roundups", icon: "globe", label: "Roundups", matchPrefix: "/roundup" },
       { to: "/initiatives", icon: "tag", label: "Initiatives", matchPrefix: "/initiative" },
       { to: "/search", icon: "search", label: "Search" },
     ],

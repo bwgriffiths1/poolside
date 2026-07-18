@@ -5,7 +5,10 @@ import { Topbar } from "../components/Topbar";
 import { Icon } from "../components/Icon";
 import { VenueTag, TypeTag } from "../components/Tag";
 import { api } from "../lib/api";
+import { qk } from "../lib/queries";
 
+// Day-granularity relative label for meeting *dates* (coarser on purpose than
+// lib/format's formatRel, which is for timestamps).
 function rel(iso: string | null): string {
   if (!iso) return "—";
   const ms = Date.now() - new Date(iso).getTime();
@@ -22,7 +25,7 @@ export function Initiatives() {
   const [search, setSearch] = useState("");
 
   const { data = [], isLoading, error } = useQuery({
-    queryKey: ["initiatives"],
+    queryKey: qk.initiatives,
     queryFn: () => api.listInitiatives(),
   });
 
@@ -127,7 +130,7 @@ export function InitiativeDetail() {
   const navigate = useNavigate();
 
   const { data, isLoading, error } = useQuery({
-    queryKey: ["initiative", code],
+    queryKey: qk.initiative(code ?? ""),
     queryFn: () => api.getInitiative(code as string),
     enabled: !!code,
   });

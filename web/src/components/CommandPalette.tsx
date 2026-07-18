@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { Icon } from "./Icon";
 import { api, type SummarySearchHit } from "../lib/api";
+import { useMeetingsAll } from "../lib/queries";
 import type { MeetingListItem } from "../types";
 
 interface CommandPaletteProps {
@@ -23,10 +24,7 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
   const [query, setQuery] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
 
-  const { data: meetings = [] } = useQuery({
-    queryKey: ["meetings", { all: true }],
-    queryFn: () => api.meetings({ past_days: 3650, future_days: 365 }),
-  });
+  const { data: meetings = [] } = useMeetingsAll();
 
   // Summary full-text search — only fires once the user types at least 2 chars.
   const debouncedQuery = useDebouncedValue(query.trim(), 180);

@@ -2,13 +2,14 @@ import { useState, type FormEvent } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../lib/api";
+import { qk } from "../lib/queries";
 
 export function Accept() {
   const { token } = useParams<{ token: string }>();
   const navigate = useNavigate();
 
   const preview = useQuery({
-    queryKey: ["token-preview", token],
+    queryKey: qk.tokenPreview(token!),
     queryFn: () => api.publicTokenPreview(token as string),
     enabled: !!token,
     retry: false,

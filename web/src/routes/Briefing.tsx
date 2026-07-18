@@ -8,6 +8,8 @@ import { BlockRenderer } from "../components/briefing/BlockRenderer";
 import { VersionHistory } from "../components/VersionHistory";
 import { useScrollSpy } from "../hooks/useScrollSpy";
 import { api, type ShareToken } from "../lib/api";
+import { qk, useBriefing, useMeeting } from "../lib/queries";
+import { toast } from "../lib/toast";
 import { extFromFilename } from "../lib/format";
 import { inlineMd } from "../lib/markdown";
 import type { Briefing as BriefingType } from "../types";
@@ -90,21 +92,18 @@ export function Briefing() {
 
   const meetingId = Number(id);
 
-  const { data: m, isLoading: meetingLoading } = useQuery({
-    queryKey: ["meeting", meetingId],
-    queryFn: () => api.meeting(meetingId),
-  });
-  const { data: briefing, isLoading: briefingLoading, error: briefingError } = useQuery({
-    queryKey: ["briefing", meetingId],
-    queryFn: () => api.briefing(meetingId),
-    retry: false,
-  });
+  const { data: m, isLoading: meetingLoading } = useMeeting(meetingId);
+  const {
+    data: briefing,
+    isLoading: briefingLoading,
+    error: briefingError,
+  } = useBriefing(meetingId);
 
   const [showVersions, setShowVersions] = useState(false);
   const [showShare, setShowShare] = useState(false);
   const qc = useQueryClient();
   const approval = useQuery({
-    queryKey: ["approval", meetingId],
+    queryKey: qk.approval(meetingId),
     queryFn: () => api.getApproval(meetingId),
     enabled: Number.isFinite(meetingId),
     retry: false,
@@ -115,10 +114,10 @@ export function Briefing() {
         ? api.unapproveBriefing(meetingId)
         : api.approveBriefing(meetingId),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["approval", meetingId] });
-      qc.invalidateQueries({ queryKey: ["meetings"] });
+      qc.invalidateQueries({ queryKey: qk.approval(meetingId) });
+      qc.invalidateQueries({ queryKey: qk.meetings });
     },
-    onError: (e: Error) => alert(`Approval failed: ${e.message}`),
+    onError: (e: Error) => toast.error(`Approval failed: ${e.message}`),
   });
   const isApproved = approval.data?.status === "approved";
   const refs = useRef<Record<string, HTMLElement | null>>({});
@@ -237,7 +236,7 @@ export function Briefing() {
                   await api.downloadBriefingDocx(meetingId);
                 } catch (err) {
                   console.error("Download failed", err);
-                  alert("Could not download briefing — see console for details.");
+                  toast.error("Could not download briefing — see console for details.");
                 }
               }}
             >
@@ -546,18 +545,18 @@ function ShareLinkModal({
 }) {
   const qc = useQueryClient();
   const tokens = useQuery({
-    queryKey: ["share-tokens", meetingId],
+    queryKey: qk.shareTokens(meetingId),
     queryFn: () => api.listShareLinks(meetingId),
   });
   const create = useMutation({
     mutationFn: (expires_days: number | null) =>
       api.createShareLink(meetingId, expires_days),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["share-tokens", meetingId] }),
-    onError: (e: Error) => alert(`Create failed: ${e.message}`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: qk.shareTokens(meetingId) }),
+    onError: (e: Error) => toast.error(`Create failed: ${e.message}`),
   });
   const revoke = useMutation({
     mutationFn: (token_id: number) => api.revokeShareLink(token_id),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["share-tokens", meetingId] }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: qk.shareTokens(meetingId) }),
   });
 
   const [expiry, setExpiry] = useState<"30" | "90" | "never">("30");

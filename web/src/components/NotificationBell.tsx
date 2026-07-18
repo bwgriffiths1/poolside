@@ -3,19 +3,10 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { Icon } from "./Icon";
 import { api, type NotificationRow } from "../lib/api";
+import { qk } from "../lib/queries";
+import { formatRel } from "../lib/format";
 
 const POLL_MS = 30_000;
-
-function rel(iso: string | null): string {
-  if (!iso) return "";
-  const ms = Date.now() - new Date(iso).getTime();
-  if (ms < 60_000) return "just now";
-  const min = Math.floor(ms / 60_000);
-  if (min < 60) return `${min} min ago`;
-  const hr = Math.floor(min / 60);
-  if (hr < 24) return `${hr}h ago`;
-  return `${Math.floor(hr / 24)}d ago`;
-}
 
 function describe(n: NotificationRow): { title: string; sub: string } {
   if (n.kind === "briefing_approved") {
@@ -69,7 +60,7 @@ export function NotificationBell() {
   const popoverRef = useRef<HTMLDivElement>(null);
 
   const unread = useQuery({
-    queryKey: ["notifications-unread-count"],
+    queryKey: qk.notificationsUnread,
     queryFn: () => api.unreadCount(),
     refetchInterval: POLL_MS,
     // refetch on focus so opening the tab gets a fresh count
@@ -77,7 +68,7 @@ export function NotificationBell() {
   });
 
   const list = useQuery({
-    queryKey: ["notifications-list"],
+    queryKey: qk.notificationsList,
     queryFn: () => api.listNotifications(true),
     enabled: open,
     staleTime: 5_000,
@@ -86,8 +77,8 @@ export function NotificationBell() {
   const markAllRead = useMutation({
     mutationFn: () => api.markNotificationsRead(),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["notifications-unread-count"] });
-      qc.invalidateQueries({ queryKey: ["notifications-list"] });
+      qc.invalidateQueries({ queryKey: qk.notificationsUnread });
+      qc.invalidateQueries({ queryKey: qk.notificationsList });
     },
   });
 
@@ -110,8 +101,8 @@ export function NotificationBell() {
     if (!n.read_at) {
       // Optimistically mark this one read.
       api.markNotificationsRead([n.id]).then(() => {
-        qc.invalidateQueries({ queryKey: ["notifications-unread-count"] });
-        qc.invalidateQueries({ queryKey: ["notifications-list"] });
+        qc.invalidateQueries({ queryKey: qk.notificationsUnread });
+        qc.invalidateQueries({ queryKey: qk.notificationsList });
       });
     }
     if (n.meeting_id) navigate(`/meeting/${n.meeting_id}`);
@@ -169,7 +160,7 @@ export function NotificationBell() {
                       {d.sub && <div className="notif-row-sub">{d.sub}</div>}
                     </div>
                     <div className="notif-row-time muted text-xs">
-                      {rel(n.created_at)}
+                      {formatRel(n.created_at, "")}
                     </div>
                   </button>
                 );

@@ -4,6 +4,7 @@ import { Topbar } from "../components/Topbar";
 import { Icon } from "../components/Icon";
 import { TypeTag } from "../components/Tag";
 import { api } from "../lib/api";
+import { qk } from "../lib/queries";
 import { fmtDateRange } from "../lib/format";
 import { Markdown } from "../lib/markdown";
 import type { Roundup as RoundupData } from "../types";
@@ -43,7 +44,7 @@ export function Roundup() {
     isLoading,
     isError,
   } = useQuery({
-    queryKey: ["roundup", rid],
+    queryKey: qk.roundup(rid),
     queryFn: () => api.roundup(rid),
     enabled: Number.isFinite(rid),
     refetchInterval: (query) =>
@@ -55,15 +56,15 @@ export function Roundup() {
   const regenerate = useMutation({
     mutationFn: () => api.generateRoundup(r!.venue, r!.month),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["roundup", rid] });
-      qc.invalidateQueries({ queryKey: ["roundups"] });
+      qc.invalidateQueries({ queryKey: qk.roundup(rid) });
+      qc.invalidateQueries({ queryKey: qk.roundups });
     },
   });
 
   const del = useMutation({
     mutationFn: () => api.deleteRoundup(rid),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["roundups"] });
+      qc.invalidateQueries({ queryKey: qk.roundups });
       navigate("/roundups");
     },
   });

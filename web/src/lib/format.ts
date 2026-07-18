@@ -27,3 +27,24 @@ export function dayNumber(iso: string): number {
 export function extFromFilename(filename: string): string {
   return (filename.split(".").pop() || "").toUpperCase();
 }
+
+export function formatRel(
+  iso: string | null | undefined,
+  nullLabel = "never",
+): string {
+  if (!iso) return nullLabel;
+  const ms = Date.now() - new Date(iso).getTime();
+  if (ms < 0) return "in the future";
+  if (ms < 60_000) return "just now";
+  const min = Math.floor(ms / 60_000);
+  if (min < 60) return `${min} min ago`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr}h ago`;
+  return `${Math.floor(hr / 24)}d ago`;
+}
+
+export function fmtBytes(n: number): string {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(0)} KB`;
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+}

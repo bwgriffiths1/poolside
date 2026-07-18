@@ -6,7 +6,10 @@ import { Icon } from "../components/Icon";
 import { Segmented } from "../components/Segmented";
 import { MeetingRow } from "../components/MeetingRow";
 import { api } from "../lib/api";
-import type { CurrentUser, MeetingListItem, MeetingStatus } from "../types";
+import { qk, useMe } from "../lib/queries";
+import { formatRel } from "../lib/format";
+import { toast } from "../lib/toast";
+import type { MeetingListItem, MeetingStatus } from "../types";
 
 const today = () => new Date().toISOString().slice(0, 10);
 
@@ -29,11 +32,11 @@ export function Overview() {
   const [venueFilter, setVenueFilter] = useState<Venue>("All");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("All");
 
-  const { data: me } = useQuery<CurrentUser>({ queryKey: ["me"] });
+  const { data: me } = useMe();
   const firstName = (me?.name || "").split(" ")[0] || "there";
 
   const { data: meetings = [] } = useQuery({
-    queryKey: ["meetings", { past_days: 730, future_days: 365 }],
+    queryKey: qk.meetingsWindow(730, 365),
     queryFn: () => api.meetings({ past_days: 730, future_days: 365 }),
   });
 
@@ -49,8 +52,8 @@ export function Overview() {
       return { discoverRes, refreshRes };
     },
     onSuccess: ({ discoverRes, refreshRes }) => {
-      qc.invalidateQueries({ queryKey: ["meetings"] });
-      qc.invalidateQueries({ queryKey: ["venues"] });
+      qc.invalidateQueries({ queryKey: qk.meetings });
+      qc.invalidateQueries({ queryKey: qk.venues });
 
       const parts: string[] = [];
 
@@ -80,9 +83,11 @@ export function Overview() {
         parts.push(`Materials refresh failed: ${refreshRes.reason}`);
       }
 
-      alert(parts.join("\n"));
+      const anyFailed =
+        discoverRes.status === "rejected" || refreshRes.status === "rejected";
+      toast(parts.join("\n"), anyFailed ? "error" : "success");
     },
-    onError: (err: Error) => alert(`Refresh failed: ${err.message}`),
+    onError: (err: Error) => toast.error(`Refresh failed: ${err.message}`),
   });
 
   const filtered = useMemo(() => {
@@ -257,18 +262,6 @@ export function Overview() {
 
 // ── Pipeline status ───────────────────────────────────────────────────────
 
-function rel(iso: string | null | undefined): string {
-  if (!iso) return "never";
-  const ms = Date.now() - new Date(iso).getTime();
-  if (ms < 0) return "in the future";
-  if (ms < 60_000) return "just now";
-  const min = Math.floor(ms / 60_000);
-  if (min < 60) return `${min} min ago`;
-  const hr = Math.floor(min / 60);
-  if (hr < 24) return `${hr}h ago`;
-  return `${Math.floor(hr / 24)}d ago`;
-}
-
 function shortFutureTime(iso: string | null | undefined): string {
   if (!iso) return "—";
   const d = new Date(iso);
@@ -284,11 +277,11 @@ function shortFutureTime(iso: string | null | undefined): string {
 
 function PipelineStatus() {
   const venues = useQuery({
-    queryKey: ["venues"],
+    queryKey: qk.venues,
     queryFn: () => api.venues(),
   });
   const scheduler = useQuery({
-    queryKey: ["scheduler"],
+    queryKey: qk.scheduler,
     queryFn: () => api.schedulerStatus(),
   });
 
@@ -305,7 +298,7 @@ function PipelineStatus() {
         title={running ? "Scheduler running" : "Scheduler off"}
       />
       <span className="muted text-xs">
-        Calendars: last scrape {rel(isone?.last_scraped_at)}
+        Calendars: last scrape {formatRel(isone?.last_scraped_at)}
         {discoverJob?.next_run_time && (
           <> · next {shortFutureTime(discoverJob.next_run_time)}</>
         )}

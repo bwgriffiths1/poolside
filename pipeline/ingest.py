@@ -43,6 +43,8 @@ def _find_agenda_doc(doc_list: list[dict]) -> dict | None:
     best: dict | None = None
     for doc in doc_list:
         fn = doc["filename"].lower()
+        if fn.startswith("_combined_"):
+            continue  # NPC virtual section docs — never the agenda source
         if not any(h in fn for h in _AGENDA_HINTS):
             continue
         if fn.endswith(".docx"):

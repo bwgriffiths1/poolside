@@ -59,6 +59,18 @@ def try_parse_agenda(meeting_id: int, config: dict) -> dict[str, Any]:
         return {"parsed": False, "n_items": 0, "agenda_filename": None,
                 "reason": "no documents on this meeting"}
 
+    # NPC distributes materials as one combined PDF whose bookmarks define
+    # the agenda. The generic filename heuristic below would latch onto a
+    # virtual section doc and feed the entire combined PDF to the LLM parser
+    # — delegate to the bookmark parser instead. Falls through only when no
+    # combined PDF is stored yet (NPC occasionally posts a standalone agenda
+    # first).
+    if (meeting.get("type_short") or "").upper() == "NPC":
+        from pipeline.npc_ingest import try_parse_npc_agenda
+        npc = try_parse_npc_agenda(meeting_id, docs, session=requests.Session())
+        if npc is not None:
+            return npc
+
     # _find_agenda_doc expects {filename, url} shape
     candidates = [
         {"filename": d["filename"], "url": d.get("source_url"), "_db": d}

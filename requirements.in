@@ -1,0 +1,18 @@
+# Direct dependencies, loose. Edit THIS file, then refresh the pins in
+# requirements.txt (which is what Docker and CI install from):
+#   uv pip compile requirements.in -o requirements.txt --python-version 3.11
+# or, without uv, bump the == pins in requirements.txt by hand.
+requests
+beautifulsoup4
+pyyaml
+python-docx
+python-pptx
+anthropic
+pymupdf
+python-dotenv
+psycopg2-binary
+bcrypt
+pdfplumber
+fastapi
+uvicorn[standard]
+apscheduler

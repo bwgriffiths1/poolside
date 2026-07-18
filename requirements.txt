@@ -1,14 +1,23 @@
-requests
-beautifulsoup4
-pyyaml
-python-docx
-python-pptx
-anthropic
-pymupdf
-python-dotenv
-psycopg2-binary
-bcrypt
-pdfplumber
-fastapi
-uvicorn[standard]
-apscheduler
+# Pinned direct dependencies — Docker and CI install from this file.
+# Pinned 2026-07-17 to the then-current releases (matching what Railway was
+# already resolving from the previously-unpinned list). Loose inputs live in
+# requirements.in; see the note there for how to refresh.
+#
+# Why pinned: an unpinned redeploy can silently pull a breaking release —
+# e.g. apscheduler 4.x removes AsyncIOScheduler, which api/scheduler.py
+# imports. Transitive deps remain floating until a uv/pip-tools lock is
+# adopted (direct pins remove the sharpest risk).
+requests==2.34.2
+beautifulsoup4==4.15.0
+pyyaml==6.0.3
+python-docx==1.2.0
+python-pptx==1.0.2
+anthropic==0.117.0
+pymupdf==1.28.0
+python-dotenv==1.2.2
+psycopg2-binary==2.9.12
+bcrypt==5.0.0
+pdfplumber==0.11.10
+fastapi==0.139.2
+uvicorn[standard]==0.51.0
+apscheduler==3.11.3

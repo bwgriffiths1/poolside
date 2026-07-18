@@ -16,6 +16,7 @@ import json
 import logging
 import re
 import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Callable, Iterator
@@ -134,7 +135,19 @@ def _get_committee_prompts(
 # Text extraction
 # ---------------------------------------------------------------------------
 
+# MuPDF is not thread-safe — concurrent fitz use (even on separate files)
+# can corrupt state or segfault, and a segfault in a worker thread kills the
+# whole server process. All fitz work funnels through this lock; the LLM
+# calls (the actual wall-clock cost) still run in parallel.
+_FITZ_LOCK = threading.Lock()
+
+
 def extract_text_pdf(file_path: Path) -> str:
+    with _FITZ_LOCK:
+        return _extract_text_pdf_unlocked(file_path)
+
+
+def _extract_text_pdf_unlocked(file_path: Path) -> str:
     doc = fitz.open(str(file_path))
     pages = []
     for i, page in enumerate(doc):
@@ -323,6 +336,15 @@ def extract_images_pptx(
 
 
 def extract_images_pdf(
+    file_path: Path, min_px: int = 200,
+) -> list[dict]:
+    """Extract images from a PDF via pymupdf, serialized under _FITZ_LOCK
+    (MuPDF is not thread-safe; see the lock's comment)."""
+    with _FITZ_LOCK:
+        return _extract_images_pdf_unlocked(file_path, min_px=min_px)
+
+
+def _extract_images_pdf_unlocked(
     file_path: Path, min_px: int = 200,
 ) -> list[dict]:
     """
@@ -670,6 +692,23 @@ def capture_usage() -> Iterator[list[dict]]:
         yield bucket
     finally:
         _usage_local.log = None
+
+
+@contextmanager
+def attach_usage_log(bucket: list | None) -> Iterator[None]:
+    """Bind an existing capture_usage() bucket to THIS thread.
+
+    capture_usage is deliberately thread-local so concurrent jobs can't blend
+    totals — but that also means worker threads spawned *inside* one job
+    would record nothing. Each L1/L2 pool worker wraps itself in this so its
+    LLM usage lands in the job's bucket. Sharing one list across workers is
+    safe: list.append is atomic under the GIL."""
+    prev = getattr(_usage_local, "log", None)
+    _usage_local.log = bucket
+    try:
+        yield
+    finally:
+        _usage_local.log = prev
 
 
 def _first_text(msg) -> str:
@@ -1531,6 +1570,86 @@ def _run_meeting_briefing(
 # Orchestration
 # ---------------------------------------------------------------------------
 
+def _load_parallel_workers() -> int:
+    """summarization.parallel_workers from config.yaml — the L1/L2 fan-out
+    width for a summarize run. Default 3, clamped to 1..8: modest enough for
+    API rate limits and the 10-connection DB pool, wide enough that a
+    20-item meeting stops being 20 sequential LLM calls. 1 = sequential
+    (same code path, single worker). Level 3 is always one call."""
+    cfg_path = _REPO_ROOT / "config.yaml"
+    try:
+        cfg = yaml.safe_load(cfg_path.read_text(encoding="utf-8")) or {}
+        n = int(cfg.get("summarization", {}).get("parallel_workers", 3))
+    except Exception:
+        n = 3
+    return max(1, min(n, 8))
+
+
+def _item_label(item: dict) -> str:
+    return item.get("item_id") or item["title"]
+
+
+def _run_items_parallel(
+    items: list[dict],
+    worker_fn,
+    workers: int,
+    level_name: str,
+    progress,
+) -> list[tuple[str, object, Exception | None]]:
+    """Run worker_fn over agenda items on a bounded thread pool.
+
+    Returns [(label, result, exc)] in completion order; a worker exception is
+    captured into its tuple rather than aborting the batch (parity with the
+    old per-item try/except). The caller's usage bucket is re-attached inside
+    every worker so token/cost accounting stays exact.
+
+    Progress and cancellation stay on the CALLING thread: `progress` runs
+    once per completion, and when it raises (cooperative cancel — the job
+    runner's callback raises _JobCancelled after writing the row), pending
+    items are cancelled and in-flight LLM calls finish before the pool shuts
+    down — the same "current call completes" semantics the sequential loop
+    had, at strictly finer granularity.
+    """
+    if not items:
+        return []
+    bucket = getattr(_usage_local, "log", None)
+
+    def _run_one(it: dict):
+        with attach_usage_log(bucket):
+            return worker_fn(it)
+
+    results: list[tuple[str, object, Exception | None]] = []
+    total = len(items)
+    progress(f"{level_name}: running {total} item(s) on {workers} worker(s)…")
+    with ThreadPoolExecutor(
+        max_workers=workers, thread_name_prefix=f"{level_name.replace(' ', '')}-worker",
+    ) as pool:
+        futures = {pool.submit(_run_one, it): it for it in items}
+        try:
+            for fut in as_completed(futures):
+                label = _item_label(futures[fut])
+                exc: Exception | None = None
+                res = None
+                try:
+                    res = fut.result()
+                except Exception as e:
+                    exc = e
+                results.append((label, res, exc))
+                # progress deliberately runs OUTSIDE the except above: it is
+                # the cancellation channel (raises _JobCancelled), and a
+                # worker failure must never swallow a cancel.
+                suffix = " FAILED" if exc is not None else ""
+                progress(f"  {level_name}: {len(results)}/{total} done — {label}{suffix}")
+        except BaseException:
+            # Cooperative cancel (or crash) from the progress callback:
+            # drop everything not yet started; the pool's __exit__ waits for
+            # in-flight workers so their DB writes complete cleanly.
+            for f in futures:
+                f.cancel()
+            raise
+    return results
+
+
 def run_meeting_summarization(
     meeting_id: int,
     client,
@@ -1599,6 +1718,7 @@ def run_meeting_summarization(
             _progress(f"Image extraction enabled{' (folder: ' + meeting_folder.name + ')' if meeting_folder else ''}.")
 
     models      = _load_model_config()
+    workers     = _load_parallel_workers()
     doc_model   = models["document_model"]
     item_model  = models["item_model"]
     mtg_model   = models["meeting_model"]
@@ -1640,6 +1760,10 @@ def run_meeting_summarization(
             _progress(f"Level 1: summarising {len(item_ids)} affected agenda item(s)…")
         else:
             _progress("Level 1: summarising document groups for leaf agenda items…")
+        # Selection stays sequential (cheap DB checks); the LLM calls fan out
+        # across the worker pool below — Level 1 dominates wall-clock and
+        # items are independent (each writes only its own summary/doc rows).
+        worklist: list[dict] = []
         for item in all_items:
             # If item_ids filter is set, skip items not in the set
             if item_ids is not None and item["id"] not in item_ids:
@@ -1660,27 +1784,31 @@ def run_meeting_summarization(
                     and existing
                     and existing.get("status") not in ("stub", None)
                     and existing.get("detailed")):
-                label = item.get("item_id") or item["title"]
+                label = _item_label(item)
                 _progress(f"  Skipping item {label} — summary already exists (v{existing['version']})")
                 l1_count += 1
                 continue
 
-            label = item.get("item_id") or item["title"]
-            _progress(f"  Summarising documents for item {label}…")
-            try:
-                created = _run_item_doc_summary(
-                    item, client, doc_model, doc_summary_prompt,
-                    max_tokens=doc_max_tokens,
-                    extract_images=do_images,
-                    meeting_folder=meeting_folder,
-                )
-                if created:
-                    l1_count += 1
-                    l1_created += 1
-            except Exception as exc:
+            worklist.append(item)
+
+        def _l1_worker(it: dict) -> bool:
+            return _run_item_doc_summary(
+                it, client, doc_model, doc_summary_prompt,
+                max_tokens=doc_max_tokens,
+                extract_images=do_images,
+                meeting_folder=meeting_folder,
+            )
+
+        for label, created, exc in _run_items_parallel(
+                worklist, _l1_worker, workers=workers,
+                level_name="Level 1", progress=_progress):
+            if exc is not None:
                 msg = f"Level 1 error on item {label}: {exc}"
                 logger.error(msg)
                 errors.append(msg)
+            elif created:
+                l1_count += 1
+                l1_created += 1
 
     # ── Level 2: parent items (items that have children with summaries) ───────
     _progress("Level 2: rolling up parent items…")
@@ -1700,46 +1828,55 @@ def run_meeting_summarization(
             if any(c["id"] in item_ids for c in children):
                 affected_parent_ids.add(parent["id"])
 
-    for item in parent_items_sorted:
-        # Skip parents not affected by the item_ids filter
-        if affected_parent_ids is not None and item["id"] not in affected_parent_ids:
-            continue
+    # Parents at the SAME depth are independent of each other, but deeper
+    # groups must finish before shallower ones (a grandparent rolls up its
+    # children's rollups) — so fan out per depth with a barrier between
+    # groups. Child summaries are fetched inside the worker, i.e. after the
+    # deeper group's barrier, so they always see fresh rollups.
+    _depths = sorted({it.get("depth", 0) for it in parent_items_sorted}, reverse=True)
+    for _depth in _depths:
+        group: list[dict] = []
+        for item in parent_items_sorted:
+            if item.get("depth", 0) != _depth:
+                continue
+            # Skip parents not affected by the item_ids filter
+            if affected_parent_ids is not None and item["id"] not in affected_parent_ids:
+                continue
+            # Skip if this parent already has a rollup summary
+            existing = db.get_current_summary("agenda_item", item["id"])
+            if (not force_rerun
+                    and existing
+                    and existing.get("status") not in ("stub", None)
+                    and existing.get("detailed")):
+                _progress(f"  Skipping rollup for {_item_label(item)} — already exists (v{existing['version']})")
+                l2_count += 1
+                continue
+            group.append(item)
 
-        children = children_of.get(item["id"], [])
-        child_summaries = []
-        for child in children:
-            summ = db.get_current_summary("agenda_item", child["id"])
-            if summ and summ.get("detailed"):
-                child_summaries.append((child, summ))
-
-        if not child_summaries:
-            continue
-
-        label = item.get("item_id") or item["title"]
-
-        # Skip if this parent already has a rollup summary
-        existing = db.get_current_summary("agenda_item", item["id"])
-        if (not force_rerun
-                and existing
-                and existing.get("status") not in ("stub", None)
-                and existing.get("detailed")):
-            _progress(f"  Skipping rollup for {label} — already exists (v{existing['version']})")
-            l2_count += 1
-            continue
-
-        _progress(f"  Rolling up item {label} from {len(child_summaries)} child(ren)…")
-        try:
-            created = _run_item_rollup(
-                item, child_summaries, client, item_model, agenda_item_prompt,
+        def _l2_worker(parent: dict) -> bool | None:
+            children = children_of.get(parent["id"], [])
+            child_summaries = []
+            for child in children:
+                summ = db.get_current_summary("agenda_item", child["id"])
+                if summ and summ.get("detailed"):
+                    child_summaries.append((child, summ))
+            if not child_summaries:
+                return None  # nothing to roll up — not an error, not a count
+            return _run_item_rollup(
+                parent, child_summaries, client, item_model, agenda_item_prompt,
                 max_tokens=item_max_tokens,
             )
-            if created:
+
+        for label, created, exc in _run_items_parallel(
+                group, _l2_worker, workers=workers,
+                level_name="Level 2", progress=_progress):
+            if exc is not None:
+                msg = f"Level 2 error on item {label}: {exc}"
+                logger.error(msg)
+                errors.append(msg)
+            elif created:
                 l2_count += 1
                 l2_created += 1
-        except Exception as exc:
-            msg = f"Level 2 error on item {label}: {exc}"
-            logger.error(msg)
-            errors.append(msg)
 
     # ── Level 3: meeting briefing ─────────────────────────────────────────────
     _progress("Level 3: generating meeting briefing…")

@@ -179,6 +179,37 @@ def refresh_meeting_documents(
             result.unassigned_docs.append(d)
         return result
 
+    # NPC virtual section docs carry their item number straight from the
+    # bookmark parse — assign those directly; their synthetic `_combined_*`
+    # names never match the a<NN> filename-prefix heuristic below.
+    npc_virtual = [d for d in new_doc_rows if d.get("item_number")]
+    if npc_virtual:
+        by_item_id = {
+            i["item_id"]: i["id"] for i in agenda_items if i.get("item_id")
+        }
+        for d in npc_virtual:
+            key = (
+                d["parent_number"]
+                if d.get("section_type") == "sub_document" and d.get("parent_number")
+                else d["item_number"]
+            )
+            item_db_id = by_item_id.get(key)
+            if not item_db_id:
+                num_match = re.match(r"^(\d+)", key)
+                if num_match:
+                    item_db_id = by_item_id.get(num_match.group(1))
+            if item_db_id:
+                db.assign_document_to_item(item_db_id, d["db_row"]["id"])
+                result.affected_item_ids.add(item_db_id)
+            result.new_docs.append({
+                "filename": d["filename"],
+                "doc_db_id": d["db_row"]["id"],
+                "assigned_to_item": item_db_id,
+            })
+            if not item_db_id:
+                result.unassigned_docs.append(d)
+        new_doc_rows = [d for d in new_doc_rows if not d.get("item_number")]
+
     # Build mapping structures
     simple_doc_rows = [{"filename": d["filename"]} for d in new_doc_rows]
     doc_db_by_filename = {d["filename"]: d["db_row"]["id"] for d in new_doc_rows}

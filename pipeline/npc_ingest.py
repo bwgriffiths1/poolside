@@ -12,6 +12,7 @@ composite) that bundle multiple documents into one file. This module:
 
 Entry point:  ingest_npc_meeting(meeting_dict, doc_list, config)
 """
+import hashlib
 import logging
 import re
 from pathlib import Path
@@ -21,7 +22,6 @@ import requests
 import pipeline.db as db
 from pipeline.agenda_parser import map_docs_to_agenda_items
 from pipeline.npc_combined_parser import (
-    CombinedSection,
     build_agenda_from_sections,
     parse_agenda_section,
     parse_combined_pdf,
@@ -104,6 +104,233 @@ def _parent_item_id(item_id: str) -> str | None:
 
 
 # ---------------------------------------------------------------------------
+# Combined-PDF application (shared by ingest and the cron refresh path)
+# ---------------------------------------------------------------------------
+
+def apply_combined_pdf(
+    meeting_id: int,
+    pdf_bytes: bytes,
+    combined_url: str | None,
+    standalone_docs: list[dict] | None = None,
+) -> dict:
+    """
+    Materialize a combined PDF onto a meeting: parse its bookmark sections,
+    create virtual section documents (idempotent by filename), build and
+    insert the agenda (reusing rows kept by clear_agenda_for_meeting), and
+    assign both sections and standalone docs to items.
+
+    standalone_docs: [{"filename": ..., "doc_db_id": ...}] — the meeting's
+    non-virtual documents to map onto the parsed agenda.
+
+    Returns {"n_sections", "n_items", "section_assigned",
+             "standalone_assigned", "item_id_map"}.
+    """
+    sections = parse_combined_pdf(pdf_bytes)
+    logger.info("  Parsed %d section(s) from combined PDF", len(sections))
+
+    # ── Virtual document rows for combined PDF sections ─────────────────
+    # Maps item_number → list of document DB ids for section-to-item mapping
+    section_doc_map: dict[str, list[int]] = {}
+
+    for s in sections:
+        if s.is_tba or not s.text.strip():
+            continue
+
+        slug = _slugify(s.clean_title)
+        synthetic_filename = f"_combined_{s.item_number or 'x'}_{slug}.pdf"
+        ignored = s.section_type in _SKIP_SECTION_TYPES
+
+        row = db.upsert_document(
+            meeting_id=meeting_id,
+            filename=synthetic_filename,
+            file_type=".pdf",
+            source_url=combined_url,
+        )
+        doc_id = row["id"]
+
+        # Pre-populate raw_content so summarizer skips download
+        db.set_document_raw_content(doc_id, s.text)
+
+        if ignored:
+            db.set_document_ignored(doc_id, True)
+            logger.debug("  Section %s (%s) marked ignored", s.item_number, s.section_type)
+
+        # Track for section-to-item mapping
+        if s.item_number and not ignored:
+            # For sub_documents, map to parent's item number
+            map_key = s.parent_number if s.section_type == "sub_document" and s.parent_number else s.item_number
+            section_doc_map.setdefault(map_key, []).append(doc_id)
+
+    virtual_count = sum(1 for s in sections if not s.is_tba and s.text.strip())
+    logger.info("  %d virtual section document(s) created", virtual_count)
+
+    # ── Parse agenda ────────────────────────────────────────────────────
+    parsed_items: list[dict] = []
+    agenda_sections = [s for s in sections if s.section_type == "agenda"]
+
+    if agenda_sections:
+        a = agenda_sections[0]
+        parsed_items = parse_agenda_section(pdf_bytes, a.start_page, a.end_page)
+        logger.info("  Parsed %d agenda item(s) from agenda section", len(parsed_items))
+
+    if len(parsed_items) < 3:
+        logger.info("  Agenda section yielded %d item(s), using bookmark fallback", len(parsed_items))
+        fallback = build_agenda_from_sections(sections)
+        if len(fallback) > len(parsed_items):
+            parsed_items = fallback
+
+    # ── Insert agenda items ─────────────────────────────────────────────
+    # Items kept by clear_agenda_for_meeting (approved/manual summaries)
+    # must not be re-inserted; reuse their row ids.
+    item_id_map: dict[str, int] = {}  # item_id → DB row id
+    _existing = {
+        r["item_id"]: r["id"]
+        for r in db.get_agenda_items(meeting_id)
+        if r.get("item_id")
+    }
+
+    for seq, item in enumerate(parsed_items):
+        raw_item_id = item["item_id"]
+        if raw_item_id in _existing:
+            item_id_map[raw_item_id] = _existing[raw_item_id]
+            continue
+        depth = _item_depth(raw_item_id)
+        parent_raw = _parent_item_id(raw_item_id)
+        parent_db_id = item_id_map.get(parent_raw) if parent_raw else None
+
+        row = db.insert_agenda_item(
+            meeting_id=meeting_id,
+            title=item["title"],
+            seq=seq,
+            depth=depth,
+            parent_id=parent_db_id,
+            item_id=raw_item_id,
+            prefix=item.get("prefix"),
+            auto_sub=item.get("auto_sub", False),
+            presenter=item.get("presenter"),
+            org=item.get("org"),
+            vote_status=item.get("vote_status"),
+            wmpp_id=item.get("wmpp_id"),
+            time_slot=item.get("time_slot"),
+            notes=item.get("notes"),
+        )
+        item_id_map[raw_item_id] = row["id"]
+        logger.debug("  inserted agenda item %s: %s", raw_item_id, item["title"])
+
+    db.ensure_agenda_hierarchy(meeting_id)
+    logger.info("  %d agenda item(s) inserted", len(item_id_map))
+
+    # ── Map combined PDF sections to agenda items ───────────────────────
+    section_assigned = 0
+    for item_num_key, doc_ids in section_doc_map.items():
+        # Find matching agenda item — try exact match, then numeric prefix
+        item_db_id = item_id_map.get(item_num_key)
+        if not item_db_id:
+            # Try matching just the numeric part (e.g., "2A" section → item "2")
+            num_match = re.match(r"^(\d+)", item_num_key)
+            if num_match:
+                item_db_id = item_id_map.get(num_match.group(1))
+        if item_db_id:
+            for doc_db_id in doc_ids:
+                db.assign_document_to_item(item_db_id, doc_db_id)
+                section_assigned += 1
+
+    logger.info("  %d section-to-item assignment(s)", section_assigned)
+
+    # ── Map standalone documents to agenda items ────────────────────────
+    standalone_assigned = 0
+    if parsed_items and standalone_docs:
+        simple_doc_rows = [{"filename": d["filename"]} for d in standalone_docs]
+        doc_db_by_filename = {d["filename"]: d["doc_db_id"] for d in standalone_docs}
+        prefix_to_item_db_id = {
+            item["prefix"]: item_id_map[item["item_id"]]
+            for item in parsed_items
+            if item.get("prefix") and item["item_id"] in item_id_map
+        }
+
+        buckets = map_docs_to_agenda_items(simple_doc_rows, parsed_items)
+        for prefix, docs_in_bucket in buckets.items():
+            if prefix == "other":
+                continue
+            item_db_id = prefix_to_item_db_id.get(prefix)
+            if not item_db_id:
+                continue
+            for doc_row in docs_in_bucket:
+                doc_db_id = doc_db_by_filename.get(doc_row["filename"])
+                if doc_db_id:
+                    db.assign_document_to_item(item_db_id, doc_db_id)
+                    standalone_assigned += 1
+        logger.info("  %d standalone document-item assignment(s)", standalone_assigned)
+
+    return {
+        "n_sections": len(sections),
+        "n_items": len(item_id_map),
+        "section_assigned": section_assigned,
+        "standalone_assigned": standalone_assigned,
+        "item_id_map": item_id_map,
+    }
+
+
+def try_parse_npc_agenda(
+    meeting_id: int,
+    docs: list[dict],
+    session: requests.Session | None = None,
+) -> dict | None:
+    """
+    Cron-path NPC agenda build (called from orchestrator.try_parse_agenda).
+
+    NPC meetings discovered as stubs get their combined PDF days later via
+    the refresh cron; the agenda lives in that PDF's bookmark structure, not
+    in a standalone agenda doc. `docs` are the meeting's stored document
+    rows. Returns a try_parse_agenda-shaped result, or None when no combined
+    PDF is stored yet — the caller then falls back to the generic heuristic.
+    """
+    candidates = [
+        {"filename": d["filename"], "url": d.get("source_url")}
+        for d in docs
+        if not d["filename"].startswith("_combined_")
+    ]
+    combined = find_combined_pdf(candidates)
+    if combined is None:
+        return None
+
+    pdf_bytes = _download_bytes(combined.get("url") or "", session)
+    if not pdf_bytes:
+        return {"parsed": False, "n_items": 0,
+                "agenda_filename": combined["filename"],
+                "reason": "combined PDF download failed"}
+
+    standalone = [
+        {"filename": d["filename"], "doc_db_id": d["id"]}
+        for d in docs
+        if not d["filename"].startswith("_combined_")
+    ]
+    applied = apply_combined_pdf(
+        meeting_id,
+        pdf_bytes,
+        combined_url=combined.get("url"),
+        standalone_docs=standalone,
+    )
+    if applied["n_items"] == 0:
+        return {"parsed": False, "n_items": 0,
+                "agenda_filename": combined["filename"],
+                "reason": "bookmark parse yielded 0 agenda items"}
+
+    # Stamp the parse the same way the generic path does, so future
+    # re-parse detection has a hash to compare against.
+    agenda_hash = hashlib.sha256(pdf_bytes).hexdigest()
+    with db._conn() as conn:
+        with db._cursor(conn) as cur:
+            cur.execute(
+                "UPDATE meetings SET agenda_doc_hash=%s, agenda_parsed_at=NOW() WHERE id=%s",
+                (agenda_hash, meeting_id),
+            )
+
+    return {"parsed": True, "n_items": applied["n_items"],
+            "agenda_filename": combined["filename"], "reason": None}
+
+
+# ---------------------------------------------------------------------------
 # Main entry point
 # ---------------------------------------------------------------------------
 
@@ -167,161 +394,34 @@ def ingest_npc_meeting(
         doc_db_rows.append({"db_row": row, "filename": filename, "url": doc.get("url")})
     logger.info("  %d original document(s) upserted", len(doc_db_rows))
 
-    # ── 3. Download and parse the best combined PDF ─────────────────────
+    # ── 3. Download the best combined PDF and apply it ──────────────────
     combined_doc = find_combined_pdf(doc_list)
-    sections: list[CombinedSection] = []
     pdf_bytes: bytes | None = None
 
     if combined_doc:
         logger.info("  Downloading combined PDF: %s", combined_doc["filename"])
         pdf_bytes = _download_bytes(combined_doc.get("url", ""), session)
-        if pdf_bytes:
-            sections = parse_combined_pdf(pdf_bytes)
-            logger.info("  Parsed %d section(s) from combined PDF", len(sections))
-        else:
+        if not pdf_bytes:
             logger.warning("  Could not download combined PDF")
     else:
         logger.warning("  No combined PDF found in doc list")
 
-    # ── 4. Create virtual document rows for combined PDF sections ───────
-    # Maps item_number → list of document DB ids for section-to-item mapping
-    section_doc_map: dict[str, list[int]] = {}
-
-    for s in sections:
-        if s.is_tba or not s.text.strip():
-            continue
-
-        slug = _slugify(s.clean_title)
-        synthetic_filename = f"_combined_{s.item_number or 'x'}_{slug}.pdf"
-        ignored = s.section_type in _SKIP_SECTION_TYPES
-
-        row = db.upsert_document(
-            meeting_id=meeting_id,
-            filename=synthetic_filename,
-            file_type=".pdf",
-            source_url=combined_doc.get("url") if combined_doc else None,
-        )
-        doc_id = row["id"]
-
-        # Pre-populate raw_content so summarizer skips download
-        db.set_document_raw_content(doc_id, s.text)
-
-        if ignored:
-            db.set_document_ignored(doc_id, True)
-            logger.debug("  Section %s (%s) marked ignored", s.item_number, s.section_type)
-
-        # Track for section-to-item mapping
-        if s.item_number and not ignored:
-            # For sub_documents, map to parent's item number
-            map_key = s.parent_number if s.section_type == "sub_document" and s.parent_number else s.item_number
-            section_doc_map.setdefault(map_key, []).append(doc_id)
-
-    virtual_count = sum(1 for s in sections if not s.is_tba and s.text.strip())
-    logger.info("  %d virtual section document(s) created", virtual_count)
-
-    # ── 5. Parse agenda ─────────────────────────────────────────────────
-    parsed_items: list[dict] = []
-    agenda_sections = [s for s in sections if s.section_type == "agenda"]
-
-    if agenda_sections and pdf_bytes:
-        a = agenda_sections[0]
-        parsed_items = parse_agenda_section(pdf_bytes, a.start_page, a.end_page)
-        logger.info("  Parsed %d agenda item(s) from agenda section", len(parsed_items))
-
-    if len(parsed_items) < 3:
-        logger.info("  Agenda section yielded %d item(s), using bookmark fallback", len(parsed_items))
-        fallback = build_agenda_from_sections(sections)
-        if len(fallback) > len(parsed_items):
-            parsed_items = fallback
-
-    # ── 6. Insert agenda items ──────────────────────────────────────────
-    # Items kept by clear_agenda_for_meeting (approved/manual summaries)
-    # must not be re-inserted; reuse their row ids.
-    item_id_map: dict[str, int] = {}  # item_id → DB row id
-    _existing = {
-        r["item_id"]: r["id"]
-        for r in db.get_agenda_items(meeting_id)
-        if r.get("item_id")
-    }
-
-    for seq, item in enumerate(parsed_items):
-        raw_item_id = item["item_id"]
-        if raw_item_id in _existing:
-            item_id_map[raw_item_id] = _existing[raw_item_id]
-            continue
-        depth = _item_depth(raw_item_id)
-        parent_raw = _parent_item_id(raw_item_id)
-        parent_db_id = item_id_map.get(parent_raw) if parent_raw else None
-
-        row = db.insert_agenda_item(
-            meeting_id=meeting_id,
-            title=item["title"],
-            seq=seq,
-            depth=depth,
-            parent_id=parent_db_id,
-            item_id=raw_item_id,
-            prefix=item.get("prefix"),
-            auto_sub=item.get("auto_sub", False),
-            presenter=item.get("presenter"),
-            org=item.get("org"),
-            vote_status=item.get("vote_status"),
-            wmpp_id=item.get("wmpp_id"),
-            time_slot=item.get("time_slot"),
-            notes=item.get("notes"),
-        )
-        item_id_map[raw_item_id] = row["id"]
-        logger.debug("  inserted agenda item %s: %s", raw_item_id, item["title"])
-
-    db.ensure_agenda_hierarchy(meeting_id)
-    logger.info("  %d agenda item(s) inserted", len(item_id_map))
-
-    # ── 7. Map combined PDF sections to agenda items ────────────────────
-    section_assigned = 0
-    for item_num_key, doc_ids in section_doc_map.items():
-        # Find matching agenda item — try exact match, then numeric prefix
-        item_db_id = item_id_map.get(item_num_key)
-        if not item_db_id:
-            # Try matching just the numeric part (e.g., "2A" section → item "2")
-            num_match = re.match(r"^(\d+)", item_num_key)
-            if num_match:
-                item_db_id = item_id_map.get(num_match.group(1))
-        if item_db_id:
-            for doc_db_id in doc_ids:
-                db.assign_document_to_item(item_db_id, doc_db_id)
-                section_assigned += 1
-
-    logger.info("  %d section-to-item assignment(s)", section_assigned)
-
-    # ── 8. Map standalone documents to agenda items ─────────────────────
-    if parsed_items and doc_db_rows:
-        # Filter to non-combined-PDF docs
-        standalone_docs = [
-            d for d in doc_db_rows
+    item_id_map: dict[str, int] = {}
+    if pdf_bytes:
+        standalone = [
+            {"filename": d["filename"], "doc_db_id": d["db_row"]["id"]}
+            for d in doc_db_rows
             if not d["filename"].startswith("_combined_")
         ]
-        if standalone_docs:
-            simple_doc_rows = [{"filename": d["filename"]} for d in standalone_docs]
-            doc_db_by_filename = {d["filename"]: d["db_row"]["id"] for d in standalone_docs}
-            prefix_to_item_db_id = {
-                item["prefix"]: item_id_map[item["item_id"]]
-                for item in parsed_items
-                if item.get("prefix") and item["item_id"] in item_id_map
-            }
-
-            buckets = map_docs_to_agenda_items(simple_doc_rows, parsed_items)
-            standalone_assigned = 0
-            for prefix, docs_in_bucket in buckets.items():
-                if prefix == "other":
-                    continue
-                item_db_id = prefix_to_item_db_id.get(prefix)
-                if not item_db_id:
-                    continue
-                for doc_row in docs_in_bucket:
-                    doc_db_id = doc_db_by_filename.get(doc_row["filename"])
-                    if doc_db_id:
-                        db.assign_document_to_item(item_db_id, doc_db_id)
-                        standalone_assigned += 1
-            logger.info("  %d standalone document-item assignment(s)", standalone_assigned)
+        applied = apply_combined_pdf(
+            meeting_id,
+            pdf_bytes,
+            combined_url=combined_doc.get("url") if combined_doc else None,
+            standalone_docs=standalone,
+        )
+        item_id_map = applied["item_id_map"]
+    else:
+        db.ensure_agenda_hierarchy(meeting_id)
 
     # ── 9. Create stub summaries ────────────────────────────────────────
     for item_id_str, db_id in item_id_map.items():

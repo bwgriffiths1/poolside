@@ -31,7 +31,7 @@ _PROMPTS_DIR = Path(__file__).resolve().parent.parent.parent / "prompts"
 _CONFIG_PATH = _PROMPTS_DIR / "model_config.json"
 
 _SLUG_RE = re.compile(r"^[a-z0-9_]+$")
-_VENUE_SLUG_MAP = {"ISO-NE": "isone", "NYISO": "nyiso"}
+_VENUE_SLUG_MAP = {"ISO-NE": "isone"}
 
 
 def _venue_to_slug(short_name: str) -> str:

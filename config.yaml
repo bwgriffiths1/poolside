@@ -33,38 +33,6 @@ committees:
   short: PAC
   url: https://www.iso-ne.com/committees/planning/planning-advisory/calendar
   active: true
-nyiso_storage_root: ./nyiso-materials
-nyiso_lookahead_days: 90
-nyiso_committees:
-- name: Business Issues Committee
-  short: BIC
-  page_url: https://www.nyiso.com/business-issues-committee-bic
-  plid: "40263"
-  portlet_instance: khij
-  year_folders:
-    2026: "56302830"
-    2025: "49138793"
-    2024: "42341197"
-  active: true
-- name: Management Committee
-  short: MC
-  page_url: https://www.nyiso.com/management-committee-mc
-  plid: "40259"
-  portlet_instance: uleo
-  year_folders:
-    2026: "56758886"
-    2025: "49424262"
-  active: true
-- name: Operating Committee
-  short: OC
-  page_url: https://www.nyiso.com/operating-committee-oc
-  plid: "40267"
-  portlet_instance: wvuf
-  year_folders:
-    2026: "56359665"
-    2025: "49178969"
-    2024: "42374113"
-  active: true
 
 npc_combined:
   # Section types to mark as ignored (stored but not summarized)

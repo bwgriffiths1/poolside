@@ -92,7 +92,6 @@ def _load_model_config() -> dict:
 
 _VENUE_SLUG = {
     "ISO-NE": "isone",
-    "NYISO":  "nyiso",
 }
 
 
@@ -102,7 +101,7 @@ def _get_committee_prompts(
 ) -> tuple[str, str]:
     """
     Return (briefing_prompt, agenda_item_prompt) for the given committee
-    short name (e.g. "MC", "RC", "NPC") and venue (e.g. "ISO-NE", "NYISO").
+    short name (e.g. "MC", "RC", "NPC") and venue (e.g. "ISO-NE").
 
     Lookup order for each prompt type:
       1. {venue}_{committee}_{type}_prompt  (e.g. isone_mc_briefing_prompt)
@@ -1567,16 +1566,12 @@ def run_meeting_summarization(
     if do_images:
         meeting = db.get_meeting(meeting_id)
         if meeting:
-            venue = meeting.get("venue_short", "ISO-NE")
             cfg_path = _REPO_ROOT / "config.yaml"
             try:
                 full_cfg = yaml.safe_load(cfg_path.read_text(encoding="utf-8"))
             except Exception:
                 full_cfg = {}
-            if venue == "NYISO":
-                storage_root = Path(full_cfg.get("nyiso_storage_root", "./nyiso-materials"))
-            else:
-                storage_root = Path(full_cfg.get("storage_root", "./nepool-materials"))
+            storage_root = Path(full_cfg.get("storage_root", "./nepool-materials"))
             # Find existing meeting folder by scanning the committee directory
             type_short = meeting.get("type_short", "")
             type_name = meeting.get("type_name", "")

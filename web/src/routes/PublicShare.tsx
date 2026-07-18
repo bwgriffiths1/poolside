@@ -6,6 +6,7 @@ import { VenueTag, TypeTag } from "../components/Tag";
 import { BlockRenderer } from "../components/briefing/BlockRenderer";
 import { useScrollSpy } from "../hooks/useScrollSpy";
 import { api } from "../lib/api";
+import { qk } from "../lib/queries";
 import { inlineMd } from "../lib/markdown";
 import type { Briefing as BriefingType } from "../types";
 
@@ -19,7 +20,7 @@ export function PublicShare() {
   const { token } = useParams<{ token: string }>();
 
   const { data, isLoading, error } = useQuery({
-    queryKey: ["public-share", token],
+    queryKey: qk.publicShare(token!),
     queryFn: () => api.publicShare(token as string),
     enabled: !!token,
     retry: false,

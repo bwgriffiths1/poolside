@@ -2,6 +2,7 @@ import { useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { api } from "../lib/api";
+import { qk } from "../lib/queries";
 
 export function Login() {
   const navigate = useNavigate();
@@ -21,7 +22,7 @@ export function Login() {
     setSubmitting(true);
     try {
       const user = await api.login(email.trim(), password);
-      qc.setQueryData(["me"], user);
+      qc.setQueryData(qk.me, user);
       navigate("/overview", { replace: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Login failed.");

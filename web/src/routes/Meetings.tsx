@@ -1,11 +1,10 @@
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
 import { Topbar } from "../components/Topbar";
 import { Icon } from "../components/Icon";
 import { Segmented } from "../components/Segmented";
 import { MeetingRow } from "../components/MeetingRow";
-import { api } from "../lib/api";
+import { useMeetingsAll } from "../lib/queries";
 import type { MeetingListItem, MeetingStatus } from "../types";
 
 type Venue = "All" | "ISO-NE";
@@ -22,10 +21,7 @@ export function Meetings() {
   const [dateRange, setDateRange] = useState<DateRange>("all");
   const [search, setSearch] = useState("");
 
-  const { data: meetings = [] } = useQuery({
-    queryKey: ["meetings", { all: true }],
-    queryFn: () => api.meetings({ past_days: 3650, future_days: 365 }),
-  });
+  const { data: meetings = [] } = useMeetingsAll();
 
   // All distinct type_short values for the type dropdown.
   const types = useMemo(() => {

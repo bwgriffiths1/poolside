@@ -6,6 +6,7 @@ import { Icon } from "../components/Icon";
 import { Segmented } from "../components/Segmented";
 import { VenueTag, TypeTag } from "../components/Tag";
 import { api, type SummarySearchHit } from "../lib/api";
+import { qk, useMeetingsAll } from "../lib/queries";
 import type { MeetingListItem } from "../types";
 
 const SUMMARY_LIMIT = 200;
@@ -114,16 +115,13 @@ export function Search() {
   });
 
   const tagOptions = useQuery({
-    queryKey: ["search-tags"],
+    queryKey: qk.searchTags,
     queryFn: () => api.listSearchTags(),
     staleTime: 5 * 60_000,
   });
 
   // Meeting-haystack search is client-side (same as the palette + /meetings).
-  const meetings = useQuery({
-    queryKey: ["meetings", { all: true }],
-    queryFn: () => api.meetings({ past_days: 3650, future_days: 365 }),
-  });
+  const meetings = useMeetingsAll();
 
   // All distinct committee codes across the meeting list (for the dropdown).
   const types = useMemo(() => {

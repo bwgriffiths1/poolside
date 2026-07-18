@@ -5,6 +5,7 @@ import { Topbar } from "../components/Topbar";
 import { Icon } from "../components/Icon";
 import { Tag } from "../components/Tag";
 import { api } from "../lib/api";
+import { qk } from "../lib/queries";
 import type { RoundupMonth } from "../types";
 
 function StatusCell({
@@ -60,7 +61,7 @@ export function Roundups() {
   const [genError, setGenError] = useState<string | null>(null);
 
   const { data: months = [], isLoading } = useQuery({
-    queryKey: ["roundups"],
+    queryKey: qk.roundups,
     queryFn: () => api.roundups(),
     refetchInterval: (query) => {
       const rows = query.state.data;
@@ -76,7 +77,7 @@ export function Roundups() {
     mutationFn: (month: string) => api.generateRoundup("ISO-NE", month),
     onSuccess: (r) => {
       setGenError(null);
-      qc.invalidateQueries({ queryKey: ["roundups"] });
+      qc.invalidateQueries({ queryKey: qk.roundups });
       navigate(`/roundup/${r.id}`);
     },
     onError: (e) => setGenError(e instanceof Error ? e.message : String(e)),

@@ -5,6 +5,8 @@ import { Topbar } from "../components/Topbar";
 import { Icon } from "../components/Icon";
 import { Segmented } from "../components/Segmented";
 import { api } from "../lib/api";
+import { qk } from "../lib/queries";
+import { toast } from "../lib/toast";
 import { Markdown } from "../lib/markdown";
 
 type EntityType = "meeting" | "agenda_item";
@@ -19,7 +21,7 @@ export function Editor() {
   const entityId = Number(id);
 
   const { data, isLoading } = useQuery({
-    queryKey: ["summary", entityType, entityId],
+    queryKey: qk.summary(entityType, entityId),
     queryFn: () => api.getSummary(entityType, entityId),
   });
 
@@ -27,15 +29,36 @@ export function Editor() {
   const [body, setBody] = useState("");
   const [oneLine, setOneLine] = useState("");
   const [dirty, setDirty] = useState(false);
+  // The server version our editor state was seeded from — when a background
+  // refetch brings a newer one while `dirty`, we keep the user's text and
+  // show the conflict banner instead of silently clobbering their edits.
+  const [loadedVersion, setLoadedVersion] = useState<number | null>(null);
+  const loadedKeyRef = useRef<string | null>(null);
+  const dirtyRef = useRef(dirty);
+  dirtyRef.current = dirty;
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
-    if (data) {
-      setBody(data.detailed || "");
-      setOneLine(data.one_line || "");
-      setDirty(false);
-    }
-  }, [data?.entity_id, data?.version]);
+    if (!data) return;
+    const key = `${data.entity_type}:${data.entity_id}`;
+    if (key === loadedKeyRef.current && dirtyRef.current) return;
+    loadedKeyRef.current = key;
+    setBody(data.detailed || "");
+    setOneLine(data.one_line || "");
+    setDirty(false);
+    setLoadedVersion(data.version);
+  }, [data?.entity_type, data?.entity_id, data?.version]);
+
+  const serverMovedOn =
+    dirty && data != null && data.version !== loadedVersion;
+
+  const loadServerVersion = () => {
+    if (!data) return;
+    setBody(data.detailed || "");
+    setOneLine(data.one_line || "");
+    setDirty(false);
+    setLoadedVersion(data.version);
+  };
 
   const save = useMutation({
     mutationFn: () =>
@@ -44,12 +67,13 @@ export function Editor() {
         detailed: body,
       }),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["summary", entityType, entityId] });
-      qc.invalidateQueries({ queryKey: ["meeting"] });
-      qc.invalidateQueries({ queryKey: ["briefing"] });
+      qc.invalidateQueries({ queryKey: qk.summary(entityType, entityId) });
+      qc.invalidateQueries({ queryKey: qk.summaryVersions(entityType, entityId) });
+      qc.invalidateQueries({ queryKey: qk.allMeetingDetails });
+      qc.invalidateQueries({ queryKey: qk.allBriefings });
       setDirty(false);
     },
-    onError: (e: Error) => alert(`Save failed: ${e.message}`),
+    onError: (e: Error) => toast.error(`Save failed: ${e.message}`),
   });
 
   // Cmd/Ctrl-S to save
@@ -191,7 +215,7 @@ export function Editor() {
       setDirty(true);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
-      alert(`Image upload failed: ${msg}`);
+      toast.error(`Image upload failed: ${msg}`);
       // Remove the placeholder
       if (placeholderInserted) {
         setBody((prev) => prev.replace("![uploading…](pending)", ""));
@@ -284,6 +308,29 @@ export function Editor() {
                 </div>
               </div>
             </header>
+
+            {serverMovedOn && (
+              <div
+                className="row text-sm"
+                style={{
+                  margin: "0 0 12px",
+                  padding: "10px 12px",
+                  border: "1px solid var(--warn)",
+                  borderRadius: "var(--radius)",
+                  background: "var(--bg-elev)",
+                  gap: 12,
+                }}
+              >
+                <span style={{ flex: 1 }}>
+                  This summary changed on the server (now v{data.version})
+                  while you were editing. Saving will overwrite that version —
+                  it stays in history.
+                </span>
+                <button className="btn btn-sm" onClick={loadServerVersion}>
+                  Discard my edits, load v{data.version}
+                </button>
+              </div>
+            )}
 
             <Toolbar
               onHeading={(n) => prefixLine("#".repeat(n) + " ")}

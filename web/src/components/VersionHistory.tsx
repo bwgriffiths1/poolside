@@ -3,6 +3,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Icon } from "./Icon";
 import { Markdown } from "../lib/markdown";
 import { api, type SummaryVersionMeta } from "../lib/api";
+import { qk } from "../lib/queries";
+import { toast } from "../lib/toast";
 
 interface VersionHistoryProps {
   entityType: "meeting" | "agenda_item";
@@ -23,7 +25,7 @@ export function VersionHistory({
 }: VersionHistoryProps) {
   const qc = useQueryClient();
   const { data: versions = [], isLoading } = useQuery({
-    queryKey: ["summary-versions", entityType, entityId],
+    queryKey: qk.summaryVersions(entityType, entityId),
     queryFn: () => api.listSummaryVersions(entityType, entityId),
   });
 
@@ -35,13 +37,13 @@ export function VersionHistory({
     mutationFn: (version_id: number) =>
       api.restoreSummaryVersion(entityType, entityId, version_id),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["summary-versions", entityType, entityId] });
-      qc.invalidateQueries({ queryKey: ["meeting", meetingId] });
-      qc.invalidateQueries({ queryKey: ["summary", entityType, entityId] });
-      qc.invalidateQueries({ queryKey: ["briefing", meetingId] });
+      qc.invalidateQueries({ queryKey: qk.summaryVersions(entityType, entityId) });
+      qc.invalidateQueries({ queryKey: qk.meeting(meetingId) });
+      qc.invalidateQueries({ queryKey: qk.summary(entityType, entityId) });
+      qc.invalidateQueries({ queryKey: qk.briefing(meetingId) });
       onRestored?.();
     },
-    onError: (e: Error) => alert(`Restore failed: ${e.message}`),
+    onError: (e: Error) => toast.error(`Restore failed: ${e.message}`),
   });
 
   const togglePreview = async (v: SummaryVersionMeta) => {

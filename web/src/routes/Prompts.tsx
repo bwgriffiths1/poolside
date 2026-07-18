@@ -10,6 +10,8 @@ import {
   type PromptMeta,
   type VenueCommitteePrompts,
 } from "../lib/api";
+import { qk } from "../lib/queries";
+import { toast } from "../lib/toast";
 
 type Tab = "shared" | "venues" | "pipeline" | "models";
 type VenueSubTab = "briefing" | "agenda_item";
@@ -18,7 +20,7 @@ export function Prompts() {
   const [tab, setTab] = useState<Tab>("shared");
 
   const { data: index, isLoading } = useQuery({
-    queryKey: ["prompt-index"],
+    queryKey: qk.promptIndex,
     queryFn: () => api.prompts(),
   });
 
@@ -249,7 +251,7 @@ function PromptEditor({
 }) {
   const qc = useQueryClient();
   const { data, isLoading } = useQuery({
-    queryKey: ["prompt", meta.slug],
+    queryKey: qk.prompt(meta.slug),
     queryFn: () => api.prompt(meta.slug),
   });
 
@@ -263,11 +265,11 @@ function PromptEditor({
   const save = useMutation({
     mutationFn: () => api.savePrompt(meta.slug, content),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["prompt", meta.slug] });
-      qc.invalidateQueries({ queryKey: ["prompt-index"] });
+      qc.invalidateQueries({ queryKey: qk.prompt(meta.slug) });
+      qc.invalidateQueries({ queryKey: qk.promptIndex });
       setDirty(false);
     },
-    onError: (err: Error) => alert(`Save failed: ${err.message}`),
+    onError: (err: Error) => toast.error(`Save failed: ${err.message}`),
   });
 
   return (
@@ -343,7 +345,7 @@ const MODEL_OPTIONS = [
 function ModelsTab() {
   const qc = useQueryClient();
   const { data } = useQuery({
-    queryKey: ["model-config"],
+    queryKey: qk.modelConfig,
     queryFn: () => api.modelConfig(),
   });
   const [draft, setDraft] = useState({
@@ -363,8 +365,8 @@ function ModelsTab() {
 
   const save = useMutation({
     mutationFn: () => api.saveModelConfig(draft),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["model-config"] }),
-    onError: (err: Error) => alert(`Save failed: ${err.message}`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: qk.modelConfig }),
+    onError: (err: Error) => toast.error(`Save failed: ${err.message}`),
   });
 
   if (!data) return <div className="muted">Loading model config…</div>;

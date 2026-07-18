@@ -6,6 +6,8 @@ import { Icon } from "../components/Icon";
 import { Segmented } from "../components/Segmented";
 import { Pill } from "../components/Pill";
 import { api } from "../lib/api";
+import { qk } from "../lib/queries";
+import { formatRel } from "../lib/format";
 
 type Mode = "auto" | "manual";
 
@@ -14,7 +16,7 @@ export function Add() {
   const [mode, setMode] = useState<Mode>("auto");
 
   const { data: recent = [] } = useQuery({
-    queryKey: ["ingestJobs"],
+    queryKey: qk.ingestJobs,
     queryFn: () => api.ingestJobs(),
   });
 
@@ -108,28 +110,20 @@ function AutoScrape() {
   const qc = useQueryClient();
 
   const { data: venues = [] } = useQuery({
-    queryKey: ["venues"],
+    queryKey: qk.venues,
     queryFn: () => api.venues(),
   });
 
   const discover = useMutation({
     mutationFn: () => api.triggerDiscover(),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["venues"] });
-      qc.invalidateQueries({ queryKey: ["meetings"] });
+      qc.invalidateQueries({ queryKey: qk.venues });
+      qc.invalidateQueries({ queryKey: qk.meetings });
+    },
+    onError: () => {
+      /* shown inline below the button — keep the global toast quiet */
     },
   });
-
-  const rel = (iso: string | null) => {
-    if (!iso) return "never";
-    const ms = Date.now() - new Date(iso).getTime();
-    if (ms < 60_000) return "just now";
-    const min = Math.floor(ms / 60_000);
-    if (min < 60) return `${min} min ago`;
-    const hr = Math.floor(min / 60);
-    if (hr < 24) return `${hr}h ago`;
-    return `${Math.floor(hr / 24)}d ago`;
-  };
 
   const totalDiscovered = discover.data
     ? Object.values(discover.data.discovered).reduce((n, v) => n + v, 0)
@@ -153,7 +147,7 @@ function AutoScrape() {
           <div key={v.id} className="venue-card" style={{ cursor: "default" }}>
             <div className="venue-card-title">{v.short_name}</div>
             <div className="muted text-xs">
-              {v.name} · last scraped {rel(v.last_scraped_at)}
+              {v.name} · last scraped {formatRel(v.last_scraped_at)}
             </div>
           </div>
         ))}
@@ -205,7 +199,7 @@ function AutoScrape() {
 function ManualAdd() {
   const navigate = useNavigate();
   const { data: config } = useQuery({
-    queryKey: ["app-config"],
+    queryKey: qk.appConfig,
     queryFn: () => api.getConfig(),
   });
 

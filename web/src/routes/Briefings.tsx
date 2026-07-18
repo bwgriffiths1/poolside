@@ -1,12 +1,11 @@
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
 import { Topbar } from "../components/Topbar";
 import { Icon } from "../components/Icon";
 import { Segmented } from "../components/Segmented";
 import { Pill } from "../components/Pill";
 import { VenueTag, TypeTag, Tag } from "../components/Tag";
-import { api } from "../lib/api";
+import { useMeetingsAll } from "../lib/queries";
 import { fmtDateRange, monthLabel, dayNumber } from "../lib/format";
 import type { MeetingListItem } from "../types";
 
@@ -17,10 +16,7 @@ export function Briefings() {
   const [venueFilter, setVenueFilter] = useState<Venue>("All");
   const [search, setSearch] = useState("");
 
-  const { data: meetings = [] } = useQuery({
-    queryKey: ["meetings", { all: true }],
-    queryFn: () => api.meetings({ past_days: 3650, future_days: 365 }),
-  });
+  const { data: meetings = [] } = useMeetingsAll();
 
   // A "briefing" exists when status is summarized or updated.
   const briefings = useMemo(

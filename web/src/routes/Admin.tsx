@@ -3,6 +3,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Topbar } from "../components/Topbar";
 import { Icon } from "../components/Icon";
 import { api, type UserTokenRow } from "../lib/api";
+import { qk } from "../lib/queries";
+import { toast } from "../lib/toast";
 
 function dollars(n: number, frac = 4): string {
   return `$${n.toFixed(frac)}`;
@@ -16,7 +18,7 @@ function compact(n: number): string {
 
 export function Admin() {
   const { data, isLoading, error } = useQuery({
-    queryKey: ["usage-dashboard"],
+    queryKey: qk.usageDashboard,
     queryFn: () => api.usageDashboard(),
   });
 
@@ -148,7 +150,7 @@ export function Admin() {
 function UserTokensPanel() {
   const qc = useQueryClient();
   const tokens = useQuery({
-    queryKey: ["user-tokens"],
+    queryKey: qk.userTokens,
     queryFn: () => api.listUserTokens(),
   });
   const [inviteEmail, setInviteEmail] = useState("");
@@ -163,22 +165,22 @@ function UserTokensPanel() {
       setShowToken(row);
       setInviteEmail("");
       setInviteName("");
-      qc.invalidateQueries({ queryKey: ["user-tokens"] });
+      qc.invalidateQueries({ queryKey: qk.userTokens });
     },
-    onError: (e: Error) => alert(e.message),
+    onError: (e: Error) => toast.error(e.message),
   });
   const createReset = useMutation({
     mutationFn: () => api.createPasswordReset(resetEmail),
     onSuccess: (row) => {
       setShowToken(row);
       setResetEmail("");
-      qc.invalidateQueries({ queryKey: ["user-tokens"] });
+      qc.invalidateQueries({ queryKey: qk.userTokens });
     },
-    onError: (e: Error) => alert(e.message),
+    onError: (e: Error) => toast.error(e.message),
   });
   const revoke = useMutation({
     mutationFn: (id: number) => api.revokeUserToken(id),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["user-tokens"] }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: qk.userTokens }),
   });
 
   const urlFor = (t: UserTokenRow) =>

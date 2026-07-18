@@ -3,6 +3,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Topbar } from "../components/Topbar";
 import { Icon } from "../components/Icon";
 import { api, type AppConfig, type AppConfigCommittee } from "../lib/api";
+import { qk } from "../lib/queries";
+import { toast } from "../lib/toast";
 
 function clamp(n: number, lo: number, hi: number): number {
   if (Number.isNaN(n)) return lo;
@@ -16,7 +18,7 @@ function emptyRow(): AppConfigCommittee {
 export function Settings() {
   const qc = useQueryClient();
   const { data, isLoading, error } = useQuery({
-    queryKey: ["app-config"],
+    queryKey: qk.appConfig,
     queryFn: () => api.getConfig(),
   });
 
@@ -43,10 +45,10 @@ export function Settings() {
       return api.saveConfig(cleaned);
     },
     onSuccess: (fresh) => {
-      qc.setQueryData(["app-config"], fresh);
+      qc.setQueryData(qk.appConfig, fresh);
       setDraft({ ...fresh, committees: fresh.committees.map((c) => ({ ...c })) });
     },
-    onError: (e: Error) => alert(`Save failed: ${e.message}`),
+    onError: (e: Error) => toast.error(`Save failed: ${e.message}`),
   });
 
   const dirty =

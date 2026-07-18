@@ -1,9 +1,9 @@
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useEffect, useRef, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
 import { Sidebar } from "./Sidebar";
 import { CommandPalette } from "./CommandPalette";
-import { api } from "../lib/api";
+import { Toaster } from "./Toaster";
+import { useMe } from "../lib/queries";
 
 export function AppShell() {
   const { pathname } = useLocation();
@@ -11,11 +11,7 @@ export function AppShell() {
   const mainRef = useRef<HTMLElement>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
 
-  const { data: user, isLoading, isError } = useQuery({
-    queryKey: ["me"],
-    queryFn: () => api.me(),
-    retry: false,
-  });
+  const { data: user, isLoading, isError } = useMe();
 
   useEffect(() => {
     if (isError) navigate("/login", { replace: true });
@@ -49,6 +45,7 @@ export function AppShell() {
         <Outlet />
       </main>
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
+      <Toaster />
     </div>
   );
 }

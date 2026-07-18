@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Icon } from "./Icon";
 import { api, type DocAssignment } from "../lib/api";
+import { qk } from "../lib/queries";
 import { extFromFilename } from "../lib/format";
 import type { AgendaItem } from "../types";
 
@@ -19,13 +20,13 @@ interface ItemOption {
 export function MaterialAssignment({ meetingId, agenda }: Props) {
   const qc = useQueryClient();
   const { data: docs, isLoading } = useQuery({
-    queryKey: ["meeting-docs", meetingId],
+    queryKey: qk.meetingDocs(meetingId),
     queryFn: () => api.meetingDocuments(meetingId),
   });
 
   const invalidate = () => {
-    qc.invalidateQueries({ queryKey: ["meeting-docs", meetingId] });
-    qc.invalidateQueries({ queryKey: ["meeting", meetingId] });
+    qc.invalidateQueries({ queryKey: qk.meetingDocs(meetingId) });
+    qc.invalidateQueries({ queryKey: qk.meeting(meetingId) });
   };
 
   const assignMut = useMutation({
@@ -223,8 +224,8 @@ export function PerItemDocControls({
 }) {
   const qc = useQueryClient();
   const invalidate = () => {
-    qc.invalidateQueries({ queryKey: ["meeting-docs", meetingId] });
-    qc.invalidateQueries({ queryKey: ["meeting", meetingId] });
+    qc.invalidateQueries({ queryKey: qk.meetingDocs(meetingId) });
+    qc.invalidateQueries({ queryKey: qk.meeting(meetingId) });
   };
   const reassignMut = useMutation({
     mutationFn: ({ newItemId }: { newItemId: number }) =>

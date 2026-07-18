@@ -154,12 +154,13 @@ def refresh_with_agenda(meeting_id: int, config: dict) -> dict[str, Any]:
     out: dict[str, Any] = {"meeting_id": meeting_id, "steps": []}
 
     # Step 1
+    refresh_result = None
     try:
-        r = pl_refresh.refresh_meeting_documents(meeting_id, config=config)
+        refresh_result = pl_refresh.refresh_meeting_documents(meeting_id, config=config)
         out["steps"].append({
             "step": "refresh_materials",
-            "new_docs": len(getattr(r, "new_docs", []) or []),
-            "errors": getattr(r, "errors", []) or [],
+            "new_docs": len(getattr(refresh_result, "new_docs", []) or []),
+            "errors": getattr(refresh_result, "errors", []) or [],
         })
     except Exception as e:
         log.exception("refresh_meeting_documents failed: %s", e)
@@ -184,9 +185,79 @@ def refresh_with_agenda(meeting_id: int, config: dict) -> dict[str, Any]:
             log.exception("assign_existing_docs failed: %s", e)
             out["steps"].append({"step": "assign_existing_docs", "error": str(e)})
 
+    # Step 4: staleness follow-up. When new documents land on a meeting whose
+    # briefing already exists, the summaries are now stale — either auto-run
+    # an item-scoped re-summarize (summarization.auto_resummarize: true) or,
+    # by default, raise a materials_new notification in the inbox.
+    try:
+        follow = _handle_stale_summaries(meeting_id, refresh_result, config)
+        if follow:
+            out["steps"].append(follow)
+    except Exception as e:
+        log.exception("stale-summary follow-up failed: %s", e)
+        out["steps"].append({"step": "stale_followup", "error": str(e)})
+
     new_status = lifecycle.bump_lifecycle(meeting_id)
     out["lifecycle_status"] = new_status
     return out
+
+
+def _handle_stale_summaries(
+    meeting_id: int,
+    refresh_result: Any,
+    config: dict,
+) -> dict[str, Any] | None:
+    """Close the loop between refresh and summarize.
+
+    refresh_meeting_documents already computes affected_item_ids and
+    run_meeting_summarization(item_ids=...) exists to re-process exactly
+    those items — this connects the two (they previously had no caller).
+
+    Only fires for meetings that already have summaries; never summarizes
+    from scratch. Auto mode is gated behind summarization.auto_resummarize
+    (default off) so unattended LLM spend is opt-in; the default is a
+    broadcast notification with the re-run one click away.
+    """
+    if refresh_result is None or not getattr(refresh_result, "has_new", False):
+        return None
+    meeting = db.get_meeting(meeting_id) or {}
+    if meeting.get("lifecycle_status") not in ("summarized", "approved"):
+        return None
+
+    new_docs = refresh_result.new_docs or []
+    affected = {i for i in (refresh_result.affected_item_ids or set())}
+    auto = bool(config.get("summarization", {}).get("auto_resummarize", False))
+
+    if auto and affected:
+        # Item-scoped re-run: L1/L2 restricted to the affected items,
+        # L3 briefing always regenerates. Admission dedupe applies — if a
+        # job is already active this reports it instead of stacking.
+        from .routes.meetings import start_summarize_job
+
+        res = start_summarize_job(
+            meeting_id, mode="all", item_ids=affected, created_by="auto-resummarize",
+        )
+        log.info("auto-resummarize meeting %s → %s", meeting_id, res)
+        return {"step": "auto_resummarize",
+                "affected_items": len(affected), **(res or {})}
+
+    # Default: notify. Also the fallback in auto mode when every new doc is
+    # unassigned (an item-scoped run couldn't cover them).
+    from .routes.notifications import create_notification
+
+    label = f"{meeting.get('type_short') or ''} {meeting.get('meeting_date') or ''}".strip()
+    create_notification(
+        kind="materials_new",
+        user_id=None,  # broadcast
+        meeting_id=meeting_id,
+        payload={
+            "label": label,
+            "new_doc_count": len(new_docs),
+            "affected_item_ids": sorted(affected),
+        },
+    )
+    return {"step": "materials_new_notification",
+            "new_docs": len(new_docs), "affected_items": len(affected)}
 
 
 def _assign_existing_docs(meeting_id: int, config: dict) -> None:

@@ -294,6 +294,7 @@ def _run_summarize_job(
     venue_short: str,
     start_level: int = 1,
     force_rerun: bool = True,
+    item_ids: set[int] | None = None,
 ) -> None:
     """Daemon-thread entry point: drive run_meeting_summarization while
     streaming progress and usage back into the summarize_jobs row.
@@ -334,6 +335,7 @@ def _run_summarize_job(
                 progress_fn=progress,
                 start_level=start_level,
                 force_rerun=force_rerun,
+                item_ids=item_ids,
             )
         totals = totals_from_usage_log(usage_log)
     except _JobCancelled:
@@ -375,28 +377,24 @@ def _run_summarize_job(
     )
 
 
-@router.post("/{meeting_id}/summarize", status_code=202)
-def start_summarize(
+def start_summarize_job(
     meeting_id: int,
-    body: StartSummarizeBody = Body(default_factory=StartSummarizeBody),
-    user: dict = Depends(current_user),
-) -> dict[str, Any]:
-    """Kick off a background summarize job for this meeting.
+    mode: str = "all",
+    item_ids: set[int] | None = None,
+    created_by: str = "system",
+) -> dict[str, Any] | None:
+    """Claim the meeting's active-job slot and launch the daemon thread.
 
-    Returns the job_id and the pre-flight estimate. The actual run happens
-    in a daemon thread; poll GET /api/jobs/{job_id} for progress.
-
-    The optional `mode` in the body selects how much work to do:
-      * "all"      (default) — full re-run, regenerates everything
-      * "missing"  — only items lacking summaries; briefing regen if new work
-      * "briefing" — reuse item summaries, regenerate only the briefing
-    Omitting the body keeps the historical default (full re-run).
+    Shared by POST /summarize and the orchestrator's auto-resummarize path.
+    Returns the route-shaped dict ({job_id, already_running, ...}), or None
+    when the meeting does not exist. item_ids restricts Level 1/2 to the
+    affected agenda items; Level 3 always regenerates when it is set.
     """
     from pipeline.summarizer import estimate_summarization_cost
 
     row = db.get_meeting(meeting_id)
     if row is None:
-        raise HTTPException(status_code=404, detail="Meeting not found")
+        return None
 
     # Fast path: if a job is already in flight, skip the estimate work and
     # return its id. The real admission guard is the atomic INSERT below —
@@ -405,18 +403,19 @@ def start_summarize(
     if existing is not None:
         return {"job_id": existing, "already_running": True}
 
-    # Compute estimate; safe to fail silently — cost is best-effort.
-    try:
-        est = estimate_summarization_cost(meeting_id, mode=body.mode)
-    except Exception:
-        log.exception("pre-flight estimate failed for %s", meeting_id)
-        est = {
-            "estimated_input_tokens": None,
-            "estimated_output_tokens": None,
-            "estimated_cost_usd": None,
-        }
-
-    created_by = (user.get("email") if isinstance(user, dict) else None) or "unknown"
+    # Compute estimate; safe to fail silently — cost is best-effort. For
+    # item-scoped runs the estimator has no scoped mode, so a whole-meeting
+    # figure would mislead — store no estimate instead.
+    est: dict[str, Any] = {
+        "estimated_input_tokens": None,
+        "estimated_output_tokens": None,
+        "estimated_cost_usd": None,
+    }
+    if item_ids is None:
+        try:
+            est = estimate_summarization_cost(meeting_id, mode=mode)
+        except Exception:
+            log.exception("pre-flight estimate failed for %s", meeting_id)
 
     # Atomic claim against uq_summarize_jobs_one_active (migration 010):
     # if another request won the race, no row is inserted and we report the
@@ -458,11 +457,12 @@ def start_summarize(
         "missing":  (1, False),
         "briefing": (3, True),
     }
-    start_level, force_rerun = mode_to_args[body.mode]
+    start_level, force_rerun = mode_to_args[mode]
 
     t = threading.Thread(
         target=_run_summarize_job,
-        args=(job_id, meeting_id, committee_short, venue_short, start_level, force_rerun),
+        args=(job_id, meeting_id, committee_short, venue_short,
+              start_level, force_rerun, item_ids),
         name=f"summarize-job-{job_id}",
         daemon=True,
     )
@@ -471,8 +471,32 @@ def start_summarize(
     return {
         "job_id": job_id,
         "already_running": False,
-        "mode": body.mode,
+        "mode": mode,
         "estimated_cost_usd": est.get("estimated_cost_usd"),
         "estimated_input_tokens": est.get("estimated_input_tokens"),
         "estimated_output_tokens": est.get("estimated_output_tokens"),
     }
+
+
+@router.post("/{meeting_id}/summarize", status_code=202)
+def start_summarize(
+    meeting_id: int,
+    body: StartSummarizeBody = Body(default_factory=StartSummarizeBody),
+    user: dict = Depends(current_user),
+) -> dict[str, Any]:
+    """Kick off a background summarize job for this meeting.
+
+    Returns the job_id and the pre-flight estimate. The actual run happens
+    in a daemon thread; poll GET /api/jobs/{job_id} for progress.
+
+    The optional `mode` in the body selects how much work to do:
+      * "all"      (default) — full re-run, regenerates everything
+      * "missing"  — only items lacking summaries; briefing regen if new work
+      * "briefing" — reuse item summaries, regenerate only the briefing
+    Omitting the body keeps the historical default (full re-run).
+    """
+    created_by = (user.get("email") if isinstance(user, dict) else None) or "unknown"
+    res = start_summarize_job(meeting_id, mode=body.mode, created_by=created_by)
+    if res is None:
+        raise HTTPException(status_code=404, detail="Meeting not found")
+    return res

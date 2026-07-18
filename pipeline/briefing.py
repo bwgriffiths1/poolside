@@ -1,17 +1,17 @@
 """
-briefing.py — Phase 2: render the meeting-level briefing as a .docx file.
+briefing.py — Word rendering for briefings and deep dives.
 
-Takes the raw markdown text produced by rollup.generate_meeting_briefing_text()
-and writes a clean, lightly-formatted Word document:
-  - Title: committee + meeting date(s)
-  - Body: parsed markdown sections → Word headings / bullets / body text
-  - Inline images: renders <!-- image_id:N --> comments as embedded figures
+render_briefing_docx() walks the typed briefing AST produced by
+api/briefing_parser.py (the same parse the web reader consumes) and renders
+the NEPOOL-branded v2 design. Markdown is parsed exactly once, upstream —
+this module deliberately contains NO briefing-markdown parser, so the Word
+export cannot drift from the web view.
 
-Two rendering modes:
-  - "classic" — original plain Word styles (build_and_save_briefing)
-  - "redesigned" — polished NEPOOL brand design (build_and_save_briefing_v2)
+generate_deep_dive_docx_bytes() still parses deep-dive markdown locally
+(deep dives have their own format and no web AST yet).
 
-All functions return Path / data rather than printing. Safe to call from Streamlit.
+Inline images: <!-- image_id:N --> markers (and their web-resolved
+![...](/api/images/N) form) are embedded as figures from document_images.
 """
 import base64
 import logging
@@ -83,119 +83,6 @@ def _add_image_to_doc(doc: Document, image_id: int, width: float = 5.5) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Markdown → docx rendering
-# ---------------------------------------------------------------------------
-
-def _add_horizontal_rule(doc: Document) -> None:
-    """Insert a thin horizontal rule paragraph."""
-    p = doc.add_paragraph()
-    p.paragraph_format.space_before = Pt(4)
-    p.paragraph_format.space_after = Pt(4)
-    pPr = p._p.get_or_add_pPr()
-    pBdr = OxmlElement("w:pBdr")
-    bottom = OxmlElement("w:bottom")
-    bottom.set(qn("w:val"), "single")
-    bottom.set(qn("w:sz"), "6")
-    bottom.set(qn("w:space"), "1")
-    bottom.set(qn("w:color"), "CCCCCC")
-    pBdr.append(bottom)
-    pPr.append(pBdr)
-
-
-def _add_run_with_inline_markup(para, text: str) -> None:
-    """
-    Add runs to an existing paragraph, honouring **bold** inline markup.
-    Everything else is added as plain text.
-    """
-    # Strip CommonMark backslash escapes (\$ → $, \- → -, \( → (, etc.)
-    # fix_markdown() writes these into .md files so markdown renderers see
-    # literal characters rather than LaTeX math delimiters.  python-docx
-    # does not interpret CommonMark, so we un-escape before building Word runs.
-    text = re.sub(r'\\(.)', r'\1', text)
-
-    # Split on **...**
-    parts = re.split(r"(\*\*[^*]+\*\*)", text)
-    for part in parts:
-        m = re.fullmatch(r"\*\*([^*]+)\*\*", part)
-        if m:
-            run = para.add_run(m.group(1))
-            run.bold = True
-        else:
-            para.add_run(part)
-
-
-def _render_markdown_to_docx(doc: Document, text: str) -> None:
-    """
-    Render Claude's markdown output into the Word document.
-
-    Handles:
-      ## Heading 2  → Word Heading 2
-      ### Heading 3 → Word Heading 3
-      - bullet      → Word List Bullet
-      ---           → horizontal rule
-      <!-- image_id:N --> → inline image from database
-      blank line    → paragraph break (collapsed)
-      **bold**      → inline bold
-      everything else → Normal paragraph
-    """
-    lines = text.splitlines()
-    i = 0
-    while i < len(lines):
-        line = lines[i]
-        stripped = line.strip()
-
-        if not stripped:
-            # Blank line — skip (Word adds its own spacing)
-            i += 1
-            continue
-
-        # Inline image reference
-        img_match = _IMAGE_REF_RE.search(stripped)
-        if img_match:
-            _add_image_to_doc(doc, int(img_match.group(1)))
-            i += 1
-            continue
-
-        if stripped == "---":
-            _add_horizontal_rule(doc)
-            i += 1
-            continue
-
-        if stripped.startswith("## "):
-            doc.add_heading(stripped[3:].strip(), level=2)
-            i += 1
-            continue
-
-        if stripped.startswith("#### "):
-            doc.add_heading(stripped[5:].strip(), level=4)
-            i += 1
-            continue
-
-        if stripped.startswith("### "):
-            doc.add_heading(stripped[4:].strip(), level=3)
-            i += 1
-            continue
-
-        if stripped.startswith("# "):
-            # Top-level heading inside body — treat as H2 to keep hierarchy
-            doc.add_heading(stripped[2:].strip(), level=2)
-            i += 1
-            continue
-
-        if stripped.startswith("- ") or stripped.startswith("* "):
-            para = doc.add_paragraph(style="List Bullet")
-            _add_run_with_inline_markup(para, stripped[2:])
-            i += 1
-            continue
-
-        # Plain paragraph (may span until the next blank line)
-        para = doc.add_paragraph()
-        para.paragraph_format.space_after = Pt(4)
-        _add_run_with_inline_markup(para, stripped)
-        i += 1
-
-
-# ---------------------------------------------------------------------------
 # Date formatting helper
 # ---------------------------------------------------------------------------
 
@@ -220,60 +107,6 @@ def _format_date_range(iso_dates: list[str]) -> str:
     if first.year == last.year:
         return f"{first.strftime('%B %-d')}–{last.strftime('%B %-d, %Y')}"
     return f"{first.strftime('%B %-d, %Y')}–{last.strftime('%B %-d, %Y')}"
-
-
-# ---------------------------------------------------------------------------
-# Public API
-# ---------------------------------------------------------------------------
-
-def build_and_save_briefing(
-    briefing_text: str,
-    manifest: dict,
-    meeting_folder: Path,
-) -> Path:
-    """
-    Build the .docx briefing from Claude's markdown output and save it
-    to meeting_folder/<folder_name> Briefing.docx.
-
-    Returns the Path of the saved file.
-    """
-    doc = Document()
-
-    # --- Page margins (1 inch all around) ---
-    for section in doc.sections:
-        section.top_margin = Pt(72)
-        section.bottom_margin = Pt(72)
-        section.left_margin = Pt(72)
-        section.right_margin = Pt(72)
-
-    # --- Title block ---
-    committee = manifest.get("committee", "Committee")
-    dates = manifest.get("meeting_dates", [])
-    date_str = _format_date_range(dates)
-
-    title_para = doc.add_heading(f"{committee}", level=1)
-    title_para.alignment = WD_ALIGN_PARAGRAPH.LEFT
-
-    sub_para = doc.add_paragraph(f"Meeting Briefing  ·  {date_str}")
-    sub_para.alignment = WD_ALIGN_PARAGRAPH.LEFT
-    sub_para.paragraph_format.space_after = Pt(12)
-    if sub_para.runs:
-        sub_para.runs[0].italic = True
-        sub_para.runs[0].font.color.rgb = RGBColor(0x44, 0x44, 0x44)
-
-    _add_horizontal_rule(doc)
-
-    # --- Body: Claude's markdown output ---
-    _render_markdown_to_docx(doc, briefing_text)
-
-    # --- Save ---
-    folder_name = meeting_folder.name          # e.g. "MC March 10 2026"
-    filename = f"{folder_name} Briefing.docx"
-    output_path = meeting_folder / filename
-    doc.save(str(output_path))
-
-    logger.info("Briefing saved: %s", output_path)
-    return output_path
 
 
 # ---------------------------------------------------------------------------
@@ -555,274 +388,123 @@ def _render_v2_exec_summary(doc: Document, exec_lines: list[str]) -> None:
             _v2_bold_runs(p, line)
 
 
-_ITEM_HEAD_SEP = re.compile(r"^(.*?)\s*[:—–]\s*(.+)$")
+# ---------------------------------------------------------------------------
+# Briefing rendering — AST → NEPOOL-branded .docx bytes
+# ---------------------------------------------------------------------------
+
+_RESOLVED_IMG_RE = re.compile(r"!\[[^\]]*\]\(/api/images/(\d+)\)")
 
 
-def _split_item_heading(h: str) -> tuple[str, str]:
-    """Split an agenda heading like '3 — Title' or '3.a: Title' into
-    (number, title). Splits on the FIRST colon / em-dash / en-dash so an
-    en-dash inside the title (e.g. 'Reforms – Seasonal') is preserved."""
-    m = _ITEM_HEAD_SEP.match(h)
-    if m:
-        return m.group(1).strip(), m.group(2).strip()
-    m2 = re.match(r"^(\S+)\s+-\s+(.+)$", h)  # spaced-hyphen fallback
-    if m2:
-        return m2.group(1).strip(), m2.group(2).strip()
-    return h.strip(), ""
+def _render_v2_subheading(doc: Document, text: str) -> None:
+    """H4-style sub-heading: italic cyan number, bold-italic charcoal title."""
+    p = doc.add_paragraph()
+    _v2_spacing(p, before=Pt(12), after=Pt(4))
+    if ":" in text:
+        num, title = text.split(":", 1)
+        r = p.add_run(num.strip())
+        r.font.name = "Calibri"; r.font.size = Pt(10.5)
+        r.italic = True; r.font.color.rgb = _CYAN
+        r = p.add_run(":  " + title.strip())
+        r.font.name = "Calibri"; r.font.size = Pt(10.5)
+        r.bold = True; r.italic = True; r.font.color.rgb = _CHARCOAL
+    else:
+        r = p.add_run(text)
+        r.font.name = "Calibri"; r.font.size = Pt(10.5)
+        r.bold = True; r.italic = True; r.font.color.rgb = _CHARCOAL
 
 
-def _v2_parse_briefing_md(text: str) -> dict:
-    """Parse Claude's briefing markdown into structured data for the v2 renderer."""
-    lines = text.splitlines()
-    data = {"title": "", "subtitle": "", "date": "", "takeaways": [],
-            "exec_summary": [], "items": []}
-    i = 0
-
-    # H1 (optional — Claude's briefing prompt does not require one)
-    # Use a for-loop so i is only advanced if an H1 is actually found;
-    # if none exists the main content scan still starts from line 0.
-    for j, line in enumerate(lines):
-        s = line.strip()
-        if s.startswith("## "):
-            break  # hit a real section heading — no H1 present
-        if s.startswith("# "):
-            data["title"] = s[2:].strip()
-            i = j + 1
-            break
-
-    # Subtitle / date (only scan a short window after the H1, if any)
-    j = i
-    while j < min(i + 5, len(lines)):
-        s = lines[j].strip()
-        if not s:
-            j += 1
+def _render_p_block(doc: Document, text: str) -> None:
+    """Render a paragraph block from the AST: embed any image references
+    (both the raw `<!-- image_id:N -->` marker and the web-resolved
+    `![...](/api/images/N)` form), then render residual text line by line.
+    Bullet lines arrive from the parser as `• ...`."""
+    for m in _IMAGE_REF_RE.finditer(text):
+        _add_image_to_doc(doc, int(m.group(1)))
+    for m in _RESOLVED_IMG_RE.finditer(text):
+        _add_image_to_doc(doc, int(m.group(1)))
+    residual = _RESOLVED_IMG_RE.sub("", _IMAGE_REF_RE.sub("", text))
+    for line in residual.split("\n"):
+        line = line.strip()
+        if not line:
             continue
-        if s.startswith("#"):
-            break  # hit a section heading — no subtitle line
-        m = re.match(r"^\*(.+)\*$", s)
-        inner = m.group(1) if m else s
-        if "·" in inner:
-            parts = inner.split("·", 1)
-            data["subtitle"] = parts[0].strip()
-            data["date"] = parts[1].strip()
+        p = doc.add_paragraph()
+        _v2_spacing(p, before=Pt(0), after=Pt(7), line=Pt(12.1))
+        if line.startswith("\u2022 "):
+            _v2_run(p, "\u2013  ", size=Pt(10.5), color=_CHARCOAL)
+            _v2_bold_runs(p, line[2:])
         else:
-            data["subtitle"] = inner
-        i = j + 1
-        break
-        j += 1
-
-    exec_lines, cur = [], None
-    mode = "scan"
-    while i < len(lines):
-        s = lines[i].strip()
-        if s.startswith("## "):
-            h = s[3:].strip()
-            hl = h.lower()
-            # Same trigger as api/briefing_parser.py: any "takeaway" heading.
-            if "takeaway" in hl: mode = "takeaways"; i += 1; continue
-            elif "executive summary" in hl: mode = "exec"; i += 1; continue
-            elif "agenda item" in hl:
-                mode = "items"
-                if cur: data["items"].append(cur); cur = None
-                i += 1; continue
-            elif mode == "items":
-                # Top-level agenda item, e.g. "## 3 — CAR-SA" — a group header
-                # owning the ### sub-items below it (depth 0).
-                if cur: data["items"].append(cur)
-                n, t = _split_item_heading(h)
-                cur = {"number": n, "title": t, "depth": 0, "body": [], "next_steps": []}
-                i += 1; continue
-            else: i += 1; continue
-        if s.startswith("#### "):
-            # H4 sub-heading — rendered inline as styled text within the current item
-            if cur is not None:
-                cur["body"].append(s)
-            i += 1; continue
-        if s.startswith("### "):
-            if cur: data["items"].append(cur)
-            n, t = _split_item_heading(s[4:].strip())
-            cur = {"number": n, "title": t, "depth": 1, "body": [], "next_steps": []}
-            mode = "items"; i += 1; continue
-        if not s or s == "---": i += 1; continue
-        if mode == "takeaways":
-            # One bullet per ranked takeaway; non-bullet lines are ignored,
-            # matching parse_briefing_markdown.
-            if s.startswith("- ") or s.startswith("* "):
-                data["takeaways"].append(s[2:].strip())
-        elif mode == "exec":
-            exec_lines.append(s)
-        elif mode == "items" and cur is not None:
-            ns = re.match(r"^\*\*Next Steps[:\s]*\*\*\s*(.*)", s, re.IGNORECASE)
-            if ns:
-                # "Next Steps" header — may have inline content or bullets on following lines
-                inline = ns.group(1).strip().rstrip(".")
-                if inline:
-                    # Old style: **Next Steps:** item1; item2; item3
-                    cur["next_steps"] = [x.strip() for x in inline.split(";") if x.strip()]
-                cur["_in_next_steps"] = True
-            elif cur.get("_in_next_steps") and (s.startswith("- ") or s.startswith("* ")):
-                # Bullet lines following **Next Steps:**
-                cur["next_steps"].append(s[2:].strip())
-            else:
-                cur["_in_next_steps"] = False
-                cur["body"].append(s)
-        i += 1
-    if cur: data["items"].append(cur)
-    # Preserve exec summary as list of lines (may include bullets)
-    data["exec_summary"] = exec_lines
-    return data
+            _v2_bold_runs(p, line)
 
 
-def build_and_save_briefing_v2(
-    briefing_text: str,
-    manifest: dict,
-    meeting_folder: Path,
-) -> Path:
-    """
-    Build a polished .docx briefing using the NEPOOL brand design system (v2).
+def _render_body_blocks(doc: Document, blocks) -> None:
+    """Walk a section's typed body blocks (p / h / data / callout)."""
+    for b in blocks or []:
+        kind = getattr(b, "kind", "p")
+        if kind == "data":
+            rows = [list(r) for r in (getattr(b, "rows", None) or [])]
+            if getattr(b, "title", ""):
+                _render_v2_subheading(doc, b.title)
+            if rows:
+                _add_word_table(doc, rows)
+                doc.add_paragraph()  # spacer after table
+        elif kind == "callout":
+            _render_v2_callout(doc, getattr(b, "label", "") or "Note",
+                               getattr(b, "text", "") or "")
+        elif kind == "h":
+            _render_v2_subheading(doc, getattr(b, "text", "") or "")
+        else:
+            _render_p_block(doc, getattr(b, "text", "") or "")
 
-    Same signature as build_and_save_briefing — drop-in replacement.
-    Returns the Path of the saved file.
-    """
-    committee = manifest.get("committee", "Committee")
-    dates = manifest.get("meeting_dates", [])
-    date_str = _format_date_range(dates)
 
-    # Parse markdown into structured data
-    data = _v2_parse_briefing_md(briefing_text)
-    data["title"] = data["title"] or committee
-    data["subtitle"] = data["subtitle"] or "Meeting Briefing"
-    data["date"] = data["date"] or date_str
-
-    doc = Document()
-
-    # Page setup
-    sec = doc.sections[0]
-    sec.page_width = Inches(8.5); sec.page_height = Inches(11)
-    sec.top_margin = Twips(1008); sec.bottom_margin = Twips(1008)
-    sec.left_margin = Inches(1.0); sec.right_margin = Inches(1.0)
-
-    style = doc.styles["Normal"]
-    style.font.name = "Calibri"; style.font.size = Pt(10.5)
-    style.font.color.rgb = _CHARCOAL
-
-    # Header / footer
-    sec.different_first_page_header_footer = True
-    # First-page: empty header, empty footer
-    if sec.first_page_header.paragraphs:
-        sec.first_page_header.paragraphs[0].clear()
-    if sec.first_page_footer.paragraphs:
-        sec.first_page_footer.paragraphs[0].clear()
-    # Running header — empty (no text, just a bottom border)
-    hp = sec.header.paragraphs[0] if sec.header.paragraphs else sec.header.add_paragraph()
-    hp.clear()
-    # Running footer — LEFT: "Meeting Briefing" | CENTER: Page N | RIGHT: Date • Committee
-    fp = sec.footer.paragraphs[0] if sec.footer.paragraphs else sec.footer.add_paragraph()
-    fp.clear()
-    pPr = fp._p.get_or_add_pPr()
-    tabs = OxmlElement("w:tabs")
-    tab_c = OxmlElement("w:tab")
-    tab_c.set(qn("w:val"), "center"); tab_c.set(qn("w:pos"), str(_CONTENT_W // 2))
-    tabs.append(tab_c)
-    tab_r = OxmlElement("w:tab")
-    tab_r.set(qn("w:val"), "right"); tab_r.set(qn("w:pos"), str(_CONTENT_W))
-    tabs.append(tab_r)
-    pPr.append(tabs)
-    _v2_run(fp, "Meeting Briefing", size=Pt(8.5), color=_GRAY_MID)
-    fp.add_run("\t")
-    _v2_run(fp, "Page ", size=Pt(8.5), color=_GRAY_MID)
-    pr = fp.add_run(); pr.font.name = "Calibri"; pr.font.size = Pt(8.5); pr.font.color.rgb = _GRAY_MID
-    _v2_page_number(pr)
-    fp.add_run("\t")
-    _v2_run(fp, f"{data['date']} • {data['title']}", size=Pt(8.5), color=_GRAY_MID)
-    _v2_pborder(fp, "top", 6, _CYAN_HEX, space=4)
-
-    # Remove default empty paragraph
-    if doc.paragraphs:
-        doc.paragraphs[0]._p.getparent().remove(doc.paragraphs[0]._p)
-
-    # ---- Title block ----
-    p = doc.add_paragraph(); _v2_spacing(p, before=Pt(0), after=Pt(0))
-    _v2_pborder(p, "top", 36, _CYAN_HEX)
-    p = doc.add_paragraph(); _v2_spacing(p, before=Pt(0), after=Pt(0))
-    _v2_run(p, "N E P O O L", size=Pt(8), bold=True, color=_CYAN)
-    p = doc.add_paragraph(); _v2_spacing(p, before=Pt(0), after=Pt(4))
-    _v2_run(p, data["title"], size=Pt(28), bold=True, color=_CHARCOAL)
-    p = doc.add_paragraph(); _v2_spacing(p, before=Pt(0), after=Pt(10)); _v2_right_tab(p)
-    _v2_run(p, "Meeting Briefing", size=Pt(12), color=_CYAN)
-    p.add_run("\t")
-    _v2_run(p, data["date"], size=Pt(12), color=_GRAY_TEXT)
-    p = doc.add_paragraph(); _v2_spacing(p, before=Pt(0), after=Pt(0))
-    _v2_pborder(p, "bottom", 4, _GRAY_MID_HEX)
-
-    # ---- Executive Summary ----
-    p = doc.add_paragraph(); _v2_spacing(p, before=Pt(22), after=Pt(11))
-    _v2_run(p, "EXECUTIVE SUMMARY", size=Pt(10), bold=True, color=_CHARCOAL)
-    _v2_pborder(p, "bottom", 8, _CYAN_HEX, space=4)
-
-    # Exec summary: E1 style — shaded box, each line rendered separately
-    _render_v2_exec_summary(doc, data["exec_summary"])
-
-    # ---- Agenda Item Summaries ----
-    p = doc.add_paragraph(); _v2_spacing(p, before=Pt(22), after=Pt(11))
-    _v2_run(p, "AGENDA ITEM SUMMARIES", size=Pt(10), bold=True, color=_CHARCOAL)
-    _v2_pborder(p, "bottom", 8, _CYAN_HEX, space=4)
-
-    for item in data["items"]:
-        # Item heading
-        p = doc.add_paragraph(); _v2_spacing(p, before=Pt(19), after=Pt(7))
-        _v2_run(p, item["number"], size=Pt(11), bold=True, color=_CYAN)
-        _v2_run(p, "  " + item["title"], size=Pt(11), bold=True, color=_CHARCOAL)
-        # Body paragraphs (tables, images rendered as Word tables/pictures)
-        _render_v2_body_lines(doc, item["body"])
-        # Next Steps callout
-        if item["next_steps"]:
-            doc.add_paragraph()  # spacer
-            p = doc.add_paragraph()
-            _v2_pshading(p, _GRAY_BG)
-            _v2_pborder(p, "top", 10, _GRAY_MID_HEX, space=6)
-            _v2_pborder(p, "bottom", 10, _GRAY_MID_HEX, space=6)
-            _v2_spacing(p, before=Pt(0), after=Pt(0), line=Pt(12.1))
-            _v2_run(p, "NEXT STEPS", size=Pt(8.5), bold=True, color=_CYAN)
-            for step in item["next_steps"]:
+def _render_exec_blocks(doc: Document, blocks) -> None:
+    """Executive summary as one continuous shaded box, from typed blocks."""
+    if not blocks:
+        return
+    p = doc.add_paragraph()
+    _v2_pshading(p, _CYAN_BG)
+    _v2_pborder(p, "top", 10, _CYAN_HEX, space=6)
+    _v2_pborder(p, "bottom", 10, _CYAN_HEX, space=6)
+    _v2_spacing(p, before=Pt(0), after=Pt(0), line=Pt(12.1))
+    first = True
+    for b in blocks:
+        kind = getattr(b, "kind", "p")
+        text = getattr(b, "text", "") or ""
+        for line in text.split("\n"):
+            line = line.strip()
+            if not line:
+                continue
+            if not first:
                 p.add_run("\n")
-                _v2_run(p, "–  ", size=Pt(10), color=_CHARCOAL)
-                _v2_bold_runs(p, step, size=Pt(10), color=_CHARCOAL)
-
-    # Save
-    folder_name = meeting_folder.name
-    filename = f"{folder_name} Briefing.docx"
-    output_path = meeting_folder / filename
-    doc.save(str(output_path))
-    logger.info("Briefing (v2) saved: %s", output_path)
-    return output_path
+            first = False
+            if kind == "h":
+                _v2_run(p, line, size=Pt(10.5), bold=True, color=_CHARCOAL)
+            elif line.startswith("\u2022 "):
+                _v2_run(p, "\u2013  ", size=Pt(10.5), color=_CHARCOAL)
+                _v2_bold_runs(p, line[2:])
+            else:
+                _v2_bold_runs(p, line)
 
 
-# ---------------------------------------------------------------------------
-# On-demand generation — returns bytes for st.download_button
-# ---------------------------------------------------------------------------
-
-def generate_docx_bytes(
-    briefing_text: str,
+def render_briefing_docx(
+    briefing,
     committee: str,
     meeting_dates: list[str],
 ) -> bytes:
     """
-    Render the v2 briefing design to a .docx and return raw bytes.
-    Does not write to disk. Pass the bytes directly to st.download_button().
+    Render a parsed briefing AST to the NEPOOL-branded v2 .docx design and
+    return raw bytes.
 
-    Args:
-        briefing_text: markdown string produced by the pipeline
-        committee:     full committee name, e.g. "Markets Committee"
-        meeting_dates: list of ISO date strings, e.g. ["2026-03-10"]
+    `briefing` is the object api/briefing_parser.py produces for the web
+    reader (duck-typed: .tldr, .executive_summary, .sections; sections carry
+    .item_id/.depth/.title/.body/.next_steps; blocks carry .kind and
+    kind-specific fields). Consuming the SAME parse as the web page is the
+    point: markdown is parsed exactly once, so the Word export can no longer
+    silently drift from what the reader shows (which happened twice while
+    there was a second parser here).
     """
     import io
 
     date_str = _format_date_range(meeting_dates)
-    data = _v2_parse_briefing_md(briefing_text)
-    data["title"] = data["title"] or committee
-    data["subtitle"] = data["subtitle"] or "Meeting Briefing"
-    data["date"] = data["date"] or date_str
 
     doc = Document()
 
@@ -862,7 +544,7 @@ def generate_docx_bytes(
     pr = fp.add_run(); pr.font.name = "Calibri"; pr.font.size = Pt(8.5); pr.font.color.rgb = _GRAY_MID
     _v2_page_number(pr)
     fp.add_run("\t")
-    _v2_run(fp, f"{data['date']} • {data['title']}", size=Pt(8.5), color=_GRAY_MID)
+    _v2_run(fp, f"{date_str} \u2022 {committee}", size=Pt(8.5), color=_GRAY_MID)
     _v2_pborder(fp, "top", 6, _CYAN_HEX, space=4)
 
     if doc.paragraphs:
@@ -873,48 +555,56 @@ def generate_docx_bytes(
     p = doc.add_paragraph(); _v2_spacing(p, before=Pt(0), after=Pt(0))
     _v2_run(p, "N E P O O L", size=Pt(8), bold=True, color=_CYAN)
     p = doc.add_paragraph(); _v2_spacing(p, before=Pt(0), after=Pt(4))
-    _v2_run(p, data["title"], size=Pt(28), bold=True, color=_CHARCOAL)
+    _v2_run(p, committee, size=Pt(28), bold=True, color=_CHARCOAL)
     p = doc.add_paragraph(); _v2_spacing(p, before=Pt(0), after=Pt(10)); _v2_right_tab(p)
     _v2_run(p, "Meeting Briefing", size=Pt(12), color=_CYAN)
     p.add_run("\t")
-    _v2_run(p, data["date"], size=Pt(12), color=_GRAY_TEXT)
+    _v2_run(p, date_str, size=Pt(12), color=_GRAY_TEXT)
     p = doc.add_paragraph(); _v2_spacing(p, before=Pt(0), after=Pt(0))
     _v2_pborder(p, "bottom", 4, _GRAY_MID_HEX)
 
-    if data["takeaways"]:
+    tldr = list(getattr(briefing, "tldr", None) or [])
+    if tldr:
         p = doc.add_paragraph(); _v2_spacing(p, before=Pt(22), after=Pt(11))
         _v2_run(p, "KEY TAKEAWAYS", size=Pt(10), bold=True, color=_CHARCOAL)
         _v2_pborder(p, "bottom", 8, _CYAN_HEX, space=4)
-        for rank, tk in enumerate(data["takeaways"], 1):
+        for rank, tk in enumerate(tldr, 1):
             p = doc.add_paragraph(); _v2_spacing(p, before=Pt(0), after=Pt(6))
             _v2_run(p, f"{rank}.  ", size=Pt(10.5), bold=True, color=_CYAN)
             _v2_bold_runs(p, tk, size=Pt(10.5), color=_CHARCOAL)
 
-    p = doc.add_paragraph(); _v2_spacing(p, before=Pt(22), after=Pt(11))
-    _v2_run(p, "EXECUTIVE SUMMARY", size=Pt(10), bold=True, color=_CHARCOAL)
-    _v2_pborder(p, "bottom", 8, _CYAN_HEX, space=4)
+    exec_blocks = list(getattr(briefing, "executive_summary", None) or [])
+    if exec_blocks:
+        p = doc.add_paragraph(); _v2_spacing(p, before=Pt(22), after=Pt(11))
+        _v2_run(p, "EXECUTIVE SUMMARY", size=Pt(10), bold=True, color=_CHARCOAL)
+        _v2_pborder(p, "bottom", 8, _CYAN_HEX, space=4)
+        _render_exec_blocks(doc, exec_blocks)
 
-    _render_v2_exec_summary(doc, data["exec_summary"])
+    sections = list(getattr(briefing, "sections", None) or [])
+    if sections:
+        p = doc.add_paragraph(); _v2_spacing(p, before=Pt(22), after=Pt(11))
+        _v2_run(p, "AGENDA ITEM SUMMARIES", size=Pt(10), bold=True, color=_CHARCOAL)
+        _v2_pborder(p, "bottom", 8, _CYAN_HEX, space=4)
 
-    p = doc.add_paragraph(); _v2_spacing(p, before=Pt(22), after=Pt(11))
-    _v2_run(p, "AGENDA ITEM SUMMARIES", size=Pt(10), bold=True, color=_CHARCOAL)
-    _v2_pborder(p, "bottom", 8, _CYAN_HEX, space=4)
-
-    for item in data["items"]:
-        depth = item.get("depth", 1)
+    for item in sections:
+        depth = getattr(item, "depth", 0)
+        number = getattr(item, "item_id", "") or ""
+        title = getattr(item, "title", "") or ""
         if depth == 0:
             # Top-level agenda item — larger, rule-underlined group header.
             p = doc.add_paragraph(); _v2_spacing(p, before=Pt(24), after=Pt(8))
-            _v2_run(p, item["number"], size=Pt(14), bold=True, color=_CYAN)
-            _v2_run(p, "  " + item["title"], size=Pt(14), bold=True, color=_CHARCOAL)
+            _v2_run(p, number, size=Pt(14), bold=True, color=_CYAN)
+            _v2_run(p, "  " + title, size=Pt(14), bold=True, color=_CHARCOAL)
             _v2_pborder(p, "bottom", 6, _GRAY_MID_HEX, space=3)
         else:
             p = doc.add_paragraph(); _v2_spacing(p, before=Pt(16), after=Pt(7))
-            _v2_run(p, item["number"], size=Pt(11), bold=True, color=_CYAN)
-            _v2_run(p, "  " + item["title"], size=Pt(11), bold=True, color=_CHARCOAL)
-        # Body paragraphs (tables, images rendered as Word tables/pictures)
-        _render_v2_body_lines(doc, item["body"])
-        if item["next_steps"]:
+            _v2_run(p, number, size=Pt(11), bold=True, color=_CYAN)
+            _v2_run(p, "  " + title, size=Pt(11), bold=True, color=_CHARCOAL)
+
+        _render_body_blocks(doc, getattr(item, "body", None))
+
+        next_steps = getattr(item, "next_steps", None) or []
+        if next_steps:
             doc.add_paragraph()
             p = doc.add_paragraph()
             _v2_pshading(p, _GRAY_BG)
@@ -922,9 +612,9 @@ def generate_docx_bytes(
             _v2_pborder(p, "bottom", 10, _GRAY_MID_HEX, space=6)
             _v2_spacing(p, before=Pt(0), after=Pt(0), line=Pt(12.1))
             _v2_run(p, "NEXT STEPS", size=Pt(8.5), bold=True, color=_CYAN)
-            for step in item["next_steps"]:
+            for step in next_steps:
                 p.add_run("\n")
-                _v2_run(p, "–  ", size=Pt(10), color=_CHARCOAL)
+                _v2_run(p, "\u2013  ", size=Pt(10), color=_CHARCOAL)
                 _v2_bold_runs(p, step, size=Pt(10), color=_CHARCOAL)
 
     buf = io.BytesIO()
@@ -992,7 +682,7 @@ def generate_deep_dive_docx_bytes(
 ) -> bytes:
     """
     Render a deep dive report as a .docx using the NEPOOL brand design.
-    Returns raw bytes for st.download_button().
+    Returns raw .docx bytes.
     """
     import io
 

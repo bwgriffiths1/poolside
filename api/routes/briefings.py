@@ -6,7 +6,7 @@ from urllib.parse import quote
 from fastapi import APIRouter, HTTPException, Response
 
 from pipeline import db_new as db
-from pipeline.briefing import generate_docx_bytes
+from pipeline.briefing import render_briefing_docx
 from datetime import datetime, timezone
 
 from fastapi import Depends
@@ -61,8 +61,16 @@ def export_briefing_docx(meeting_id: int) -> Response:
     if summary is None or not summary.get("detailed"):
         raise HTTPException(status_code=404, detail="No briefing for this meeting")
 
-    docx_bytes = generate_docx_bytes(
-        briefing_text=summary["detailed"],
+    # Parse with the SAME resolve + parse path the web reader uses, then hand
+    # the typed AST to the docx renderer — one parse, two renderers.
+    md = adapters.resolve_image_refs(summary["detailed"])
+    briefing = briefing_parser.parse_briefing_markdown(md, {
+        "title": meeting.get("type_name") or "Committee",
+        "generated_at": str(summary.get("created_at", "")),
+        "model": summary.get("model") or summary.get("created_by") or "",
+    })
+    docx_bytes = render_briefing_docx(
+        briefing,
         committee=meeting.get("type_name") or "Committee",
         meeting_dates=[str(meeting.get("meeting_date", ""))],
     )

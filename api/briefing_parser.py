@@ -16,9 +16,11 @@ The current production briefings (see prompts/*_briefing_prompt.md) emit:
   - Bullet A
   - Bullet B
 
-No callout or pipe-table conventions are emitted today. This parser handles
-what's there now: paragraphs, h3 subheadings inside sections, and Next Steps.
-Add callout/data-table support to the prompts later, then extend this parser.
+This is the ONLY briefing-markdown parser: the web reader consumes the AST
+directly and pipeline/briefing.py renders the same AST to .docx. Handles
+paragraphs, sub-headings, bullets, pipe tables, `> [!Label]` callouts,
+Next Steps (standalone and inline forms), Key Takeaways, and the exec
+summary. Extend HERE — never by re-parsing markdown downstream.
 """
 from __future__ import annotations
 
@@ -38,6 +40,13 @@ _SECTION_HEAD = re.compile(
     r"^#{2,3}\s+(?:Items?\s+)?([\d\.A-Za-z\-–—]+)\s*[:—–\-]\s*(.+)$",
     re.IGNORECASE,
 )
+# Dot-numbered variant emitted by some stored briefings: "### 1. TITLE".
+# Without this, those items matched nothing — the web reader showed only the
+# exec summary and the docx export lost the item bodies entirely.
+_SECTION_HEAD_DOT = re.compile(
+    r"^#{2,3}\s+(?:Items?\s+)?(\d+(?:\.[0-9A-Za-z]+)*)\.\s+(.+)$",
+    re.IGNORECASE,
+)
 _H3 = re.compile(r"^###\s+(.+)$")
 _H4 = re.compile(r"^####\s+(.+)$")
 # Standalone marker line. The colon can sit inside OR outside the closing
@@ -47,6 +56,7 @@ _NEXT_STEPS = re.compile(r"^(?:####\s+)?(?:\*\*)?Next Steps:?(?:\*\*)?:?\s*$", r
 # that merely starts with "Next Steps" stays a paragraph (mirrors briefing.py).
 _NEXT_STEPS_INLINE = re.compile(r"^\*\*Next Steps:?\*\*:?\s*(.+)$", re.IGNORECASE)
 _TABLE_ROW = re.compile(r"^\|(.+)\|\s*$")
+_CALLOUT_OPEN = re.compile(r"^>\s*\[!([^\]]+)\]\s*(.*)$")
 
 
 def _slug(s: str) -> str:
@@ -132,7 +142,9 @@ def parse_briefing_markdown(md: str, meta: dict[str, Any]) -> schemas.Briefing:
         # precedence over the ## category-switch logic. Some briefings emit
         # each agenda item as `## 2 — Title` rather than `### Item 2: Title`,
         # which would otherwise be misread as a new top-level section.
-        sec_match = _SECTION_HEAD.match(line) if (line.startswith("## ") or line.startswith("### ")) else None
+        sec_match = None
+        if line.startswith("## ") or line.startswith("### "):
+            sec_match = _SECTION_HEAD.match(line) or _SECTION_HEAD_DOT.match(line)
         if sec_match:
             in_executive = False
             in_agenda = True
@@ -250,6 +262,26 @@ def parse_briefing_markdown(md: str, meta: dict[str, Any]) -> schemas.Briefing:
                 if h3m and not _SECTION_HEAD.match(line):
                     cur_body.append({"kind": "h", "text": h3m.group(1).strip()})
                     i += 1
+                    continue
+
+                # Callout / admonition: `> [!Label] body…` (+ continuation
+                # `>` lines). Constructs the BriefingBlockCallout the web
+                # renderer and docx exporter both style — previously only the
+                # docx side's line parser understood this syntax, so the web
+                # reader showed it as raw text.
+                m_call = _CALLOUT_OPEN.match(line.strip())
+                if m_call:
+                    parts = [m_call.group(2)] if m_call.group(2) else []
+                    i += 1
+                    while i < n:
+                        cont = lines[i].lstrip()
+                        if not cont.startswith(">"):
+                            break
+                        parts.append(re.sub(r"^>\s?", "", cont))
+                        i += 1
+                    cur_body.append({"kind": "callout",
+                                     "label": m_call.group(1).strip(),
+                                     "text": " ".join(p for p in parts if p).strip()})
                     continue
 
                 # Pipe table

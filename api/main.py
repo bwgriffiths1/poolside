@@ -107,6 +107,27 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         log.warning("could not reap stale summarize_jobs: %s", e)
 
+    # Same for monthly roundups: their generation thread is just as dead
+    # after a restart. Without this the row shows 'generating' (UI spinner)
+    # until the 15-minute claim window lets someone retake it — reap it to
+    # an honest error immediately instead.
+    try:
+        from pipeline import db_new as _db
+        with _db._conn() as _conn:
+            with _db._cursor(_conn) as _cur:
+                _cur.execute(
+                    """UPDATE monthly_roundups
+                          SET status = 'error',
+                              error_message = COALESCE(error_message,
+                                                       'server restarted mid-run'),
+                              updated_at = NOW()
+                        WHERE status = 'generating'"""
+                )
+                if _cur.rowcount:
+                    log.info("reaped %d stale monthly_roundups row(s)", _cur.rowcount)
+    except Exception as e:
+        log.warning("could not reap stale monthly_roundups: %s", e)
+
     # Cron scheduler (set POOLSIDE_SCHEDULER=off to disable).
     try:
         start_scheduler()

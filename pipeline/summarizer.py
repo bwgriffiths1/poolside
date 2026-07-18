@@ -256,8 +256,7 @@ def extract_text_zip(file_path: Path) -> str:
 # ---------------------------------------------------------------------------
 
 def _load_image_config() -> dict:
-    """Load image extraction settings from config.yaml."""
-    cfg_path = _REPO_ROOT / "config.yaml"
+    """Image extraction settings from the merged config (DB over file)."""
     defaults = {
         "enabled": False,
         "min_size_px": 200,
@@ -2052,12 +2051,11 @@ def estimate_summarization_cost(meeting_id: int, mode: str = "all") -> dict:
 
     all_items = db.get_agenda_items(meeting_id)
 
-    # Build children map the same way run_meeting_summarization does.
-    children_of: dict[int, list[dict]] = {}
-    for it in all_items:
-        pid = it.get("parent_id")
-        if pid is not None:
-            children_of.setdefault(pid, []).append(it)
+    # Build the children map with the SAME helper the real run uses —
+    # _build_children_map falls back to item_id-prefix lineage when
+    # parent_id is unset, and a parent_id-only copy here made estimates
+    # diverge from actual runs on exactly those meetings.
+    children_of = _build_children_map(all_items)
 
     breakdown: list[dict] = []
     docs_without_text = 0

@@ -30,7 +30,11 @@ def _get_pool() -> psycopg2.pool.ThreadedConnectionPool:
         url = os.environ.get("DATABASE_URL")
         if not url:
             raise EnvironmentError("DATABASE_URL is not set. Add it to .env.")
-        _pool = psycopg2.pool.ThreadedConnectionPool(1, 10, dsn=url)
+        # Max sized for: ~40 request threads (bursty, short checkouts) +
+        # summarize/roundup job threads + the L1/L2 parallel workers
+        # (summarization.parallel_workers, up to 8). getconn fails fast on
+        # exhaustion rather than queuing, so headroom matters.
+        _pool = psycopg2.pool.ThreadedConnectionPool(1, 20, dsn=url)
     return _pool
 
 

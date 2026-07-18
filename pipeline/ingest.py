@@ -334,12 +334,6 @@ def ingest_meeting(
             for item in parsed_items
             if item.get("prefix") and item["item_id"] in item_id_map
         }
-        item_id_to_db_id = {
-            item["item_id"]: item_id_map[item["item_id"]]
-            for item in parsed_items
-            if item["item_id"] in item_id_map
-        }
-
         # Step 5a: regex prefix matching
         buckets = map_docs_to_agenda_items(simple_doc_rows, parsed_items)
         assigned = 0

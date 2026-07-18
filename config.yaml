@@ -56,6 +56,10 @@ summarization:
   # documents land on an already-summarized meeting (unattended LLM spend).
   # When false (default), a materials_new notification is raised instead.
   auto_resummarize: false
+  # L1/L2 fan-out width for summarize runs — how many agenda items' LLM
+  # calls run at once. 1 = sequential; clamped to 1..8 in code. Level 3
+  # (the briefing) is always a single call.
+  parallel_workers: 3
   models:
     document: claude-sonnet-4-6
     rollup: claude-haiku-4-5

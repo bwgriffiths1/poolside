@@ -37,6 +37,14 @@ def run_migrations() -> list[str]:
     ran: list[str] = []
     conn = psycopg2.connect(url)
     try:
+        # Serialize concurrent booters (overlapping deploys / a second
+        # replica): session-scoped advisory lock, held for the whole
+        # migration pass and auto-released when the connection closes.
+        # The single-process deploy makes this nearly free insurance.
+        with conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT pg_advisory_lock(727270011)")
+
         # Base schema — its own transaction so a fresh DB has the tables
         # the migration files ALTER.
         with conn:

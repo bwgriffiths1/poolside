@@ -457,7 +457,6 @@ def _merge_results(
             n = parts[0]
         return n
 
-    regex_by_id = {_norm_id(it["item_id"]): it for it in regex_items}
     llm_by_id = {_norm_id(it["item_id"]): it for it in llm_items}
 
     merged: list[dict] = []

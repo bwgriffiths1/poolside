@@ -188,12 +188,6 @@ def refresh_meeting_documents(
         for item in agenda_items
         if item.get("prefix")
     }
-    item_id_to_db_id = {
-        item["item_id"]: item["id"]
-        for item in agenda_items
-        if item.get("item_id")
-    }
-
     # Step 1: regex prefix matching
     buckets = map_docs_to_agenda_items(simple_doc_rows, agenda_items)
     assigned = 0

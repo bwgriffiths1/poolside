@@ -7,11 +7,12 @@ The pipeline's data model (per pipeline/summarizer.py):
   - Level 1 (`_run_item_doc_summary`): for a leaf item with documents,
     reads all doc text and writes a single agenda_item summary_version.
   - Level 2 (`_run_item_rollup`):       for a parent item with children,
-    rolls up the children's summaries into the parent.
+    rolls up the children's summaries — plus a doc-group summary of the
+    parent's own directly-attached materials — into the parent.
   - Level 3 (`_run_meeting_briefing`):  for the whole meeting briefing.
 
 Re-run on a single item:
-  * has children → Level 2 rollup
+  * has children → Level 2 rollup (own docs feed it as one extra input)
   * leaf with docs → Level 1 from doc text
   * neither → nothing to do
 """
@@ -27,6 +28,7 @@ from pipeline.summarizer import (
     load_prompt,
     run_item_doc_summary,
     run_item_rollup,
+    summarize_item_docs_text,
     make_client,
 )
 
@@ -77,29 +79,51 @@ def resummarize_agenda_item(item_id: int) -> dict[str, Any]:
     children = _children_of(item, all_items)
     docs = db.get_documents_for_item(item_id)
 
-    # Path A: has children → Level 2 rollup from child summaries
+    # Path A: has children → Level 2 rollup from child summaries, plus a
+    # doc-group summary of the parent's own directly-attached materials.
     if children:
         children_with_summaries: list[tuple[dict, dict]] = []
         for child in children:
             s = db.get_current_summary("agenda_item", child["id"])
             if s and (s.get("detailed") or s.get("one_line")):
                 children_with_summaries.append((child, s))
+        n_real_children = len(children_with_summaries)
+
+        own_text = None
+        if docs:
+            doc_summary_prompt = load_prompt("doc_summary_prompt") or (
+                "Summarise the following document(s) for an energy market analyst.\n\n"
+                "Document(s): {filename}\n\n{text}"
+            )
+            own_text = summarize_item_docs_text(
+                item, client, cfg["document_model"], doc_summary_prompt,
+                max_tokens=cfg.get("document_max_tokens", 4096),
+            )
+            if own_text:
+                children_with_summaries.append((
+                    {"item_id": item.get("item_id"),
+                     "title": "Materials filed directly under this item"},
+                    {"detailed": own_text},
+                ))
+
         if not children_with_summaries:
             return {
                 "ok": False,
                 "level": 2,
                 "reason": (
                     f"Item has {len(children)} children but none have "
-                    "summaries yet. Re-run those child items first."
+                    "summaries yet (and no usable documents of its own). "
+                    "Re-run those child items first."
                 ),
             }
         _, agenda_item_prompt = get_committee_prompts(type_short, venue_short)
         if not agenda_item_prompt:
             return {"ok": False, "reason": f"No agenda_item prompt for {venue_short}/{type_short}"}
         log.info(
-            "L2 rollup for item %s (%s/%s) — %d children, model=%s",
+            "L2 rollup for item %s (%s/%s) — %d children%s, model=%s",
             item.get("item_id"), venue_short, type_short,
-            len(children_with_summaries), cfg["item_model"],
+            n_real_children, " + own docs" if own_text else "",
+            cfg["item_model"],
         )
         ok = run_item_rollup(
             item=item,
@@ -115,7 +139,7 @@ def resummarize_agenda_item(item_id: int) -> dict[str, Any]:
             "ok": bool(ok),
             "level": 2,
             "model": cfg["item_model"],
-            "n_children": len(children_with_summaries),
+            "n_children": n_real_children,
             "item_id": item.get("item_id"),
             "reason": None if ok else "rollup returned no summary",
         }

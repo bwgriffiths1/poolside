@@ -40,7 +40,12 @@ _SECTION_HEAD = re.compile(
 )
 _H3 = re.compile(r"^###\s+(.+)$")
 _H4 = re.compile(r"^####\s+(.+)$")
-_NEXT_STEPS = re.compile(r"^(?:####\s+)?(?:\*\*)?Next Steps(?:\*\*)?:?\s*$", re.IGNORECASE)
+# Standalone marker line. The colon can sit inside OR outside the closing
+# bold — prompts emit "**Next Steps:**", the docx parser accepts both.
+_NEXT_STEPS = re.compile(r"^(?:####\s+)?(?:\*\*)?Next Steps:?(?:\*\*)?:?\s*$", re.IGNORECASE)
+# Inline form: "**Next Steps:** item1; item2". Bold wrapper required so prose
+# that merely starts with "Next Steps" stays a paragraph (mirrors briefing.py).
+_NEXT_STEPS_INLINE = re.compile(r"^\*\*Next Steps:?\*\*:?\s*(.+)$", re.IGNORECASE)
 _TABLE_ROW = re.compile(r"^\|(.+)\|\s*$")
 
 
@@ -222,6 +227,15 @@ def parse_briefing_markdown(md: str, meta: dict[str, Any]) -> schemas.Briefing:
                             i += 1
                             continue
                         break
+                    continue
+
+                inline_ns = _NEXT_STEPS_INLINE.match(line)
+                if inline_ns:
+                    # Same semicolon split as pipeline/briefing.py so both
+                    # parsers produce identical next_steps for this form.
+                    payload = inline_ns.group(1).strip().rstrip(".")
+                    cur_next = [x.strip() for x in payload.split(";") if x.strip()]
+                    i += 1
                     continue
 
                 # h4 → sub-heading inside the section (also map to "h" block)

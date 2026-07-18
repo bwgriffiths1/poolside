@@ -209,9 +209,6 @@ def _assign_existing_docs(meeting_id: int, config: dict) -> None:
     prefix_to_item_db_id = {
         item["prefix"]: item["id"] for item in items if item.get("prefix")
     }
-    item_id_to_db_id = {
-        item["item_id"]: item["id"] for item in items if item.get("item_id")
-    }
     doc_db_by_filename = {d["filename"]: d["id"] for d in unassigned}
 
     assigned = 0
@@ -238,21 +235,29 @@ def _assign_existing_docs(meeting_id: int, config: dict) -> None:
         return
 
     try:
-        from pipeline.refresh import llm_match_docs
+        from pipeline.llm_agenda_parser import llm_match_docs
 
-        rows = [{"id": d["id"], "filename": d["filename"]} for d in still_unassigned]
-        # llm_match_docs signature is (docs, items, model=..., config=...)
-        # We're being defensive about whether it exists & is callable.
         match_model = config.get("agenda_parsing", {}).get(
-            "doc_match_model", "claude-haiku-4-5-20251001"
+            "match_model", "claude-haiku-4-5-20251001"
         )
-        matches = llm_match_docs(rows, items, model=match_model, config=config)
+        meeting = db.get_meeting(meeting_id) or {}
+        venue_short = meeting.get("venue_short") or "ISO-NE"
+        filenames = [d["filename"] for d in still_unassigned]
+        # Same bucket-dict contract as map_docs_to_agenda_items; mirrors the
+        # working call in pipeline/refresh.py.
+        llm_buckets = llm_match_docs(items, filenames, venue_short, model=match_model)
         n = 0
-        for m in matches:
-            item_db_id = item_id_to_db_id.get(m.get("item_id", ""))
-            if item_db_id and m.get("doc_id"):
-                db.assign_document_to_item(item_db_id, m["doc_id"])
-                n += 1
+        for prefix, docs_in_bucket in llm_buckets.items():
+            if prefix == "other":
+                continue
+            item_db_id = prefix_to_item_db_id.get(prefix)
+            if not item_db_id:
+                continue
+            for d in docs_in_bucket:
+                doc_db_id = doc_db_by_filename.get(d["filename"])
+                if doc_db_id is not None:
+                    db.assign_document_to_item(item_db_id, doc_db_id)
+                    n += 1
         log.info("LLM assign: %d docs assigned for meeting %s", n, meeting_id)
     except Exception as e:
         log.warning("LLM assignment pass failed: %s", e)

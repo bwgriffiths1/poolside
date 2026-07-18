@@ -53,6 +53,7 @@ def discover_all_venues() -> dict[str, Any]:
 
     # ISO-NE
     iso_new = 0
+    events_seen = 0
     for committee in cfg.get("committees", []):
         if not committee.get("active", True):
             continue
@@ -60,6 +61,7 @@ def discover_all_venues() -> dict[str, Any]:
             events = pl_scraper.scrape_calendar(
                 committee, lookahead_days=cfg.get("lookahead_days", 60)
             )
+            events_seen += len(events)
             for ev in events:
                 ev_id = str(ev.get("primary_event_id") or "")
                 if not ev_id:
@@ -82,7 +84,18 @@ def discover_all_venues() -> dict[str, Any]:
             log.exception("ISO-NE scrape failed for %s: %s", committee.get("short"), e)
     results["ISO-NE"] = iso_new
 
-    _stamp_venue_scrape("ISO-NE")
+    # Only stamp when the scrape demonstrably worked. The ISO-NE calendar
+    # always has upcoming events across the configured committees, so zero
+    # events parsed means broken markup/network, not a quiet week — and the
+    # 48h drift alarm in api/scheduler.py keys off this stamp. Stamping
+    # unconditionally (the old behavior) made that alarm unfireable.
+    if events_seen > 0:
+        _stamp_venue_scrape("ISO-NE")
+    else:
+        log.warning(
+            "discover: 0 events parsed across all committees — "
+            "NOT stamping last_scraped_at (drift alarm will fire after 48h)"
+        )
     return {"discovered": results}
 
 

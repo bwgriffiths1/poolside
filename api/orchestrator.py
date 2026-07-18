@@ -14,7 +14,7 @@ from typing import Any
 
 import requests
 
-from pipeline import db_new as db
+from pipeline import db
 from pipeline import refresh as pl_refresh
 from pipeline.ingest import (
     download_bytes,

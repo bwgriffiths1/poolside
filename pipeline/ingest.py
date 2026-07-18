@@ -20,7 +20,7 @@ from pathlib import Path
 
 import requests
 
-import pipeline.db_new as db
+import pipeline.db as db
 from pipeline.agenda_parser import parse_agenda_from_docx, map_docs_to_agenda_items
 from pipeline.llm_agenda_parser import parse_agenda_hybrid, llm_match_docs
 from pipeline.summarizer import summarize_agenda_item, summarize_meeting

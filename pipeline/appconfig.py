@@ -38,7 +38,7 @@ MODEL_CONFIG_KEY = "model_config"
 
 def _db_get(key: str) -> Any | None:
     try:
-        import pipeline.db_new as db
+        import pipeline.db as db
         with db._conn() as conn:
             with db._cursor(conn) as cur:
                 cur.execute("SELECT value FROM app_config WHERE key = %s", (key,))
@@ -52,7 +52,7 @@ def _db_get(key: str) -> Any | None:
 
 def _db_get_all() -> dict[str, Any] | None:
     try:
-        import pipeline.db_new as db
+        import pipeline.db as db
         with db._conn() as conn:
             with db._cursor(conn) as cur:
                 cur.execute("SELECT key, value FROM app_config")
@@ -64,7 +64,7 @@ def _db_get_all() -> dict[str, Any] | None:
 
 
 def set_config_key(key: str, value: Any, updated_by: str = "system") -> None:
-    import pipeline.db_new as db
+    import pipeline.db as db
     with db._conn() as conn:
         with db._cursor(conn) as cur:
             cur.execute(
@@ -100,7 +100,7 @@ def get_config() -> dict:
 
 def _db_get_prompt(slug: str) -> str | None:
     try:
-        import pipeline.db_new as db
+        import pipeline.db as db
         with db._conn() as conn:
             with db._cursor(conn) as cur:
                 cur.execute("SELECT content FROM prompt_overrides WHERE slug = %s",
@@ -127,7 +127,7 @@ def get_prompt(slug: str) -> str:
 def get_prompt_overrides() -> dict[str, dict[str, Any]]:
     """{slug: {content, updated_at}} for every override (empty when DB down)."""
     try:
-        import pipeline.db_new as db
+        import pipeline.db as db
         with db._conn() as conn:
             with db._cursor(conn) as cur:
                 cur.execute("SELECT slug, content, updated_at FROM prompt_overrides")
@@ -139,7 +139,7 @@ def get_prompt_overrides() -> dict[str, dict[str, Any]]:
 
 
 def set_prompt(slug: str, content: str, updated_by: str = "system") -> None:
-    import pipeline.db_new as db
+    import pipeline.db as db
     with db._conn() as conn:
         with db._cursor(conn) as cur:
             cur.execute(
@@ -155,7 +155,7 @@ def set_prompt(slug: str, content: str, updated_by: str = "system") -> None:
 
 def delete_prompt_override(slug: str) -> bool:
     """Drop the override so the repo default shows through. True if one existed."""
-    import pipeline.db_new as db
+    import pipeline.db as db
     with db._conn() as conn:
         with db._cursor(conn) as cur:
             cur.execute("DELETE FROM prompt_overrides WHERE slug = %s", (slug,))

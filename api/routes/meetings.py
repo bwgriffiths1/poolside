@@ -1,4 +1,4 @@
-"""Meetings endpoints — wire pipeline/db_new.py to the frontend contract."""
+"""Meetings endpoints — wire pipeline/db.py to the frontend contract."""
 from __future__ import annotations
 
 import logging
@@ -7,7 +7,7 @@ from typing import Any, Literal
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from pydantic import BaseModel
 
-from pipeline import db_new as db
+from pipeline import db
 from .. import adapters, schemas
 from ..services import jobs as jobs_service
 from ..auth import current_user

@@ -1,6 +1,6 @@
 """CRUD endpoints for agenda items.
 
-Wraps pipeline/db_new.py:insert_agenda_item / update_agenda_item /
+Wraps pipeline/db.py:insert_agenda_item / update_agenda_item /
 delete_agenda_item so analysts can:
   - Add a new item to a meeting (e.g., backfill a missing parent)
   - Rename / renumber / re-presenter an existing item
@@ -11,7 +11,7 @@ from __future__ import annotations
 from typing import Any
 from fastapi import APIRouter, Body, HTTPException
 
-from pipeline import db_new as db
+from pipeline import db
 from .. import lifecycle
 
 router = APIRouter(tags=["agenda-items"])

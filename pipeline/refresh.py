@@ -17,7 +17,7 @@ from pathlib import Path
 
 import requests
 
-import pipeline.db_new as db
+import pipeline.db as db
 from pipeline.agenda_parser import map_docs_to_agenda_items
 from pipeline.scraper import fetch_event_docs
 

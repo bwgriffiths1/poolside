@@ -14,7 +14,7 @@ import yaml
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from pipeline import db_new as db
+from pipeline import db
 from pipeline.ingest import ingest_meeting
 from pipeline.scraper import fetch_event_docs, fetch_event_metadata
 from ..auth import current_user

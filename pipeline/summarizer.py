@@ -30,7 +30,7 @@ from PIL import Image
 from pptx import Presentation
 from pptx.enum.shapes import MSO_SHAPE_TYPE
 
-import pipeline.db_new as db
+import pipeline.db as db
 
 logger = logging.getLogger(__name__)
 

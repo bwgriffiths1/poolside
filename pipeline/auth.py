@@ -8,7 +8,7 @@ app (2026-07); FastAPI sessions are handled in api/auth.py.
 
 import bcrypt
 
-from pipeline.db_new import _conn, _cursor
+from pipeline.db import _conn, _cursor
 
 # ---------------------------------------------------------------------------
 # Password hashing

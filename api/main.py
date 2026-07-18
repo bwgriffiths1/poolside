@@ -3,7 +3,7 @@
 Run with:
     uvicorn api.main:app --reload --port 8000
 
-Wraps pipeline/db_new.py and pipeline/* with a thin REST surface consumed by
+Wraps pipeline/db.py and pipeline/* with a thin REST surface consumed by
 the Vite + React frontend in /web.
 """
 from __future__ import annotations
@@ -15,7 +15,7 @@ from pathlib import Path
 
 # Load .env first, BEFORE any pipeline imports — and override empty env vars
 # (e.g. some shells set ANTHROPIC_API_KEY="" which silently blocks the
-# default load_dotenv() in pipeline/db_new.py from setting it).
+# default load_dotenv() in pipeline/db.py from setting it).
 from dotenv import load_dotenv  # noqa: E402
 load_dotenv(override=True)
 
@@ -92,7 +92,7 @@ async def lifespan(app: FastAPI):
     # is included: its thread is just as dead, and leaving it would pin the
     # meeting's "active job" (and its unique-active slot) forever.
     try:
-        from pipeline import db_new as _db
+        from pipeline import db as _db
         with _db._conn() as _conn:
             with _db._cursor(_conn) as _cur:
                 _cur.execute(
@@ -112,7 +112,7 @@ async def lifespan(app: FastAPI):
     # until the 15-minute claim window lets someone retake it — reap it to
     # an honest error immediately instead.
     try:
-        from pipeline import db_new as _db
+        from pipeline import db as _db
         with _db._conn() as _conn:
             with _db._cursor(_conn) as _cur:
                 _cur.execute(

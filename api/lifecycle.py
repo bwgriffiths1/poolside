@@ -9,7 +9,7 @@ from __future__ import annotations
 import hashlib
 from typing import Literal
 
-from pipeline import db_new as db
+from pipeline import db
 
 LifecycleStatus = Literal[
     "discovered",

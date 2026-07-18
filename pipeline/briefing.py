@@ -34,7 +34,7 @@ _IMAGE_REF_RE = re.compile(r"<!--\s*image_id:(\d+)\s*-->")
 def _fetch_image_record(image_id: int) -> dict | None:
     """Fetch an image record from DB by ID. Returns None on failure."""
     try:
-        import pipeline.db_new as db
+        import pipeline.db as db
         rows = db.get_images_by_ids([image_id])
         return rows[0] if rows else None
     except Exception as exc:

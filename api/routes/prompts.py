@@ -24,7 +24,7 @@ from typing import Any
 from fastapi import APIRouter, Body, HTTPException
 
 from pipeline import appconfig
-from pipeline import db_new as db
+from pipeline import db
 
 router = APIRouter(prefix="/api/prompts", tags=["prompts"])
 config_router = APIRouter(prefix="/api/model-config", tags=["prompts"])

@@ -10,7 +10,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 
-import pipeline.db_new as db
+import pipeline.db as db
 from pipeline import appconfig
 from ..auth import current_user
 

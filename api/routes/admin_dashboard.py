@@ -10,7 +10,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends
 
-from pipeline import db_new as db
+from pipeline import db
 from ..auth import current_user
 
 router = APIRouter(prefix="/api/admin", tags=["admin-dashboard"])

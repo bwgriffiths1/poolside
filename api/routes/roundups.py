@@ -15,7 +15,7 @@ from typing import Any
 from fastapi import APIRouter, Body, Depends, HTTPException
 from pydantic import BaseModel
 
-from pipeline import db_new as db
+from pipeline import db
 
 from .. import adapters, schemas
 from ..auth import current_user

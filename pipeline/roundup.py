@@ -23,7 +23,7 @@ import re
 from datetime import date
 from typing import Callable
 
-import pipeline.db_new as db
+import pipeline.db as db
 from pipeline.summarizer import (
     OPUS,
     call_llm,

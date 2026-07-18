@@ -1,4 +1,4 @@
-"""Adapters from pipeline/db_new.py rows to API response shapes.
+"""Adapters from pipeline/db.py rows to API response shapes.
 
 Single source of truth for status derivation and field mapping.
 """
@@ -98,7 +98,7 @@ def materialize_missing_parents(meeting_id: int) -> int:
     before their children. Idempotent; also self-heals meetings ingested
     before the hierarchy pass existed (late-appended parents at the end of
     the agenda). Returns the number of parents created."""
-    from pipeline import db_new as db
+    from pipeline import db
 
     return db.ensure_agenda_hierarchy(meeting_id)
 

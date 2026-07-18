@@ -5,7 +5,7 @@ from urllib.parse import quote
 
 from fastapi import APIRouter, HTTPException, Response
 
-from pipeline import db_new as db
+from pipeline import db
 from pipeline.briefing import render_briefing_docx
 from datetime import datetime, timezone
 

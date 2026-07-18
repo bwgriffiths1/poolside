@@ -26,7 +26,7 @@ def _notify_job_failed(job: str, exc: Exception) -> None:
     one notification per job per 6h so a persistently-failing 30-min cron
     doesn't flood the bell."""
     try:
-        from pipeline import db_new as db
+        from pipeline import db
         from .services.notify import create_notification
 
         with db._conn() as conn:
@@ -79,7 +79,7 @@ def _drift_alarm_job() -> None:
     needs a poke. Idempotent: only writes one alarm per 24h window.
     """
     from datetime import datetime, timedelta, timezone
-    from pipeline import db_new as db
+    from pipeline import db
     from .services.notify import create_notification
 
     try:

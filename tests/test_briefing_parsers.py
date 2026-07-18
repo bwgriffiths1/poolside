@@ -1,95 +1,101 @@
-"""Golden-fixture sync tests for the two briefing-markdown parsers.
+"""Golden-fixture tests for briefing parsing and Word rendering.
 
-api/briefing_parser.py (web/typed AST) and pipeline/briefing.py's
-_v2_parse_briefing_md (docx export) parse the same stored markdown and must
-agree on content. This suite is the enforcement for that obligation — it has
-already caught two real divergences (docx dropping Key Takeaways; the web
-parser missing both real-world **Next Steps:** spellings).
+There is now exactly ONE briefing-markdown parser
+(api/briefing_parser.parse_briefing_markdown); the docx exporter walks its
+AST (pipeline/briefing.render_briefing_docx). These tests pin the parse on
+two fixtures (current format + a legacy briefing taken from a real stored
+one) and assert the rendered .docx carries every piece of parsed content —
+the property whose absence previously let the Word export silently drop
+Key Takeaways.
 """
+import io
+import zipfile
 from pathlib import Path
 
 import pytest
 
 from api.briefing_parser import parse_briefing_markdown
-from pipeline.briefing import _v2_parse_briefing_md, generate_docx_bytes
+from pipeline.briefing import render_briefing_docx
 
 FIXTURES = Path(__file__).parent / "fixtures"
+
+
+def _docx_xml(briefing) -> str:
+    blob = render_briefing_docx(briefing, "Markets Committee", ["2025-11-04"])
+    return zipfile.ZipFile(io.BytesIO(blob)).read("word/document.xml").decode()
 
 
 @pytest.fixture(scope="module")
 def new_format():
     md = (FIXTURES / "briefing_2026_format.md").read_text()
-    return md, parse_briefing_markdown(md, {"title": "Markets Committee"}), _v2_parse_briefing_md(md)
+    b = parse_briefing_markdown(md, {"title": "Markets Committee"})
+    return b, _docx_xml(b)
 
 
 @pytest.fixture(scope="module")
 def legacy_format():
     md = (FIXTURES / "briefing_legacy_format.md").read_text()
-    return md, parse_briefing_markdown(md, {"title": "Reliability Committee"}), _v2_parse_briefing_md(md)
+    b = parse_briefing_markdown(md, {"title": "Reliability Committee"})
+    return b, _docx_xml(b)
 
 
 # ── 2026 format (## Key Takeaways / ## n — Title / ### n.x — Title) ──────
 
 
-def test_takeaways_agree(new_format):
-    _, web, docx = new_format
-    assert len(web.tldr) == 3
-    assert web.tldr == docx["takeaways"]
+def test_takeaways_parsed(new_format):
+    b, _ = new_format
+    assert len(b.tldr) == 3
+    assert b.tldr[0].startswith("**CAR-SA vote delayed**")
 
 
-def test_sections_agree_on_ids_depths_titles(new_format):
-    _, web, docx = new_format
-    web_items = [(s.item_id, s.depth, s.title) for s in web.sections]
-    docx_items = [(it["number"], it["depth"], it["title"]) for it in docx["items"]]
-    assert web_items == docx_items
-    assert [d for _, d, _ in web_items] == [0, 1, 1, 0]
+def test_section_ids_depths_titles(new_format):
+    b, _ = new_format
+    got = [(s.item_id, s.depth) for s in b.sections]
+    assert got == [("3", 0), ("3.a", 1), ("3.b", 1), ("7", 0)]
 
 
-def test_exec_summary_present_in_both(new_format):
-    _, web, docx = new_format
-    assert web.executive_summary, "web parser lost the executive summary"
-    assert docx["exec_summary"], "docx parser lost the executive summary"
-
-
-def test_next_steps_agree_in_both_spellings(new_format):
+def test_next_steps_both_spellings(new_format):
     """Bullet form ('**Next Steps:**' + '- ...') and inline form
-    ('**Next Steps:** a; b') must both parse, identically, in both parsers."""
-    _, web, docx = new_format
-    web_ns = {s.item_id: s.next_steps for s in web.sections if s.next_steps}
-    docx_ns = {it["number"]: it["next_steps"] for it in docx["items"] if it["next_steps"]}
-    assert web_ns == docx_ns
-    assert set(web_ns) == {"3.a", "7"}
-
-
-def test_next_steps_marker_not_left_in_web_body(new_format):
-    _, web, _ = new_format
-    for s in web.sections:
+    ('**Next Steps:** a; b') both populate section.next_steps."""
+    b, _ = new_format
+    ns = {s.item_id: s.next_steps for s in b.sections if s.next_steps}
+    assert ns == {
+        "3.a": ["Revised proposal returns in December",
+                "Written comments due November 21"],
+        "7": ["File with FERC in Q1 2026", "implementation guide to follow"],
+    }
+    for s in b.sections:
         for blk in s.body:
             assert "Next Steps" not in getattr(blk, "text", "")
 
 
-def test_web_parses_data_table(new_format):
-    _, web, _ = new_format
-    sec = next(s for s in web.sections if s.item_id == "3.a")
-    tables = [b for b in sec.body if b.kind == "data"]
-    assert tables and tables[0].rows[0] == ["Technology", "Floor ($/kW-mo)"]
+def test_typed_blocks_parsed(new_format):
+    b, _ = new_format
+    sec = next(s for s in b.sections if s.item_id == "3.a")
+    kinds = [blk.kind for blk in sec.body]
+    assert "data" in kinds and "h" in kinds
+    table = next(blk for blk in sec.body if blk.kind == "data")
+    assert table.rows[0] == ["Technology", "Floor ($/kW-mo)"]
+    assert b.executive_summary, "exec summary blocks missing"
 
 
-def test_docx_bytes_contain_all_sections(new_format):
-    md, _, _ = new_format
-    import io
-    import zipfile
-
-    blob = generate_docx_bytes(md, "Markets Committee", ["2025-11-04"])
-    xml = zipfile.ZipFile(io.BytesIO(blob)).read("word/document.xml").decode()
+def test_docx_carries_every_parsed_element(new_format):
+    """The renderer consumes the AST — everything parsed must reach the XML."""
+    b, xml = new_format
+    for tk in b.tldr:
+        probe = tk.replace("**", "").split(" to ")[0].split(";")[0][:30]
+        assert probe in xml, f"takeaway lost: {probe}"
+    for s in b.sections:
+        assert s.title[:30] in xml, f"section lost: {s.title}"
+        for step in s.next_steps or []:
+            assert step[:30] in xml, f"next step lost: {step}"
     for needle in (
-        "KEY TAKEAWAYS",
-        "CAR-SA vote delayed",
-        "EXECUTIVE SUMMARY",
-        "ORTP Floor Proposal",
-        "Accreditation Transition Schedule",
-        "Demand Response Aggregation",
+        "KEY TAKEAWAYS", "EXECUTIVE SUMMARY", "AGENDA ITEM SUMMARIES",
         "NEXT STEPS",
+        "Solar PV",                      # table cell
+        "Study assumptions",             # h block
+        "WATCH",                         # callout label, uppercased
+        "capacity auction reform",       # exec prose
     ):
         assert needle in xml, f"docx lost: {needle}"
 
@@ -97,22 +103,34 @@ def test_docx_bytes_contain_all_sections(new_format):
 # ── Legacy format (### Item N: Title, no takeaways section) ──────────────
 
 
-def test_legacy_section_counts_agree(legacy_format):
-    _, web, docx = legacy_format
-    assert len(web.sections) == len(docx["items"]) == 3
-    # Titles agree even though the two parsers normalize numbering
-    # differently ('5' vs 'Item 5') — silent section DROPS are the bug class
-    # this guards against.
-    assert [s.title for s in web.sections] == [it["title"] for it in docx["items"]]
+def test_legacy_sections_parse_and_render(legacy_format):
+    b, xml = legacy_format
+    assert [s.item_id for s in b.sections] == ["2", "3", "5"]
+    assert [s.depth for s in b.sections] == [0, 0, 0]  # stays flat on web
+    for s in b.sections:
+        assert s.title[:30] in xml, f"legacy section lost from docx: {s.title}"
 
 
 def test_legacy_has_no_takeaways(legacy_format):
-    _, web, docx = legacy_format
-    assert docx["takeaways"] == []
-    assert web.tldr == []  # prose-only exec summary → no bullet fallback
+    b, xml = legacy_format
+    assert b.tldr == []  # prose-only exec summary → no bullet fallback
+    assert "KEY TAKEAWAYS" not in xml  # section omitted entirely, not empty
 
 
-def test_legacy_web_depths_stay_flat(legacy_format):
-    """Backward-compat promise: '### Item N' briefings render depth 0 on web."""
-    _, web, _ = legacy_format
-    assert [s.depth for s in web.sections] == [0, 0, 0]
+def test_dot_numbered_sections_parse():
+    """Stored briefings from 2025 emit '### 1. TITLE' (dot separator).
+    These parsed to ZERO sections before _SECTION_HEAD_DOT — the web reader
+    showed only the exec summary and the docx lost the bodies."""
+    md = (
+        "## Executive Summary\n\nIntro paragraph.\n\n"
+        "## Agenda Item Summaries\n\n"
+        "### 1. CHAIR'S OPENING REMARKS\n\nBody A.\n\n"
+        "### 2. LOAD FORECAST REVISIONS & DRIVERS\n\nBody B.\n"
+    )
+    b = parse_briefing_markdown(md, {"title": "X"})
+    assert [(s.item_id, s.title) for s in b.sections] == [
+        ("1", "CHAIR'S OPENING REMARKS"),
+        ("2", "LOAD FORECAST REVISIONS & DRIVERS"),
+    ]
+    xml = _docx_xml(b)
+    assert "CHAIR'S OPENING REMARKS" in xml and "Body B." in xml

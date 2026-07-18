@@ -1415,6 +1415,34 @@ def update_monthly_roundup(roundup_id: int, **fields) -> None:
             )
 
 
+def claim_monthly_roundup(roundup_id: int, progress_text: str = "",
+                          stale_minutes: int = 15) -> dict | None:
+    """Atomically flip a roundup row to 'generating' and return it, or None
+    when another request already holds a live claim (status='generating'
+    with updated_at inside the stale window).
+
+    This is the admission guard for generation: SELECT-then-UPDATE in the
+    route would let two concurrent POSTs both spawn threads and pay for two
+    LLM calls on the same row. The stale window keeps the takeover behavior
+    for runs orphaned by a restart — one roundup is a single LLM call, so a
+    'generating' row older than that is dead (single-process deploy model)."""
+    with _conn() as conn:
+        with _cursor(conn) as cur:
+            cur.execute("""
+                UPDATE monthly_roundups
+                   SET status = 'generating',
+                       progress_text = %s,
+                       error_message = NULL,
+                       updated_at = NOW()
+                 WHERE id = %s
+                   AND NOT (status = 'generating'
+                            AND updated_at > NOW() - make_interval(mins => %s))
+             RETURNING *
+            """, (progress_text, roundup_id, stale_minutes))
+            row = cur.fetchone()
+            return dict(row) if row else None
+
+
 def get_monthly_roundup(roundup_id: int) -> dict | None:
     """Fetch one roundup row with venue context joined in."""
     with _conn() as conn:

@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 import re
 import threading
-from datetime import date, datetime, timedelta, timezone
+from datetime import date
 from typing import Any
 
 from fastapi import APIRouter, Body, Depends, HTTPException
@@ -26,11 +26,6 @@ router = APIRouter(prefix="/api/roundups", tags=["roundups"])
 
 _MONTH_RE = re.compile(r"^\d{4}-(0[1-9]|1[0-2])$")
 
-# A 'generating' row younger than this is treated as genuinely in flight;
-# older ones are presumed orphaned (server restarted mid-run) and may be
-# restarted. The whole run is one LLM call, so 15 minutes is generous.
-_STALE_GENERATING = timedelta(minutes=15)
-
 
 def _month_start(month: str) -> date:
     if not _MONTH_RE.match(month or ""):
@@ -38,17 +33,6 @@ def _month_start(month: str) -> date:
                             detail="month must be formatted YYYY-MM")
     year, mon = month.split("-")
     return date(int(year), int(mon), 1)
-
-
-def _is_in_flight(row: dict[str, Any]) -> bool:
-    if row.get("status") != "generating":
-        return False
-    updated = row.get("updated_at")
-    if updated is None:
-        return True
-    if updated.tzinfo is None:
-        updated = updated.replace(tzinfo=timezone.utc)
-    return datetime.now(timezone.utc) - updated < _STALE_GENERATING
 
 
 def _run_roundup_job(roundup_id: int) -> None:
@@ -127,21 +111,23 @@ def generate_roundup(
                    "summarize at least one meeting first.",
         )
 
-    existing = db.get_roundup_by_month(venue["id"], month_start)
-    if existing and _is_in_flight(existing):
-        sources = db.get_roundup_meetings(existing["id"])
-        return adapters.roundup_row(existing, sources=sources)
-
     created_by = (user.get("email") if isinstance(user, dict) else None) or "unknown"
+    existing = db.get_roundup_by_month(venue["id"], month_start)
     row = existing or db.create_monthly_roundup(
         venue["id"], month_start, created_by=created_by,
     )
-    db.update_monthly_roundup(
+
+    # Atomic admission: flip to 'generating' only if no live claim holds the
+    # row (a 'generating' row older than the stale window counts as dead and
+    # is taken over). Two concurrent POSTs → exactly one thread, one LLM call.
+    claimed = db.claim_monthly_roundup(
         row["id"],
-        status="generating",
         progress_text=f"Queued — {len(briefings)} briefing(s) to synthesize...",
-        error_message=None,
     )
+    if claimed is None:
+        fresh = db.get_monthly_roundup(row["id"]) or row
+        sources = db.get_roundup_meetings(row["id"])
+        return adapters.roundup_row(fresh, sources=sources)
 
     t = threading.Thread(
         target=_run_roundup_job,

@@ -38,6 +38,13 @@ function describe(n: NotificationRow): { title: string; sub: string } {
       sub: `${p.hours_silent ?? "?"}h since the last new meeting — scraper may need attention.`,
     };
   }
+  if (n.kind === "job_failed") {
+    const p = n.payload as { job?: string; error?: string };
+    return {
+      title: `Scheduled job failed — ${p.job ?? "unknown"}`,
+      sub: p.error ?? "",
+    };
+  }
   return { title: n.kind, sub: "" };
 }
 

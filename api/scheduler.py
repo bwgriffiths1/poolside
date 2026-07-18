@@ -20,6 +20,36 @@ log = logging.getLogger("poolside.scheduler")
 _scheduler: AsyncIOScheduler | None = None
 
 
+def _notify_job_failed(job: str, exc: Exception) -> None:
+    """Broadcast a job_failed notification so cron failures land in the
+    in-app inbox instead of only the Railway log viewer. Deduped: at most
+    one notification per job per 6h so a persistently-failing 30-min cron
+    doesn't flood the bell."""
+    try:
+        from pipeline import db_new as db
+        from .routes.notifications import create_notification
+
+        with db._conn() as conn:
+            with db._cursor(conn) as cur:
+                cur.execute(
+                    """SELECT 1 FROM notifications
+                        WHERE kind = 'job_failed'
+                          AND payload->>'job' = %s
+                          AND created_at > NOW() - INTERVAL '6 hours'
+                        LIMIT 1""",
+                    (job,),
+                )
+                if cur.fetchone():
+                    return
+        create_notification(
+            kind="job_failed",
+            user_id=None,  # broadcast
+            payload={"job": job, "error": str(exc)[:500]},
+        )
+    except Exception:
+        log.exception("could not write job_failed notification")
+
+
 def _discover_job() -> None:
     from .routes.admin import discover_all_venues
 
@@ -29,6 +59,7 @@ def _discover_job() -> None:
         log.info("scheduled discover_all_venues — discovered %d new meeting(s)", n)
     except Exception as e:
         log.exception("scheduled discover_all_venues failed: %s", e)
+        _notify_job_failed("discover_all_venues", e)
 
 
 def _refresh_job() -> None:
@@ -39,6 +70,7 @@ def _refresh_job() -> None:
         log.info("scheduled refresh_upcoming_meetings — touched %d meeting(s)", res.get("count", 0))
     except Exception as e:
         log.exception("scheduled refresh_upcoming_meetings failed: %s", e)
+        _notify_job_failed("refresh_upcoming_meetings", e)
 
 
 def _drift_alarm_job() -> None:

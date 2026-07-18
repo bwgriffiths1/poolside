@@ -66,11 +66,8 @@ def _download_bytes(url: str, session: requests.Session | None = None) -> bytes 
 
 
 def _load_config() -> dict:
-    try:
-        with open("config.yaml") as fh:
-            return yaml.safe_load(fh) or {}
-    except FileNotFoundError:
-        return {}
+    from pipeline import appconfig
+    return appconfig.get_config()
 
 
 # ---------------------------------------------------------------------------

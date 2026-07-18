@@ -16,7 +16,6 @@ Inline images: <!-- image_id:N --> markers (and their web-resolved
 import base64
 import logging
 import re
-import sys
 import tempfile
 from pathlib import Path
 

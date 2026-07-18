@@ -14,7 +14,7 @@ Uses PyMuPDF (fitz) for bookmark extraction and text extraction.
 """
 import logging
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 import fitz  # PyMuPDF
 

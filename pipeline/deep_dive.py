@@ -29,8 +29,6 @@ from pipeline.summarizer import (
     load_model_config,
     make_client,
     HAIKU,
-    SONNET,
-    OPUS,
 )
 
 logger = logging.getLogger(__name__)

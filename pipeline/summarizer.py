@@ -12,7 +12,6 @@ LLM: Anthropic API via ANTHROPIC_API_KEY environment variable
 from __future__ import annotations
 
 import hashlib
-import json
 import logging
 import re
 import threading
@@ -1155,6 +1154,21 @@ def extract_and_store_images(
 ) -> list[dict]:
     """Public wrapper for _extract_and_store_images."""
     return _extract_and_store_images(doc, meeting_folder=meeting_folder, min_px=min_px)
+
+
+def get_committee_prompts(committee_short: str, venue_short: str = "ISO-NE") -> tuple[str, str]:
+    """Public wrapper for _get_committee_prompts — used by api/resummarize.py."""
+    return _get_committee_prompts(committee_short, venue_short)
+
+
+def run_item_doc_summary(*args, **kwargs):
+    """Public wrapper for _run_item_doc_summary (Level 1, one item)."""
+    return _run_item_doc_summary(*args, **kwargs)
+
+
+def run_item_rollup(*args, **kwargs):
+    """Public wrapper for _run_item_rollup (Level 2, one parent)."""
+    return _run_item_rollup(*args, **kwargs)
 
 
 def call_llm(

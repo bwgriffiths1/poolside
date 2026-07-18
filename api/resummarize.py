@@ -22,11 +22,11 @@ from typing import Any
 
 from pipeline import db_new as db
 from pipeline.summarizer import (
-    _get_committee_prompts,
-    _load_model_config,
-    _load_prompt,
-    _run_item_doc_summary,
-    _run_item_rollup,
+    get_committee_prompts,
+    load_model_config,
+    load_prompt,
+    run_item_doc_summary,
+    run_item_rollup,
     make_client,
 )
 
@@ -70,7 +70,7 @@ def resummarize_agenda_item(item_id: int) -> dict[str, Any]:
     venue_short = meeting.get("venue_short") or "ISO-NE"
     type_short = meeting.get("type_short") or "MC"
 
-    cfg = _load_model_config()
+    cfg = load_model_config()
     client = make_client()
 
     all_items = db.get_agenda_items(item["meeting_id"])
@@ -93,7 +93,7 @@ def resummarize_agenda_item(item_id: int) -> dict[str, Any]:
                     "summaries yet. Re-run those child items first."
                 ),
             }
-        _, agenda_item_prompt = _get_committee_prompts(type_short, venue_short)
+        _, agenda_item_prompt = get_committee_prompts(type_short, venue_short)
         if not agenda_item_prompt:
             return {"ok": False, "reason": f"No agenda_item prompt for {venue_short}/{type_short}"}
         log.info(
@@ -101,7 +101,7 @@ def resummarize_agenda_item(item_id: int) -> dict[str, Any]:
             item.get("item_id"), venue_short, type_short,
             len(children_with_summaries), cfg["item_model"],
         )
-        ok = _run_item_rollup(
+        ok = run_item_rollup(
             item=item,
             child_summaries=children_with_summaries,
             client=client,
@@ -122,7 +122,7 @@ def resummarize_agenda_item(item_id: int) -> dict[str, Any]:
 
     # Path B: leaf with documents → Level 1 from doc text
     if docs:
-        doc_summary_prompt = _load_prompt("doc_summary_prompt") or (
+        doc_summary_prompt = load_prompt("doc_summary_prompt") or (
             "Summarise the following document(s) for an energy market analyst.\n\n"
             "Document(s): {filename}\n\n{text}"
         )
@@ -130,7 +130,7 @@ def resummarize_agenda_item(item_id: int) -> dict[str, Any]:
             "L1 doc summary for item %s — %d docs, model=%s",
             item.get("item_id"), len(docs), cfg["document_model"],
         )
-        ok = _run_item_doc_summary(
+        ok = run_item_doc_summary(
             item=item,
             client=client,
             model=cfg["document_model"],

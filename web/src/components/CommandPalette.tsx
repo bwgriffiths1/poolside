@@ -202,17 +202,30 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
           </div>
         )}
         {query.trim().length >= 2 && (
-          <button
-            type="button"
-            className="cmd-palette-seeall"
-            onClick={() => {
-              navigate(`/search?q=${encodeURIComponent(query.trim())}`);
-              onClose();
-            }}
-          >
-            See all results for <strong>"{query.trim()}"</strong>
-            <Icon name="arrow-r" size={11} />
-          </button>
+          <>
+            <button
+              type="button"
+              className="cmd-palette-seeall"
+              onClick={() => {
+                navigate(`/search?q=${encodeURIComponent(query.trim())}`);
+                onClose();
+              }}
+            >
+              See all results for <strong>"{query.trim()}"</strong>
+              <Icon name="arrow-r" size={11} />
+            </button>
+            <button
+              type="button"
+              className="cmd-palette-seeall"
+              onClick={() => {
+                navigate(`/ask?q=${encodeURIComponent(query.trim())}`);
+                onClose();
+              }}
+            >
+              <Icon name="chat" size={11} /> Ask Poolside:{" "}
+              <strong>"{query.trim()}"</strong>
+            </button>
+          </>
         )}
       </div>
     </div>

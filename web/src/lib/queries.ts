@@ -45,6 +45,9 @@ export const qk = {
   roundups: ["roundups"] as const,
   roundup: (id: number) => ["roundup", id] as const,
 
+  deepDives: ["deep-dives"] as const,
+  deepDive: (id: number) => ["deep-dive", id] as const,
+
   initiatives: ["initiatives"] as const,
   initiative: (code: string) => ["initiative", code] as const,
 

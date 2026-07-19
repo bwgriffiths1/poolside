@@ -751,6 +751,22 @@ export const api = {
     if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
   },
 
+  // ── My preferences ───────────────────────────────────────────────────
+  getMyPrefs: () => get<MyPrefs>(`/me/prefs`),
+
+  updateMyPrefs: async (body: {
+    email_prefs: Partial<Record<string, boolean>>;
+  }): Promise<MyPrefs> => {
+    const res = await fetch(`${BASE}/me/prefs`, {
+      method: "PATCH",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+    return (await res.json()) as MyPrefs;
+  },
+
   // ── Ask Poolside ─────────────────────────────────────────────────────
   ask: (body: {
     question: string;
@@ -1056,6 +1072,11 @@ export interface InitiativeSummary {
 }
 
 export type InitiativeBriefStatus = "draft" | "generating" | "complete" | "error";
+
+export interface MyPrefs {
+  email_prefs: Record<string, boolean>;
+  mail_configured: boolean;
+}
 
 export interface AskSource {
   n: number;

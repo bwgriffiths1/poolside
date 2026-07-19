@@ -48,6 +48,8 @@ export const qk = {
   deepDives: ["deep-dives"] as const,
   deepDive: (id: number) => ["deep-dive", id] as const,
 
+  myPrefs: ["my-prefs"] as const,
+
   initiatives: ["initiatives"] as const,
   initiative: (code: string) => ["initiative", code] as const,
 

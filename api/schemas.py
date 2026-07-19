@@ -121,6 +121,9 @@ class Briefing(BaseModel):
     model: str
     word_count: int
     reading_time: int
+    # Chronological neighbors that also have briefings (reader prev/next nav).
+    prev_meeting_id: int | None = None
+    next_meeting_id: int | None = None
     tldr: list[str]
     # Executive Summary prose (Key Developments / Critical Decisions / etc.),
     # parsed as blocks. Empty for briefings that have no exec-summary section.

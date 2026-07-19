@@ -47,7 +47,11 @@ def get_briefing(meeting_id: int) -> schemas.Briefing:
         "model": summary.get("model") or summary.get("created_by") or "",
     }
 
-    return briefing_parser.parse_briefing_markdown(md, meta)
+    parsed = briefing_parser.parse_briefing_markdown(md, meta)
+    neighbors = db.get_briefing_neighbors(meeting_id)
+    parsed.prev_meeting_id = neighbors.get("prev_id")
+    parsed.next_meeting_id = neighbors.get("next_id")
+    return parsed
 
 
 @router.get("/{meeting_id}/briefing.docx")

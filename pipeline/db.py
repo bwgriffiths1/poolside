@@ -1765,6 +1765,35 @@ def claim_initiative_brief(tag_id: int, stale_minutes: int = 15) -> dict | None:
             return dict(row) if row else None
 
 
+def get_briefing_neighbors(meeting_id: int) -> dict:
+    """{prev_id, next_id}: the chronologically adjacent meetings that also
+    have a briefing (same predicate as the roundup collector), for the
+    reader's prev/next navigation. Ties on meeting_date break by id."""
+    with _conn() as conn:
+        with _cursor(conn) as cur:
+            cur.execute(
+                f"""
+                WITH briefed AS (
+                    SELECT m.id, m.meeting_date
+                      FROM meetings m
+                     WHERE {_HAS_BRIEFING_SQL}
+                ), me AS (
+                    SELECT id, meeting_date FROM briefed WHERE id = %s
+                )
+                SELECT
+                  (SELECT b.id FROM briefed b, me
+                    WHERE (b.meeting_date, b.id) < (me.meeting_date, me.id)
+                 ORDER BY b.meeting_date DESC, b.id DESC LIMIT 1) AS prev_id,
+                  (SELECT b.id FROM briefed b, me
+                    WHERE (b.meeting_date, b.id) > (me.meeting_date, me.id)
+                 ORDER BY b.meeting_date ASC, b.id ASC LIMIT 1) AS next_id
+                """,
+                (meeting_id,),
+            )
+            row = cur.fetchone()
+            return dict(row) if row else {"prev_id": None, "next_id": None}
+
+
 # ---------------------------------------------------------------------------
 # Email preferences + digest queries
 # ---------------------------------------------------------------------------

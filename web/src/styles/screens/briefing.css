@@ -243,11 +243,15 @@
 
 .b-section-head {
   display: grid;
-  grid-template-columns: 50px 1fr auto;
+  grid-template-columns: 50px 1fr auto auto;
   gap: var(--pad-3);
   align-items: baseline;
   margin-bottom: var(--pad-4);
 }
+/* Section copy-link stays invisible until the section head is hovered. */
+.b-section-link { opacity: 0; transition: opacity 120ms ease; }
+.b-section-head:hover .b-section-link,
+.b-section-link:focus-visible { opacity: 1; }
 .b-section-num {
   font-family: var(--font-mono);
   font-size: 26px;
@@ -316,7 +320,7 @@
   padding-left: 20px;
   border-left: 2px solid var(--border-soft);
 }
-.b-depth-1 > .b-section-head { grid-template-columns: 40px 1fr auto; }
+.b-depth-1 > .b-section-head { grid-template-columns: 40px 1fr auto auto; }
 .b-depth-1 .b-section-num { font-size: 18px; }
 .b-depth-1 .b-h2 { font-size: 20px; }
 
@@ -555,8 +559,91 @@
   padding-top: var(--pad-5);
   border-top: 1px solid var(--border);
   display: flex;
+  flex-direction: column;
+  gap: var(--pad-4);
+}
+
+/* Reading progress — thin bar pinned under the topbar, scaled by scroll. */
+.b-progress {
+  position: fixed;
+  top: var(--header-h);
+  left: var(--sidebar-w);
+  right: 0;
+  height: 2px;
+  background: var(--accent);
+  transform-origin: left center;
+  transform: scaleX(0);
+  z-index: 40;
+  pointer-events: none;
+}
+
+/* Prev/next footer navigation */
+.b-footer-nav {
+  display: flex;
   justify-content: space-between;
-  align-items: center;
   gap: var(--pad-3);
-  flex-wrap: wrap;
+  width: 100%;
+}
+.b-footer-nav-btn {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  color: var(--ink);
+  text-align: left;
+}
+.b-footer-nav-btn:hover { border-color: var(--accent-soft); }
+.b-footer-nav-next { text-align: right; }
+.b-footer-nav-label {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+}
+
+/* Print — the briefing article alone, in a clean serif layout. */
+@media print {
+  .sidebar,
+  .topbar,
+  .b-toc,
+  .briefing-side,
+  .b-progress,
+  .b-section-link,
+  .b-footer-nav,
+  .toaster {
+    display: none !important;
+  }
+  .app,
+  .main {
+    display: block !important;
+    overflow: visible !important;
+    height: auto !important;
+  }
+  .briefing-page {
+    display: block !important;
+    padding: 0 !important;
+    max-width: none !important;
+  }
+  .briefing-article {
+    max-width: none !important;
+    padding: 0 !important;
+  }
+  body {
+    background: #fff !important;
+  }
+  .briefing-section {
+    break-inside: avoid-page;
+  }
+  a {
+    color: inherit !important;
+    text-decoration: none !important;
+  }
 }

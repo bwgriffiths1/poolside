@@ -103,6 +103,8 @@ export interface Briefing {
   model: string;
   word_count: number;
   reading_time: number;
+  prev_meeting_id?: number | null;
+  next_meeting_id?: number | null;
   tldr: string[];
   executive_summary?: BriefingBlock[];
   sections: BriefingSection[];

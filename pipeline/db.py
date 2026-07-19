@@ -1365,6 +1365,27 @@ def delete_deep_dive_report(report_id: int) -> None:
                         (report_id,))
 
 
+def claim_deep_dive_report(report_id: int, stale_minutes: int = 15) -> dict | None:
+    """Atomically flip a report row to 'generating' and return it, or None
+    when another request already holds a live claim. Same admission guard as
+    claim_monthly_roundup — one report is a single LLM call, so a
+    'generating' row older than the stale window is dead and taken over."""
+    with _conn() as conn:
+        with _cursor(conn) as cur:
+            cur.execute("""
+                UPDATE deep_dive_reports
+                   SET status = 'generating',
+                       error_message = NULL,
+                       updated_at = NOW()
+                 WHERE id = %s
+                   AND NOT (status = 'generating'
+                            AND updated_at > NOW() - make_interval(mins => %s))
+             RETURNING *
+            """, (report_id, stale_minutes))
+            row = cur.fetchone()
+            return dict(row) if row else None
+
+
 # ---------------------------------------------------------------------------
 # Monthly roundups — cross-committee "state of play" reports
 # ---------------------------------------------------------------------------

@@ -7,6 +7,8 @@ import { Briefings } from "./routes/Briefings";
 import { Briefing } from "./routes/Briefing";
 import { Roundups } from "./routes/Roundups";
 import { Roundup } from "./routes/Roundup";
+import { DeepDives } from "./routes/DeepDives";
+import { DeepDive } from "./routes/DeepDive";
 import { Add } from "./routes/Add";
 import { Editor } from "./routes/Editor";
 import { Prompts } from "./routes/Prompts";
@@ -34,6 +36,8 @@ export function App() {
           <Route path="/briefing/:id" element={<Briefing />} />
           <Route path="/roundups" element={<Roundups />} />
           <Route path="/roundup/:id" element={<Roundup />} />
+          <Route path="/deep-dives" element={<DeepDives />} />
+          <Route path="/deep-dive/:id" element={<DeepDive />} />
           <Route path="/initiatives" element={<Initiatives />} />
           <Route path="/initiatives/:code" element={<InitiativeDetail />} />
           <Route path="/search" element={<Search />} />

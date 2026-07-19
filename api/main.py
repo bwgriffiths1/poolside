@@ -34,6 +34,7 @@ from .routes import (
     auth,
     briefings,
     config as config_route,
+    deep_dives,
     documents,
     editor_images,
     item_materials,
@@ -189,6 +190,7 @@ app.include_router(me.router, dependencies=_AUTH)
 app.include_router(meetings.router, dependencies=_AUTH)
 app.include_router(briefings.router, dependencies=_AUTH)
 app.include_router(roundups.router, dependencies=_AUTH)
+app.include_router(deep_dives.router, dependencies=_AUTH)
 app.include_router(documents.router, dependencies=_AUTH)
 app.include_router(attachments.router, dependencies=_AUTH)
 app.include_router(item_materials.router, dependencies=_AUTH)

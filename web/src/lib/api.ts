@@ -750,6 +750,29 @@ export const api = {
     });
     if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
   },
+
+  // ── Deep dives ───────────────────────────────────────────────────────
+  listDeepDives: () => get<DeepDive[]>(`/deep-dives`, () => []),
+
+  deepDive: (id: number) => get<DeepDive>(`/deep-dives/${id}`),
+
+  createDeepDive: (body: {
+    title: string;
+    document_ids: number[];
+    max_images?: number;
+    comparison_mode?: boolean;
+  }): Promise<DeepDive> => postJson(`/deep-dives`, body),
+
+  rerunDeepDive: (id: number): Promise<DeepDive> =>
+    postJson(`/deep-dives/${id}/rerun`, {}),
+
+  deleteDeepDive: async (id: number): Promise<void> => {
+    const res = await fetch(`${BASE}/deep-dives/${id}`, {
+      method: "DELETE",
+      credentials: "include",
+    });
+    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+  },
 };
 
 export interface MaterialResult {
@@ -1025,6 +1048,34 @@ export interface InitiativeSummary {
 }
 
 export type InitiativeBriefStatus = "draft" | "generating" | "complete" | "error";
+
+export interface DeepDiveSource {
+  document_id: number;
+  filename: string;
+  file_type: string | null;
+  meeting_id: number;
+  meeting_date: string;
+  end_date: string | null;
+  meeting_title: string | null;
+  type_short: string;
+  type_name: string;
+  venue: string;
+}
+
+export interface DeepDive {
+  id: number;
+  title: string;
+  status: "draft" | "generating" | "complete" | "error";
+  model_id: string | null;
+  config: { max_images?: number; comparison_mode?: boolean };
+  error_message: string | null;
+  created_by: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+  report_md?: string | null; // omitted in list responses
+  sources: DeepDiveSource[];
+  source_count: number;
+}
 
 export interface InitiativeBrief {
   status: InitiativeBriefStatus;

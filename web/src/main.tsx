@@ -16,6 +16,7 @@ import "./styles/screens/overview.css";
 import "./styles/screens/meeting.css";
 import "./styles/screens/briefing.css";
 import "./styles/screens/roundup.css";
+import "./styles/screens/deepdive.css";
 import "./styles/screens/add.css";
 import "./styles/screens/prompts.css";
 import "./styles/screens/editor.css";

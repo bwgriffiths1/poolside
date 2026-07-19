@@ -161,3 +161,8 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* Mobile: the builder's two columns stack. */
+@media (max-width: 900px) {
+  .dd-builder-cols { grid-template-columns: 1fr; }
+}

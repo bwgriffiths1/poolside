@@ -99,6 +99,8 @@ def list_prompts() -> dict[str, Any]:
          "hint": "Cross-meeting analysis reports"},
         {"label": "Monthly roundup", **meta("monthly_roundup_prompt"),
          "hint": "Cross-committee monthly state of play"},
+        {"label": "Initiative brief", **meta("initiative_brief_prompt"),
+         "hint": "Per-initiative 'story so far' synthesis"},
         {"label": "Keyword extraction", **meta("keyword_extraction_prompt"),
          "hint": "Tag generation"},
     ]
@@ -127,6 +129,7 @@ def list_prompts() -> dict[str, Any]:
         "general_context_prompt", "doc_summary_prompt", "agenda_item_prompt",
         "agenda_parse_prompt", "doc_match_prompt", "deep_dive_prompt",
         "keyword_extraction_prompt", "monthly_roundup_prompt",
+        "initiative_brief_prompt",
     }
     for v in venues_out:
         for c in v["committees"]:
@@ -219,8 +222,10 @@ _DEFAULT_MODELS = {
     "meeting_max_tokens": 32768,
 }
 
-# Optional keys the roundup feature reads (falls back to meeting_* when unset).
-_OPTIONAL_MODEL_KEYS = {"roundup_model", "roundup_max_tokens"}
+# Optional keys read by the roundup and initiative-brief features (each falls
+# back through roundup_*/meeting_* when unset — see their pipeline modules).
+_OPTIONAL_MODEL_KEYS = {"roundup_model", "roundup_max_tokens",
+                        "initiative_brief_model", "initiative_brief_max_tokens"}
 
 
 @config_router.get("")

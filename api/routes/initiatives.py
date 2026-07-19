@@ -2,10 +2,14 @@
 
 Initiative codes (CAR-SA, GISWG, etc.) get tagged on agenda items at ingest
 time via pipeline/ingest._tag_initiative_codes. This route exposes them as
-a first-class cross-meeting view.
+a first-class cross-meeting view, plus a cached synthesized "story so far"
+brief per initiative (initiative_briefs row; monthly_roundups pattern — the
+UI polls GET /{code} while brief.status == 'generating').
 """
 from __future__ import annotations
 
+import logging
+import threading
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -13,6 +17,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from pipeline import db
 from .. import adapters
 from ..auth import current_user
+
+log = logging.getLogger("poolside.initiatives")
 
 router = APIRouter(prefix="/api/initiatives", tags=["initiatives"])
 
@@ -34,6 +40,44 @@ def _snip(md: str, max_chars: int = 280) -> str:
     return text[: max_chars - 1].rstrip() + "…"
 
 
+def _iso(v: Any) -> Any:
+    return v.isoformat() if v is not None and hasattr(v, "isoformat") else v
+
+
+def brief_is_stale(brief: dict | None, item_count: int,
+                   latest_meeting_date: str | None) -> bool:
+    """A complete brief is stale once the tagged-item set has moved past its
+    generation-time snapshot — more/fewer items, or a newer meeting date."""
+    if not brief or brief.get("status") != "complete":
+        return False
+    src_count = brief.get("source_item_count")
+    if src_count is not None and src_count != item_count:
+        return True
+    src_latest = _iso(brief.get("source_latest_meeting_date"))
+    if latest_meeting_date and src_latest and latest_meeting_date > src_latest:
+        return True
+    return False
+
+
+def _brief_payload(brief: dict | None, item_count: int,
+                   latest_meeting_date: str | None) -> dict[str, Any] | None:
+    if brief is None:
+        return None
+    cost = brief.get("cost_usd")
+    return {
+        "status": brief.get("status"),
+        "brief_md": adapters.resolve_image_refs(brief.get("brief_md") or "")
+                    or None,
+        "error_message": brief.get("error_message"),
+        "model_id": brief.get("model_id"),
+        "cost_usd": float(cost) if cost is not None else None,
+        "generated_at": _iso(brief.get("generated_at")),
+        "source_item_count": brief.get("source_item_count"),
+        "source_latest_meeting_date": _iso(brief.get("source_latest_meeting_date")),
+        "stale": brief_is_stale(brief, item_count, latest_meeting_date),
+    }
+
+
 @router.get("")
 def list_initiatives(_: dict = Depends(current_user)) -> list[dict[str, Any]]:
     """Return every initiative-tagged code along with item count, meeting
@@ -52,7 +96,8 @@ def list_initiatives(_: dict = Depends(current_user)) -> list[dict[str, Any]]:
                     t.description   AS description,
                     COUNT(DISTINCT ai.id)         AS item_count,
                     COUNT(DISTINCT ai.meeting_id) AS meeting_count,
-                    MAX(m.meeting_date)           AS latest_meeting_date
+                    MAX(m.meeting_date)           AS latest_meeting_date,
+                    ib.status       AS brief_status
                 FROM tags t
                 JOIN entity_tags et
                        ON et.tag_id = t.id AND et.entity_type = 'agenda_item'
@@ -60,16 +105,16 @@ def list_initiatives(_: dict = Depends(current_user)) -> list[dict[str, Any]]:
                        ON ai.id = et.entity_id
                 JOIN meetings m
                        ON m.id = ai.meeting_id
+                LEFT JOIN initiative_briefs ib
+                       ON ib.tag_id = t.id
                 WHERE t.tag_type = 'initiative'
-                GROUP BY t.id, t.name, t.description
+                GROUP BY t.id, t.name, t.description, ib.status
                 ORDER BY latest_meeting_date DESC NULLS LAST, t.name
                 """,
             )
             rows = [dict(r) for r in cur.fetchall()]
     for r in rows:
-        d = r.get("latest_meeting_date")
-        if d is not None and hasattr(d, "isoformat"):
-            r["latest_meeting_date"] = d.isoformat()
+        r["latest_meeting_date"] = _iso(r.get("latest_meeting_date"))
     return rows
 
 
@@ -80,66 +125,19 @@ def get_initiative(
 ) -> dict[str, Any]:
     """Drill-in: every agenda item tagged with this initiative code,
     newest-first, with a one-paragraph summary excerpt + the meeting it
-    belongs to.
+    belongs to — plus the cached brief (and its staleness) when one exists.
     """
-    with db._conn() as conn:
-        with db._cursor(conn) as cur:
-            cur.execute(
-                "SELECT * FROM tags WHERE name = %s AND tag_type = 'initiative'",
-                (code,),
-            )
-            tag = cur.fetchone()
-            if not tag:
-                raise HTTPException(status_code=404, detail="Initiative not found")
+    tag = db.get_initiative_tag(code)
+    if not tag:
+        raise HTTPException(status_code=404, detail="Initiative not found")
 
-            cur.execute(
-                """
-                SELECT
-                    ai.id           AS item_db_id,
-                    ai.item_id,
-                    ai.title        AS item_title,
-                    ai.presenter,
-                    ai.org           AS organization,
-                    ai.vote_status,
-                    m.id            AS meeting_id,
-                    m.title         AS meeting_title,
-                    m.meeting_date,
-                    mt.short_name   AS type_short,
-                    mt.name         AS type_name,
-                    v.short_name    AS venue,
-                    sv.detailed     AS summary_detailed,
-                    sv.one_line     AS summary_one_line,
-                    sv.status       AS summary_status,
-                    sv.version      AS summary_version
-                FROM entity_tags et
-                JOIN agenda_items ai   ON ai.id = et.entity_id
-                JOIN meetings m        ON m.id  = ai.meeting_id
-                JOIN meeting_types mt  ON mt.id = m.meeting_type_id
-                JOIN venues v          ON v.id  = mt.venue_id
-                LEFT JOIN LATERAL (
-                    SELECT detailed, one_line, status, version
-                      FROM summary_versions
-                     WHERE entity_type = 'agenda_item'
-                       AND entity_id   = ai.id
-                       AND status != 'superseded'
-                  ORDER BY CASE status WHEN 'approved' THEN 0 ELSE 1 END,
-                           version DESC
-                     LIMIT 1
-                ) sv ON true
-                WHERE et.tag_id = %s
-                  AND et.entity_type = 'agenda_item'
-                ORDER BY m.meeting_date DESC, ai.seq
-                """,
-                (tag["id"],),
-            )
-            rows = [dict(r) for r in cur.fetchall()]
+    rows = db.get_initiative_items(tag["id"])
 
     items = []
     for r in rows:
-        d = r.get("meeting_date")
         items.append({
             "meeting_id": r["meeting_id"],
-            "meeting_date": d.isoformat() if d is not None and hasattr(d, "isoformat") else d,
+            "meeting_date": _iso(r.get("meeting_date")),
             "meeting_title": r.get("meeting_title"),
             "venue": r.get("venue"),
             "type_short": r.get("type_short"),
@@ -158,10 +156,75 @@ def get_initiative(
             ),
         })
 
+    latest = max((i["meeting_date"] for i in items if i["meeting_date"]),
+                 default=None)
+    brief = db.get_initiative_brief(tag["id"])
+
     return {
-        "code": dict(tag)["name"],
-        "description": dict(tag).get("description"),
+        "code": tag["name"],
+        "description": tag.get("description"),
         "items": items,
         "item_count": len(items),
         "meeting_count": len({i["meeting_id"] for i in items}),
+        "brief": _brief_payload(brief, len(items), latest),
+    }
+
+
+def _run_brief_job(tag_id: int) -> None:
+    """Daemon-thread entry point. run_initiative_brief owns status
+    transitions; this wrapper only catches catastrophic failures."""
+    try:
+        from pipeline.initiative_brief import run_initiative_brief
+
+        run_initiative_brief(tag_id)
+    except Exception as e:  # pragma: no cover — belt and braces
+        log.exception("initiative brief job %s crashed: %s", tag_id, e)
+        try:
+            db.update_initiative_brief(tag_id, status="error",
+                                       error_message=str(e))
+        except Exception:
+            log.exception("failed to record crash for brief %s", tag_id)
+
+
+@router.post("/{code}/brief", status_code=202)
+def generate_brief(
+    code: str,
+    user: dict = Depends(current_user),
+) -> dict[str, Any]:
+    """Create (or reuse) the brief row for this initiative and kick off
+    generation in a daemon thread. Poll GET /api/initiatives/{code} while
+    brief.status == 'generating'. Re-posting for an in-flight brief returns
+    the running row untouched; posting on a complete/error brief regenerates
+    in place.
+    """
+    tag = db.get_initiative_tag(code)
+    if not tag:
+        raise HTTPException(status_code=404, detail="Initiative not found")
+
+    items = db.get_initiative_items(tag["id"])
+    if not items:
+        raise HTTPException(
+            status_code=400,
+            detail=f"No agenda items tagged {code} — nothing to synthesize.",
+        )
+
+    created_by = (user.get("email") if isinstance(user, dict) else None) or "unknown"
+    db.ensure_initiative_brief(tag["id"], created_by=created_by)
+
+    claimed = db.claim_initiative_brief(tag["id"])
+    if claimed is not None:
+        t = threading.Thread(
+            target=_run_brief_job,
+            args=(tag["id"],),
+            name=f"initiative-brief-{tag['id']}",
+            daemon=True,
+        )
+        t.start()
+
+    latest = max((_iso(i.get("meeting_date")) for i in items
+                  if i.get("meeting_date")), default=None)
+    fresh = db.get_initiative_brief(tag["id"])
+    return {
+        "code": tag["name"],
+        "brief": _brief_payload(fresh, len(items), latest),
     }

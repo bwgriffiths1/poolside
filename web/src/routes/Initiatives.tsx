@@ -1,11 +1,13 @@
 import { useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Topbar } from "../components/Topbar";
 import { Icon } from "../components/Icon";
 import { VenueTag, TypeTag } from "../components/Tag";
-import { api } from "../lib/api";
+import { api, type InitiativeBrief } from "../lib/api";
 import { qk } from "../lib/queries";
+import { Markdown } from "../lib/markdown";
+import { toast } from "../lib/toast";
 
 // Day-granularity relative label for meeting *dates* (coarser on purpose than
 // lib/format's formatRel, which is for timestamps).
@@ -112,6 +114,11 @@ export function Initiatives() {
                   {i.item_count} item{i.item_count === 1 ? "" : "s"} across{" "}
                   {i.meeting_count} meeting{i.meeting_count === 1 ? "" : "s"} ·
                   last touched {rel(i.latest_meeting_date)}
+                  {i.brief_status === "complete" && (
+                    <span className="ib-briefed-pill" title="Brief available">
+                      Briefed
+                    </span>
+                  )}
                 </div>
               </div>
               <Icon name="chev-r" size={14} />
@@ -125,6 +132,149 @@ export function Initiatives() {
   );
 }
 
+function briefMetaLine(b: InitiativeBrief): string {
+  const parts: string[] = [];
+  if (b.source_item_count != null) {
+    parts.push(`${b.source_item_count} item${b.source_item_count === 1 ? "" : "s"}`);
+  }
+  if (b.model_id) parts.push(b.model_id);
+  if (b.cost_usd != null) parts.push(`$${b.cost_usd.toFixed(2)}`);
+  if (b.generated_at) {
+    const d = new Date(b.generated_at);
+    if (!Number.isNaN(d.getTime())) {
+      parts.push(
+        `generated ${d.toLocaleDateString("en-US", {
+          month: "short",
+          day: "numeric",
+          year: "numeric",
+        })}`,
+      );
+    }
+  }
+  return parts.join(" · ");
+}
+
+function BriefSection({
+  code,
+  brief,
+  itemCount,
+}: {
+  code: string;
+  brief: InitiativeBrief | null;
+  itemCount: number;
+}) {
+  const qc = useQueryClient();
+  const generate = useMutation({
+    mutationFn: () => api.generateInitiativeBrief(code),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: qk.initiative(code) });
+      qc.invalidateQueries({ queryKey: qk.initiatives });
+    },
+    onError: (err: Error) => toast.error(`Couldn't start the brief: ${err.message}`),
+  });
+
+  const generating = brief?.status === "generating" || generate.isPending;
+  const hasBrief = brief?.status === "complete" && !!brief.brief_md;
+
+  const onRegenerate = () => {
+    if (
+      window.confirm(
+        `Regenerate the ${code} brief? This re-runs the model over ` +
+          `${itemCount} tagged item${itemCount === 1 ? "" : "s"} and overwrites the current brief.`,
+      )
+    ) {
+      generate.mutate();
+    }
+  };
+
+  if (!brief || brief.status === "draft") {
+    return (
+      <div className="ib-empty">
+        <div>
+          <div className="ib-empty-title">No brief yet.</div>
+          <div className="muted text-sm">
+            Synthesize the {itemCount} tagged item{itemCount === 1 ? "" : "s"}{" "}
+            into one "story so far" narrative.
+          </div>
+        </div>
+        <button
+          className="btn btn-sm btn-primary"
+          disabled={generating || itemCount === 0}
+          onClick={() => generate.mutate()}
+        >
+          <Icon name="spark" size={12} /> Generate brief
+        </button>
+      </div>
+    );
+  }
+
+  if (generating) {
+    return (
+      <div className="ib-generating">
+        <Icon name="refresh" size={16} />
+        <div>
+          <div className="ib-generating-title">Synthesizing the story so far…</div>
+          <div className="muted text-xs">
+            One model pass over {itemCount} tagged item{itemCount === 1 ? "" : "s"}.
+            This usually takes a minute or two.
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (brief.status === "error") {
+    return (
+      <div className="ib-error">
+        <div className="ib-error-title">Brief generation failed</div>
+        <div className="muted text-sm">{brief.error_message || "Unknown error."}</div>
+        <button
+          className="btn btn-sm"
+          disabled={generate.isPending}
+          onClick={() => generate.mutate()}
+        >
+          <Icon name="refresh" size={12} /> Retry
+        </button>
+      </div>
+    );
+  }
+
+  if (!hasBrief) return null;
+
+  return (
+    <div className="ib-brief">
+      <div className="ib-brief-head">
+        <div className="row" style={{ gap: 8, alignItems: "baseline" }}>
+          <h2 className="section-head" style={{ margin: 0 }}>
+            The story so far
+          </h2>
+          {brief.stale && (
+            <span
+              className="ib-stale-pill"
+              title="New tagged items have landed since this brief was generated."
+            >
+              Stale
+            </span>
+          )}
+        </div>
+        <div className="row" style={{ gap: 8 }}>
+          <span className="muted text-xs">{briefMetaLine(brief)}</span>
+          <button
+            className="btn btn-ghost btn-sm"
+            disabled={generating}
+            onClick={onRegenerate}
+          >
+            <Icon name="refresh" size={12} /> Regenerate
+          </button>
+        </div>
+      </div>
+      <article className="ib-brief-body">
+        <Markdown source={brief.brief_md!} preserveH2 />
+      </article>
+    </div>
+  );
+}
+
 export function InitiativeDetail() {
   const { code } = useParams<{ code: string }>();
   const navigate = useNavigate();
@@ -133,6 +283,10 @@ export function InitiativeDetail() {
     queryKey: qk.initiative(code ?? ""),
     queryFn: () => api.getInitiative(code as string),
     enabled: !!code,
+    refetchInterval: (query) =>
+      query.state.data?.brief?.status === "generating" ? 3000 : false,
+    // Generation takes a minute or two; keep polling while backgrounded.
+    refetchIntervalInBackground: true,
   });
 
   return (
@@ -168,6 +322,22 @@ export function InitiativeDetail() {
           </div>
         )}
 
+        {data && code && (
+          <BriefSection
+            code={code}
+            brief={data.brief}
+            itemCount={data.item_count}
+          />
+        )}
+
+        {data && data.items.length > 0 && (
+          <div className="section-h" style={{ marginTop: 28 }}>
+            <h2>Appearances</h2>
+            <span className="meta">
+              {data.item_count} item{data.item_count === 1 ? "" : "s"}
+            </span>
+          </div>
+        )}
         {data && data.items.length === 0 && (
           <div className="empty">No tagged items yet.</div>
         )}

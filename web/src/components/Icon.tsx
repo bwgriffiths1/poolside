@@ -34,6 +34,7 @@ import {
   Trash2,
   Paperclip,
   Upload,
+  MessageCircle,
 } from "lucide-react";
 
 const REGISTRY = {
@@ -72,6 +73,7 @@ const REGISTRY = {
   trash: Trash2,
   paperclip: Paperclip,
   upload: Upload,
+  chat: MessageCircle,
 } as const;
 
 export type IconName = keyof typeof REGISTRY;

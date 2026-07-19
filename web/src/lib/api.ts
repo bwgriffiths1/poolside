@@ -751,6 +751,14 @@ export const api = {
     if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
   },
 
+  // ── Ask Poolside ─────────────────────────────────────────────────────
+  ask: (body: {
+    question: string;
+    type_short?: string;
+    from_date?: string;
+    to_date?: string;
+  }): Promise<AskResponse> => postJson(`/ask`, body),
+
   // ── Deep dives ───────────────────────────────────────────────────────
   listDeepDives: () => get<DeepDive[]>(`/deep-dives`, () => []),
 
@@ -1048,6 +1056,28 @@ export interface InitiativeSummary {
 }
 
 export type InitiativeBriefStatus = "draft" | "generating" | "complete" | "error";
+
+export interface AskSource {
+  n: number;
+  entity_type: "meeting" | "agenda_item";
+  entity_id: number;
+  meeting_id: number;
+  meeting_title: string | null;
+  meeting_date: string;
+  venue: string;
+  type_short: string;
+  item_id: string | null;
+  item_title: string | null;
+  snippet: string; // pre-escaped HTML with <b> highlights
+}
+
+export interface AskResponse {
+  question: string;
+  answer_md: string;
+  sources: AskSource[];
+  model_id: string | null;
+  cost_usd: number | null;
+}
 
 export interface DeepDiveSource {
   document_id: number;

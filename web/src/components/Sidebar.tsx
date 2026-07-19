@@ -28,6 +28,7 @@ const GROUPS: NavGroup[] = [
       { to: "/deep-dives", icon: "spark", label: "Deep Dives", matchPrefix: "/deep-dive" },
       { to: "/initiatives", icon: "tag", label: "Initiatives", matchPrefix: "/initiative" },
       { to: "/search", icon: "search", label: "Search" },
+      { to: "/ask", icon: "chat", label: "Ask" },
     ],
   },
   {

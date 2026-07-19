@@ -19,6 +19,7 @@ import { PublicShare } from "./routes/PublicShare";
 import { Accept } from "./routes/Accept";
 import { Initiatives, InitiativeDetail } from "./routes/Initiatives";
 import { Search } from "./routes/Search";
+import { Ask } from "./routes/Ask";
 
 export function App() {
   return (
@@ -41,6 +42,7 @@ export function App() {
           <Route path="/initiatives" element={<Initiatives />} />
           <Route path="/initiatives/:code" element={<InitiativeDetail />} />
           <Route path="/search" element={<Search />} />
+          <Route path="/ask" element={<Ask />} />
           <Route path="/add" element={<Add />} />
           <Route path="/edit/:type/:id" element={<Editor />} />
           <Route path="/prompts" element={<Prompts />} />

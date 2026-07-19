@@ -1603,6 +1603,148 @@ def get_month_briefings(venue_short: str, month) -> list[dict]:
 
 
 # ---------------------------------------------------------------------------
+# Initiative briefs  — cached "story so far" per initiative tag
+# ---------------------------------------------------------------------------
+
+def get_initiative_tag(code: str) -> dict | None:
+    """The initiative-typed tag row for a code like 'CAR-SA', or None."""
+    with _conn() as conn:
+        with _cursor(conn) as cur:
+            cur.execute(
+                "SELECT * FROM tags WHERE name = %s AND tag_type = 'initiative'",
+                (code,),
+            )
+            row = cur.fetchone()
+            return dict(row) if row else None
+
+
+def get_tag(tag_id: int) -> dict | None:
+    with _conn() as conn:
+        with _cursor(conn) as cur:
+            cur.execute("SELECT * FROM tags WHERE id = %s", (tag_id,))
+            row = cur.fetchone()
+            return dict(row) if row else None
+
+
+def get_initiative_items(tag_id: int) -> list[dict]:
+    """Every agenda item tagged with this initiative, newest meeting first,
+    each with its current (approved-preferred) summary joined in.
+
+    Shared by the initiatives API drill-in and the brief generator so both
+    always see the same item set.
+    """
+    with _conn() as conn:
+        with _cursor(conn) as cur:
+            cur.execute(
+                """
+                SELECT
+                    ai.id           AS item_db_id,
+                    ai.item_id,
+                    ai.title        AS item_title,
+                    ai.presenter,
+                    ai.org           AS organization,
+                    ai.vote_status,
+                    m.id            AS meeting_id,
+                    m.title         AS meeting_title,
+                    m.meeting_date,
+                    mt.short_name   AS type_short,
+                    mt.name         AS type_name,
+                    v.short_name    AS venue,
+                    sv.detailed     AS summary_detailed,
+                    sv.one_line     AS summary_one_line,
+                    sv.status       AS summary_status,
+                    sv.version      AS summary_version
+                FROM entity_tags et
+                JOIN agenda_items ai   ON ai.id = et.entity_id
+                JOIN meetings m        ON m.id  = ai.meeting_id
+                JOIN meeting_types mt  ON mt.id = m.meeting_type_id
+                JOIN venues v          ON v.id  = mt.venue_id
+                LEFT JOIN LATERAL (
+                    SELECT detailed, one_line, status, version
+                      FROM summary_versions
+                     WHERE entity_type = 'agenda_item'
+                       AND entity_id   = ai.id
+                       AND status != 'superseded'
+                  ORDER BY CASE status WHEN 'approved' THEN 0 ELSE 1 END,
+                           version DESC
+                     LIMIT 1
+                ) sv ON true
+                WHERE et.tag_id = %s
+                  AND et.entity_type = 'agenda_item'
+                ORDER BY m.meeting_date DESC, ai.seq
+                """,
+                (tag_id,),
+            )
+            return [dict(r) for r in cur.fetchall()]
+
+
+def get_initiative_brief(tag_id: int) -> dict | None:
+    with _conn() as conn:
+        with _cursor(conn) as cur:
+            cur.execute(
+                "SELECT * FROM initiative_briefs WHERE tag_id = %s", (tag_id,)
+            )
+            row = cur.fetchone()
+            return dict(row) if row else None
+
+
+def ensure_initiative_brief(tag_id: int, created_by: str = "system") -> dict:
+    """Get-or-create the brief row for a tag (status 'draft' on creation)."""
+    with _conn() as conn:
+        with _cursor(conn) as cur:
+            cur.execute(
+                """INSERT INTO initiative_briefs (tag_id, created_by)
+                   VALUES (%s, %s)
+                   ON CONFLICT (tag_id) DO NOTHING""",
+                (tag_id, created_by),
+            )
+    return get_initiative_brief(tag_id)  # type: ignore[return-value]
+
+
+def update_initiative_brief(tag_id: int, **fields) -> None:
+    """Update whitelisted fields on a brief, bumping updated_at.
+    Flipping status to 'complete' also stamps generated_at."""
+    allowed = {"status", "brief_md", "error_message", "model_id",
+               "input_tokens", "output_tokens", "cost_usd",
+               "source_item_count", "source_latest_meeting_date"}
+    updates = {k: v for k, v in fields.items() if k in allowed}
+    if not updates:
+        return
+    set_clause = ", ".join(f"{k} = %s" for k in updates)
+    if updates.get("status") == "complete":
+        set_clause += ", generated_at = NOW()"
+    values = list(updates.values()) + [tag_id]
+    with _conn() as conn:
+        with _cursor(conn) as cur:
+            cur.execute(
+                f"UPDATE initiative_briefs SET {set_clause}, updated_at = NOW() "
+                "WHERE tag_id = %s",
+                values,
+            )
+
+
+def claim_initiative_brief(tag_id: int, stale_minutes: int = 15) -> dict | None:
+    """Atomically flip a brief row to 'generating' and return it, or None when
+    another request already holds a live claim. Same admission guard as
+    claim_monthly_roundup: one brief is a single LLM call, so a 'generating'
+    row older than the stale window is dead and gets taken over."""
+    with _conn() as conn:
+        with _cursor(conn) as cur:
+            cur.execute("""
+                UPDATE initiative_briefs
+                   SET status = 'generating',
+                       error_message = NULL,
+                       updated_at = NOW()
+                 WHERE tag_id = %s
+                   AND NOT (status = 'generating'
+                            AND updated_at > NOW() - make_interval(mins => %s))
+             RETURNING *
+            """, (tag_id, stale_minutes))
+            row = cur.fetchone()
+            return dict(row) if row else None
+
+
+# ---------------------------------------------------------------------------
 # Meeting attachments  — user-uploaded files (Files portal)
 # ---------------------------------------------------------------------------
 

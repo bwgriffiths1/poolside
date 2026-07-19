@@ -128,6 +128,24 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         log.warning("could not reap stale monthly_roundups: %s", e)
 
+    # And initiative briefs — same status-on-row pattern, same dead thread.
+    try:
+        from pipeline import db as _db
+        with _db._conn() as _conn:
+            with _db._cursor(_conn) as _cur:
+                _cur.execute(
+                    """UPDATE initiative_briefs
+                          SET status = 'error',
+                              error_message = COALESCE(error_message,
+                                                       'server restarted mid-run'),
+                              updated_at = NOW()
+                        WHERE status = 'generating'"""
+                )
+                if _cur.rowcount:
+                    log.info("reaped %d stale initiative_briefs row(s)", _cur.rowcount)
+    except Exception as e:
+        log.warning("could not reap stale initiative_briefs: %s", e)
+
     # Cron scheduler (set POOLSIDE_SCHEDULER=off to disable).
     try:
         start_scheduler()

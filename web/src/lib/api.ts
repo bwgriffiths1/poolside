@@ -487,6 +487,11 @@ export const api = {
     get<InitiativeSummary[]>(`/initiatives`, () => []),
   getInitiative: (code: string) =>
     get<InitiativeDetail>(`/initiatives/${encodeURIComponent(code)}`),
+  generateInitiativeBrief: (code: string) =>
+    postJson<{ code: string; brief: InitiativeBrief | null }>(
+      `/initiatives/${encodeURIComponent(code)}/brief`,
+      {},
+    ),
 
   publicTokenAccept: async (
     token: string,
@@ -1016,6 +1021,21 @@ export interface InitiativeSummary {
   item_count: number;
   meeting_count: number;
   latest_meeting_date: string | null;
+  brief_status: InitiativeBriefStatus | null;
+}
+
+export type InitiativeBriefStatus = "draft" | "generating" | "complete" | "error";
+
+export interface InitiativeBrief {
+  status: InitiativeBriefStatus;
+  brief_md: string | null;
+  error_message: string | null;
+  model_id: string | null;
+  cost_usd: number | null;
+  generated_at: string | null;
+  source_item_count: number | null;
+  source_latest_meeting_date: string | null;
+  stale: boolean;
 }
 
 export interface InitiativeItem {
@@ -1041,6 +1061,7 @@ export interface InitiativeDetail {
   items: InitiativeItem[];
   item_count: number;
   meeting_count: number;
+  brief: InitiativeBrief | null;
 }
 
 export interface PublicShareResponse {

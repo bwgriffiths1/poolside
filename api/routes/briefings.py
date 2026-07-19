@@ -145,19 +145,46 @@ def approve_briefing(
         raise HTTPException(status_code=500, detail="Approval failed")
 
     meeting = db.get_meeting(meeting_id) or {}
+    payload = {
+        "meeting_id": meeting_id,
+        "title": meeting.get("title") or meeting.get("type_name") or "",
+        "venue": meeting.get("venue_short") or meeting.get("venue") or "",
+        "committee": meeting.get("type_short") or "",
+        "meeting_date": str(meeting.get("meeting_date") or ""),
+        "approved_by": approver,
+    }
     fan_out_to_watchers(
         meeting_id,
         "briefing_approved",
-        payload={
-            "meeting_id": meeting_id,
-            "title": meeting.get("title") or meeting.get("type_name") or "",
-            "venue": meeting.get("venue_short") or meeting.get("venue") or "",
-            "committee": meeting.get("type_short") or "",
-            "meeting_date": str(meeting.get("meeting_date") or ""),
-            "approved_by": approver,
-        },
+        payload=payload,
         exclude_user_id=user["id"],
     )
+
+    # Email the watchers who opted in — best-effort, off the request thread
+    # so a slow mail API can't drag out the approval response.
+    import threading
+
+    from ..services import mailer
+
+    def _email_watchers() -> None:
+        try:
+            recipients = db.list_watchers_with_email_pref(
+                meeting_id, "briefing_ready"
+            )
+            recipients = [r for r in recipients if r["id"] != user["id"]]
+            if not recipients:
+                return
+            subject, html_body = mailer.briefing_approved_email(payload)
+            for r in recipients:
+                mailer.send_email(r["email"], subject, html_body)
+        except Exception:  # never let email break an approval
+            import logging
+            logging.getLogger("poolside.briefings").exception(
+                "briefing_ready email fan-out failed for meeting %s", meeting_id
+            )
+
+    threading.Thread(target=_email_watchers, daemon=True,
+                     name=f"briefing-mail-{meeting_id}").start()
 
     return {
         "status": "approved",

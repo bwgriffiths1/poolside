@@ -15,6 +15,69 @@ function emptyRow(): AppConfigCommittee {
   return { name: "", short: "", url: "", active: true };
 }
 
+const PREF_ROWS: { key: "briefing_ready" | "weekly_digest"; label: string; hint: string }[] = [
+  {
+    key: "briefing_ready",
+    label: "Briefing ready",
+    hint: "Email me when a meeting I watch gets an approved briefing.",
+  },
+  {
+    key: "weekly_digest",
+    label: "Weekly digest",
+    hint: "Monday morning week-ahead: upcoming meetings + last week's new briefings.",
+  },
+];
+
+function NotificationPrefs() {
+  const qc = useQueryClient();
+  const { data, isLoading } = useQuery({
+    queryKey: qk.myPrefs,
+    queryFn: () => api.getMyPrefs(),
+  });
+
+  const update = useMutation({
+    mutationFn: (patch: Partial<Record<string, boolean>>) =>
+      api.updateMyPrefs({ email_prefs: patch }),
+    onSuccess: (fresh) => qc.setQueryData(qk.myPrefs, fresh),
+    onError: (e: Error) => toast.error(`Couldn't save preference: ${e.message}`),
+  });
+
+  return (
+    <section style={{ marginBottom: 28 }}>
+      <h2 className="section-head">Email notifications</h2>
+      {data && !data.mail_configured && (
+        <p className="muted text-sm" style={{ marginBottom: 10 }}>
+          Email sending isn't configured on the server yet (RESEND_API_KEY) —
+          your choices are saved and take effect once it is.
+        </p>
+      )}
+      {isLoading && <div className="muted text-sm">Loading…</div>}
+      {data && (
+        <div className="settings-table">
+          {PREF_ROWS.map((row) => (
+            <label
+              key={row.key}
+              className="settings-row"
+              style={{ alignItems: "center", cursor: "pointer" }}
+            >
+              <input
+                type="checkbox"
+                checked={!!data.email_prefs[row.key]}
+                disabled={update.isPending}
+                onChange={(e) => update.mutate({ [row.key]: e.target.checked })}
+              />
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 13.5, fontWeight: 600 }}>{row.label}</div>
+                <div className="muted text-xs">{row.hint}</div>
+              </div>
+            </label>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
 export function Settings() {
   const qc = useQueryClient();
   const { data, isLoading, error } = useQuery({
@@ -106,7 +169,8 @@ export function Settings() {
           <div className="page-eyebrow">Account · Settings</div>
           <h1 className="page-title">Settings</h1>
           <p className="page-subtitle">
-            Committees the scraper monitors, and how far ahead to look.
+            Your email notifications, the committees the scraper monitors, and
+            how far ahead to look.
           </p>
         </div>
 
@@ -116,6 +180,8 @@ export function Settings() {
             Could not load settings: {(error as Error).message}
           </div>
         )}
+
+        <NotificationPrefs />
 
         {draft && (
           <>

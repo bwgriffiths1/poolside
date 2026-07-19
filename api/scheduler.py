@@ -1,12 +1,14 @@
 """APScheduler — runs inside the FastAPI process via the app lifespan.
 
-Two jobs:
-  * Daily 06:00 ET     — scrape calendars for known venues, create stub
+Jobs (all ET):
+  * Daily 06:00        — scrape calendars for known venues, create stub
                          meeting rows for any new events.
-  * Mon-Fri 08:00-18:00 ET, every 30 min — refresh upcoming meetings:
+  * Daily 07:00        — drift alarm when discovery has gone silent 48h+.
+  * Mon 07:30          — weekly week-ahead email digest (opt-in per user).
+  * Mon-Fri 08:00-18:00, every 30 min — refresh upcoming meetings:
                          pull new docs, run auto-assignment, bump lifecycle.
 
-Both jobs are idempotent and call the same code paths as POST /api/admin/*.
+All jobs are idempotent and call the same code paths as POST /api/admin/*.
 """
 from __future__ import annotations
 
@@ -119,6 +121,40 @@ def _drift_alarm_job() -> None:
         log.exception("drift_alarm job failed: %s", e)
 
 
+def _weekly_digest_job() -> None:
+    """Monday morning week-ahead digest for opted-in users. Skips silently
+    when mail is unconfigured, nobody opted in, or there's nothing to say."""
+    from pipeline import db
+
+    from .services import mailer
+
+    try:
+        if not mailer.mail_enabled():
+            log.info("weekly digest skipped — mail not configured")
+            return
+        users = db.list_users_with_email_pref("weekly_digest")
+        if not users:
+            log.info("weekly digest skipped — no opted-in users")
+            return
+
+        today_window = db.list_meetings_overview(past_days=0, future_days=7)
+        upcoming = sorted(today_window, key=lambda m: str(m.get("meeting_date")))
+        recent = db.list_recent_approved_briefings(days=7)
+        if not upcoming and not recent:
+            log.info("weekly digest skipped — nothing to report")
+            return
+
+        subject, html_body = mailer.weekly_digest_email(upcoming, recent)
+        sent = sum(
+            1 for u in users if mailer.send_email(u["email"], subject, html_body)
+        )
+        log.info("weekly digest sent to %d/%d user(s) — %d upcoming, %d new briefing(s)",
+                 sent, len(users), len(upcoming), len(recent))
+    except Exception as e:
+        log.exception("weekly_digest job failed: %s", e)
+        _notify_job_failed("weekly_digest", e)
+
+
 def start_scheduler() -> AsyncIOScheduler | None:
     """Start the scheduler. Returns the instance, or None when disabled.
 
@@ -149,6 +185,12 @@ def start_scheduler() -> AsyncIOScheduler | None:
         _drift_alarm_job,
         CronTrigger(hour=7, minute=0),
         id="drift_alarm",
+        replace_existing=True,
+    )
+    s.add_job(
+        _weekly_digest_job,
+        CronTrigger(day_of_week="mon", hour=7, minute=30),
+        id="weekly_digest",
         replace_existing=True,
     )
     s.start()

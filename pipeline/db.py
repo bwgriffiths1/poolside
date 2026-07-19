@@ -1766,6 +1766,91 @@ def claim_initiative_brief(tag_id: int, stale_minutes: int = 15) -> dict | None:
 
 
 # ---------------------------------------------------------------------------
+# Email preferences + digest queries
+# ---------------------------------------------------------------------------
+
+def get_user_email_prefs(user_id: int) -> dict:
+    with _conn() as conn:
+        with _cursor(conn) as cur:
+            cur.execute("SELECT email_prefs FROM app_users WHERE id = %s",
+                        (user_id,))
+            row = cur.fetchone()
+            return dict(row["email_prefs"]) if row and row.get("email_prefs") else {}
+
+
+def set_user_email_prefs(user_id: int, prefs: dict) -> dict:
+    """Merge the given keys into the user's email_prefs; returns the result.
+    Callers whitelist keys — this helper stores what it's given."""
+    import json as _json
+    with _conn() as conn:
+        with _cursor(conn) as cur:
+            cur.execute(
+                """UPDATE app_users
+                      SET email_prefs = email_prefs || %s::jsonb
+                    WHERE id = %s
+                RETURNING email_prefs""",
+                (_json.dumps(prefs), user_id),
+            )
+            row = cur.fetchone()
+            return dict(row["email_prefs"]) if row else {}
+
+
+def list_users_with_email_pref(key: str) -> list[dict]:
+    """Active users who opted into the given email pref key."""
+    with _conn() as conn:
+        with _cursor(conn) as cur:
+            cur.execute(
+                """SELECT id, email, name FROM app_users
+                    WHERE is_active
+                      AND COALESCE((email_prefs->>%s)::boolean, false)""",
+                (key,),
+            )
+            return [dict(r) for r in cur.fetchall()]
+
+
+def list_watchers_with_email_pref(meeting_id: int, key: str) -> list[dict]:
+    """Watchers of a meeting who also opted into the given email pref."""
+    with _conn() as conn:
+        with _cursor(conn) as cur:
+            cur.execute(
+                """SELECT u.id, u.email, u.name
+                     FROM meeting_watches w
+                     JOIN app_users u ON u.id = w.user_id
+                    WHERE w.meeting_id = %s
+                      AND u.is_active
+                      AND COALESCE((u.email_prefs->>%s)::boolean, false)""",
+                (meeting_id, key),
+            )
+            return [dict(r) for r in cur.fetchall()]
+
+
+def list_recent_approved_briefings(days: int = 7) -> list[dict]:
+    """Meetings whose meeting-level briefing was approved in the window,
+    newest approval first — the digest's 'new briefings' section."""
+    with _conn() as conn:
+        with _cursor(conn) as cur:
+            cur.execute(
+                """SELECT DISTINCT ON (m.id)
+                          m.id, m.title, m.meeting_date, m.end_date,
+                          mt.short_name AS type_short, mt.name AS type_name,
+                          v.short_name  AS venue_short,
+                          sv.approved_at
+                     FROM summary_versions sv
+                     JOIN meetings m       ON m.id = sv.entity_id
+                     JOIN meeting_types mt ON mt.id = m.meeting_type_id
+                     JOIN venues v         ON v.id = mt.venue_id
+                    WHERE sv.entity_type = 'meeting'
+                      AND sv.status = 'approved'
+                      AND sv.approved_at >= NOW() - make_interval(days => %s)
+                 ORDER BY m.id, sv.approved_at DESC""",
+                (days,),
+            )
+            rows = [dict(r) for r in cur.fetchall()]
+    rows.sort(key=lambda r: r.get("approved_at") or 0, reverse=True)
+    return rows
+
+
+# ---------------------------------------------------------------------------
 # Meeting attachments  — user-uploaded files (Files portal)
 # ---------------------------------------------------------------------------
 

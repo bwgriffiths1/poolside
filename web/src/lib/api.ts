@@ -199,6 +199,12 @@ export const api = {
       month_label: "",
     })),
 
+  pruneImages: (): Promise<{
+    deleted: number;
+    freed_bytes: number;
+    stats: ImageStorageStats;
+  }> => postJson(`/admin/images/prune`, {}),
+
   triggerDiscover: async (): Promise<{ discovered: Record<string, number> }> => {
     const res = await fetch(`${BASE}/admin/discover`, {
       method: "POST",
@@ -1210,12 +1216,26 @@ export interface UsageMonthlyPoint {
   jobs: number;
 }
 
+export interface ImageStorageStats {
+  stored: number;
+  stored_bytes: number;
+  referenced: number;
+  unreferenced_bytes: number;
+  last_prune: {
+    at: string;
+    deleted: number;
+    freed_bytes: number;
+    by?: string;
+  } | null;
+}
+
 export interface UsageDashboard {
   this_month: UsageTotals;
   last_month: UsageTotals;
   by_committee_this_month: UsageByCommittee[];
   trailing_six_months: UsageMonthlyPoint[];
   month_label: string;
+  images?: ImageStorageStats;
 }
 
 async function mutate(path: string, method: string, body?: unknown): Promise<void> {

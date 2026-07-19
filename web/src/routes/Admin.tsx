@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Topbar } from "../components/Topbar";
 import { Icon } from "../components/Icon";
-import { api, type UserTokenRow } from "../lib/api";
+import { api, type ImageStorageStats, type UserTokenRow } from "../lib/api";
 import { qk } from "../lib/queries";
 import { toast } from "../lib/toast";
 
@@ -135,6 +135,12 @@ export function Admin() {
               )}
             </section>
 
+            {data.images && (
+              <section style={{ marginTop: 48 }}>
+                <ImageStoragePanel stats={data.images} />
+              </section>
+            )}
+
             <section style={{ marginTop: 48 }}>
               <UserTokensPanel />
             </section>
@@ -142,6 +148,80 @@ export function Admin() {
             <div style={{ height: 64 }} />
           </>
         )}
+      </div>
+    </>
+  );
+}
+
+function mb(bytes: number): string {
+  return `${(bytes / 1_048_576).toFixed(1)} MB`;
+}
+
+function ImageStoragePanel({ stats }: { stats: ImageStorageStats }) {
+  const qc = useQueryClient();
+  const prune = useMutation({
+    mutationFn: () => api.pruneImages(),
+    onSuccess: (res) => {
+      qc.invalidateQueries({ queryKey: qk.usageDashboard });
+      toast.success(
+        res.deleted === 0
+          ? "Nothing to prune — all stored images are referenced or recent."
+          : `Pruned ${res.deleted} images, freed ${mb(res.freed_bytes)}.`,
+      );
+    },
+    onError: (e: Error) => toast.error(`Prune failed: ${e.message}`),
+  });
+
+  const last = stats.last_prune;
+
+  return (
+    <>
+      <div className="row" style={{ justifyContent: "space-between", gap: 12 }}>
+        <h2 className="section-head" style={{ marginBottom: 0 }}>
+          Image storage
+        </h2>
+        <button
+          className="btn btn-sm"
+          disabled={prune.isPending}
+          onClick={() => prune.mutate()}
+          title="Delete extracted images no briefing references (30+ days old). They re-extract automatically if ever needed — ISO-NE keeps old materials up."
+        >
+          <Icon name="trash" size={12} />
+          {prune.isPending ? "Pruning…" : "Prune now"}
+        </button>
+      </div>
+      <p className="muted text-sm" style={{ margin: "6px 0 12px" }}>
+        Extracted figure candidates are a regenerable cache; a weekly job
+        (Sun 05:00 ET) removes the ones no briefing kept.
+      </p>
+      <div className="usage-grid">
+        <Tile
+          label="Stored"
+          value={String(stats.stored)}
+          sub={mb(stats.stored_bytes)}
+        />
+        <Tile
+          label="Referenced"
+          value={String(stats.referenced)}
+          sub="kept by briefings & reports"
+        />
+        <Tile
+          label="Prunable"
+          value={String(stats.stored - stats.referenced)}
+          sub={`${mb(stats.unreferenced_bytes)} reclaimable`}
+        />
+        <Tile
+          label="Last prune"
+          value={
+            last
+              ? new Date(last.at).toLocaleDateString("en-US", {
+                  month: "short",
+                  day: "numeric",
+                })
+              : "never"
+          }
+          sub={last ? `${last.deleted} deleted · ${mb(last.freed_bytes)}` : "weekly · Sun 05:00 ET"}
+        />
       </div>
     </>
   );

@@ -868,6 +868,108 @@ def count_images_for_document(document_id: int) -> int:
             return cur.fetchone()["cnt"]
 
 
+# Every place stored markdown can reference an extracted image. Stored text
+# carries `<!-- image_id:N -->` markers; hand-edited text may carry the
+# resolved `/api/images/N` form instead — both count as references.
+_IMAGE_REF_SOURCES_SQL = """
+    SELECT (regexp_matches(detailed, 'image_id:(\\d+)', 'g'))[1]::int AS img_id
+      FROM summary_versions WHERE detailed LIKE '%%image_id:%%'
+    UNION
+    SELECT (regexp_matches(detailed, '/api/images/(\\d+)', 'g'))[1]::int
+      FROM summary_versions WHERE detailed LIKE '%%/api/images/%%'
+    UNION
+    SELECT (regexp_matches(report_md, 'image_id:(\\d+)', 'g'))[1]::int
+      FROM deep_dive_reports WHERE report_md LIKE '%%image_id:%%'
+    UNION
+    SELECT (regexp_matches(report_md, '/api/images/(\\d+)', 'g'))[1]::int
+      FROM deep_dive_reports WHERE report_md LIKE '%%/api/images/%%'
+    UNION
+    SELECT (regexp_matches(brief_md, 'image_id:(\\d+)', 'g'))[1]::int
+      FROM initiative_briefs WHERE brief_md LIKE '%%image_id:%%'
+    UNION
+    SELECT (regexp_matches(brief_md, '/api/images/(\\d+)', 'g'))[1]::int
+      FROM initiative_briefs WHERE brief_md LIKE '%%/api/images/%%'
+"""
+
+
+def image_stats() -> dict:
+    """Storage snapshot for the admin dashboard: how many extracted images
+    exist, how many any stored markdown actually references, and the bytes
+    the unreferenced remainder occupies."""
+    with _conn() as conn:
+        with _cursor(conn) as cur:
+            # Empty params tuple so psycopg2 runs placeholder processing and
+            # the %% escapes in the shared SQL collapse to literal %.
+            cur.execute(f"""
+                WITH refs AS ({_IMAGE_REF_SOURCES_SQL})
+                SELECT
+                    (SELECT COUNT(*) FROM document_images)          AS stored,
+                    (SELECT COALESCE(SUM(length(image_b64)), 0)
+                       FROM document_images)                        AS stored_bytes,
+                    (SELECT COUNT(*) FROM document_images
+                      WHERE id IN (SELECT img_id FROM refs))        AS referenced,
+                    (SELECT COALESCE(SUM(length(image_b64)), 0)
+                       FROM document_images
+                      WHERE id NOT IN (SELECT img_id FROM refs))    AS unreferenced_bytes
+            """, ())
+            row = dict(cur.fetchone())
+    return {k: int(v or 0) for k, v in row.items()}
+
+
+def prune_unreferenced_document_images(older_than_days: int = 30) -> dict:
+    """Delete extracted images that no stored markdown references.
+
+    Guards: only images older than the window (re-summarize churn keeps its
+    cache) and only for documents with a source_url — the extractor
+    re-downloads on demand, and ISO-NE keeps old materials up indefinitely,
+    so these rows are a regenerable cache, not primary data. Every version
+    of every summary counts as a reference (restoring an old version from
+    history must not 404 its figures). Manual/uploaded documents (no
+    source_url) are never pruned. editor_images is a different table and is
+    untouched.
+
+    Returns {deleted, freed_bytes}. Space is reclaimed by the caller's
+    vacuum (see vacuum_document_images) — DELETE alone leaves the file size
+    unchanged.
+    """
+    with _conn() as conn:
+        with _cursor(conn) as cur:
+            cur.execute(f"""
+                WITH refs AS ({_IMAGE_REF_SOURCES_SQL})
+                DELETE FROM document_images di
+                 USING documents d
+                 WHERE d.id = di.document_id
+                   AND COALESCE(d.source_url, '') <> ''
+                   AND di.created_at < NOW() - make_interval(days => %s)
+                   AND di.id NOT IN (SELECT img_id FROM refs)
+             RETURNING length(di.image_b64) AS b
+            """, (older_than_days,))
+            rows = cur.fetchall()
+    return {
+        "deleted": len(rows),
+        "freed_bytes": int(sum((r["b"] or 0) for r in rows)),
+    }
+
+
+def vacuum_document_images() -> None:
+    """VACUUM FULL the images table so a big prune actually shrinks the
+    database on disk. Needs autocommit (VACUUM can't run in a transaction);
+    takes an exclusive lock for a few seconds, so callers should run it
+    off-peak and only after a non-trivial prune."""
+    pool = _get_pool()
+    conn = pool.getconn()
+    try:
+        old_autocommit = conn.autocommit
+        conn.autocommit = True
+        try:
+            with conn.cursor() as cur:
+                cur.execute("VACUUM (FULL, ANALYZE) document_images")
+        finally:
+            conn.autocommit = old_autocommit
+    finally:
+        pool.putconn(conn)
+
+
 def get_documents_for_meeting(meeting_id: int) -> list[dict]:
     with _conn() as conn:
         with _cursor(conn) as cur:

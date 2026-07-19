@@ -10,7 +10,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends
 
-from pipeline import db
+from pipeline import appconfig, db
 from ..auth import current_user
 
 router = APIRouter(prefix="/api/admin", tags=["admin-dashboard"])
@@ -122,4 +122,8 @@ def usage_dashboard(_: dict = Depends(current_user)) -> dict[str, Any]:
         "by_committee_this_month": by_committee,
         "trailing_six_months": trailing,
         "month_label": today.strftime("%B %Y"),
+        "images": {
+            **db.image_stats(),
+            "last_prune": appconfig.get_config_key("image_prune_last"),
+        },
     }

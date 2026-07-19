@@ -44,6 +44,29 @@ def discover_all_venues() -> dict[str, Any]:
     return discovery.discover_all_venues()
 
 
+@router.post("/images/prune")
+def prune_images(user: dict = Depends(current_user)) -> dict[str, Any]:
+    """On-demand run of the weekly image prune: delete extracted images no
+    stored markdown references (>30 days old, source_url-backed — a
+    regenerable cache), then VACUUM FULL so the disk actually shrinks.
+    Synchronous; the whole thing is a few seconds."""
+    from datetime import datetime, timezone
+
+    from pipeline import appconfig
+
+    result = db.prune_unreferenced_document_images(older_than_days=30)
+    if result["deleted"]:
+        db.vacuum_document_images()
+    stamp = {
+        "at": datetime.now(timezone.utc).isoformat(),
+        "deleted": result["deleted"],
+        "freed_bytes": result["freed_bytes"],
+        "by": (user.get("email") if isinstance(user, dict) else None) or "admin",
+    }
+    appconfig.set_config_key("image_prune_last", stamp, updated_by="admin")
+    return {**result, "stats": db.image_stats()}
+
+
 # ─── Materials refresh ───────────────────────────────────────────────────────
 
 

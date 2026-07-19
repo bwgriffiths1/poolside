@@ -50,6 +50,13 @@ def _db_get(key: str) -> Any | None:
         return None
 
 
+def get_config_key(key: str) -> Any | None:
+    """Public read of one app_config key (None when unset/unreadable).
+    For standalone keys like job stamps — config.yaml-backed settings
+    should keep going through get_config()."""
+    return _db_get(key)
+
+
 def _db_get_all() -> dict[str, Any] | None:
     try:
         import pipeline.db as db

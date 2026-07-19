@@ -4,6 +4,8 @@ Jobs (all ET):
   * Daily 06:00        — scrape calendars for known venues, create stub
                          meeting rows for any new events.
   * Daily 07:00        — drift alarm when discovery has gone silent 48h+.
+  * Sun 05:00          — prune unreferenced extracted images (regenerable
+                         cache; keeps the DB ~85% smaller) + VACUUM FULL.
   * Mon 07:30          — weekly week-ahead email digest (opt-in per user).
   * Mon-Fri 08:00-18:00, every 30 min — refresh upcoming meetings:
                          pull new docs, run auto-assignment, bump lifecycle.
@@ -155,6 +157,35 @@ def _weekly_digest_job() -> None:
         _notify_job_failed("weekly_digest", e)
 
 
+def _prune_images_job() -> None:
+    """Weekly cache eviction: extracted images that no stored markdown
+    references are a regenerable cache (the extractor re-downloads from
+    source_url on demand, and ISO-NE keeps old materials up), and they were
+    ~85% of the database. Deletes, then VACUUM FULLs the table so the disk
+    actually shrinks; stamps the result in app_config for the admin page."""
+    from datetime import datetime, timezone
+
+    from pipeline import appconfig, db
+
+    try:
+        before = db.image_stats()
+        result = db.prune_unreferenced_document_images(older_than_days=30)
+        if result["deleted"]:
+            db.vacuum_document_images()
+        stamp = {
+            "at": datetime.now(timezone.utc).isoformat(),
+            "deleted": result["deleted"],
+            "freed_bytes": result["freed_bytes"],
+            "stored_after": before["stored"] - result["deleted"],
+        }
+        appconfig.set_config_key("image_prune_last", stamp, updated_by="scheduler")
+        log.info("prune_images: deleted %d image(s), freed %.1f MB",
+                 result["deleted"], result["freed_bytes"] / 1_048_576)
+    except Exception as e:
+        log.exception("prune_images job failed: %s", e)
+        _notify_job_failed("prune_images", e)
+
+
 def start_scheduler() -> AsyncIOScheduler | None:
     """Start the scheduler. Returns the instance, or None when disabled.
 
@@ -191,6 +222,12 @@ def start_scheduler() -> AsyncIOScheduler | None:
         _weekly_digest_job,
         CronTrigger(day_of_week="mon", hour=7, minute=30),
         id="weekly_digest",
+        replace_existing=True,
+    )
+    s.add_job(
+        _prune_images_job,
+        CronTrigger(day_of_week="sun", hour=5, minute=0),
+        id="prune_images",
         replace_existing=True,
     )
     s.start()

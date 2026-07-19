@@ -659,3 +659,15 @@
   background: var(--accent-tint);
   border-radius: var(--radius-sm);
 }
+
+/* Mobile: the head stacks and the stat strip fits the width. */
+@media (max-width: 640px) {
+  .meeting-head { grid-template-columns: 1fr; }
+  .meeting-head-right { justify-content: space-between; }
+  .stat-block { min-width: 0; flex: 1; padding: var(--pad-3) var(--pad-4); }
+}
+
+@media (max-width: 640px) {
+  .briefing-card { grid-template-columns: 1fr; }
+  .briefing-card-right { justify-content: flex-start; flex-wrap: wrap; }
+}

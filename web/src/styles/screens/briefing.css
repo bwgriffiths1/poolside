@@ -517,10 +517,16 @@
   grid-template-columns: repeat(2, 1fr);
   gap: 8px;
 }
+@media (max-width: 640px) {
+  .b-sources { grid-template-columns: 1fr; }
+}
 .b-source {
   display: grid;
   grid-template-columns: 38px 1fr 16px;
   gap: 10px;
+  /* Grid items default to min-width:auto — a long unbreakable filename
+     would otherwise blow the column (and the page) out sideways. */
+  min-width: 0;
   align-items: center;
   padding: 10px 12px;
   background: var(--bg-elev);
@@ -540,6 +546,7 @@
   border-radius: 3px;
   color: var(--muted);
 }
+.b-source > div { min-width: 0; }
 .b-source-name {
   font-size: 12.5px;
   color: var(--ink);
@@ -646,4 +653,17 @@
     color: inherit !important;
     text-decoration: none !important;
   }
+}
+
+/* Mobile reader: content over chrome — TOC gone, single column, full-width
+   progress bar. Lives here (not base.css) so it wins the import order over
+   the desktop grid above. */
+@media (max-width: 900px) {
+  .briefing-side { display: none; }
+  .briefing-page {
+    grid-template-columns: 1fr;
+    padding: var(--pad-5) var(--pad-4);
+  }
+  .briefing-article { max-width: none; }
+  .b-progress { left: 0; }
 }

@@ -1195,3 +1195,139 @@ a:hover { text-decoration: underline; }
   from { opacity: 0; transform: translateY(6px); }
   to   { opacity: 1; transform: translateY(0); }
 }
+
+/* ═══════════════════════════════════════════════════════════════════════
+   Responsive — the app is desktop-first; these two breakpoints make it
+   phone-usable. ≤900px: the sidebar becomes an overlay drawer behind a
+   fixed hamburger. ≤640px: density/type tighten and multi-column layouts
+   stack. Wide content (tables, code) scrolls inside its own container.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+.nav-toggle { display: none; }
+.nav-backdrop { display: none; }
+
+@media (max-width: 900px) {
+  .app { grid-template-columns: 1fr; }
+
+  .sidebar {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: var(--sidebar-w);
+    z-index: 60;
+    transform: translateX(-100%);
+    transition: transform 180ms ease;
+    border-right: 1px solid var(--border);
+    /* Clear the fixed hamburger, which stays visible above the drawer. */
+    padding-top: 52px;
+  }
+  .app.nav-open .sidebar {
+    transform: translateX(0);
+    box-shadow: 12px 0 40px rgb(0 0 0 / 0.18);
+  }
+
+  .nav-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 55;
+    background: rgb(20 16 12 / 0.32);
+  }
+
+  .nav-toggle {
+    display: inline-flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 4px;
+    position: fixed;
+    top: 12px;
+    left: 12px;
+    z-index: 70;
+    width: 34px;
+    height: 32px;
+    padding: 0 8px;
+    background: var(--bg-elev);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    cursor: pointer;
+  }
+  .nav-toggle-bar {
+    display: block;
+    height: 1.5px;
+    background: var(--ink-soft);
+    border-radius: 2px;
+  }
+
+  /* Clear the fixed hamburger. */
+  .topbar { padding-left: 58px; }
+
+  .page,
+  .page-wide { padding: var(--pad-5) var(--pad-4); }
+
+  /* Scraped filenames (a03.1.a_mc_tc_…pdf) appear inside prose and
+     snippets; on narrow screens let such tokens break rather than widen
+     the scroll area. Ellipsized labels are unaffected (their overflow is
+     already hidden). */
+  .page,
+  .page-wide,
+  .briefing-page { overflow-wrap: anywhere; }
+
+}
+
+@media (max-width: 640px) {
+  :root {
+    --pad-6: 20px;
+    --pad-7: 24px;
+  }
+
+  .page-title { font-size: 28px; }
+  .briefing-title { font-size: 30px; }
+  .page-header { margin-bottom: var(--pad-5); }
+
+  /* Topbar: crumbs shrink, actions can scroll horizontally. */
+  .topbar { gap: 8px; }
+  .topbar-crumbs { overflow: hidden; }
+  .topbar-crumbs > * { white-space: nowrap; }
+  .topbar-actions {
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .topbar-actions::-webkit-scrollbar { display: none; }
+
+  /* Filter bars and segmented controls wrap instead of overflowing. */
+  .filter-bar { flex-wrap: wrap; }
+  .filter-bar .row { flex-wrap: wrap; }
+  .row:has(> .seg) { flex-wrap: wrap; }
+  .seg { flex-wrap: wrap; }
+
+  /* Meeting rows: the 7-column desktop grid regroups into three lines —
+     date+venue+status, title, then stats+tags. */
+  .mtg-row {
+    grid-template-columns: auto auto 1fr auto;
+    grid-template-areas:
+      "date venue status chev"
+      "title title title title"
+      "stats stats tags tags";
+    row-gap: 6px;
+  }
+  .mtg-row-date { grid-area: date; }
+  .mtg-row-venue { grid-area: venue; }
+  .mtg-row-title { grid-area: title; }
+  .mtg-row-stats { grid-area: stats; }
+  .mtg-row-tags { grid-area: tags; justify-content: flex-end; flex-wrap: wrap; }
+  .mtg-row-status { grid-area: status; }
+  .mtg-row-chev { grid-area: chev; }
+
+  /* Data tables scroll inside their figure instead of widening the page. */
+  .b-figure { overflow-x: auto; }
+  .settings-row { flex-wrap: wrap; }
+
+  /* Footer prev/next stacks. */
+  .b-footer-nav { flex-direction: column; }
+  .b-footer-nav-next { text-align: left; }
+
+  /* Ask: source rows wrap their meta line; titles break normally. */
+  .ask-source .row { flex-wrap: wrap; }
+  .ask-source-title { white-space: normal; min-width: 0; }
+}

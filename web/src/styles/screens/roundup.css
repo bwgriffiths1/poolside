@@ -278,3 +278,23 @@
   border-bottom: 1px solid var(--border-soft);
   vertical-align: top;
 }
+
+/* Mobile: the 4-column row regroups — month+status share the top line,
+   committee tags wrap below. (Also covers the Deep Dives list reusing ru-*.) */
+@media (max-width: 640px) {
+  .ru-row {
+    grid-template-columns: 1fr auto 16px;
+    grid-template-areas:
+      "month status chev"
+      "committees committees committees";
+    row-gap: 8px;
+  }
+  .ru-row-month { grid-area: month; }
+  .ru-row-status { grid-area: status; }
+  .ru-row-chev { grid-area: chev; }
+  .ru-row-committees {
+    grid-area: committees;
+    flex-wrap: wrap;
+  }
+  .ru-sources { flex-wrap: wrap; }
+}

@@ -47,6 +47,20 @@ _SECTION_HEAD_DOT = re.compile(
     r"^#{2,3}\s+(?:Items?\s+)?(\d+(?:\.[0-9A-Za-z]+)*)\.\s+(.+)$",
     re.IGNORECASE,
 )
+# Compound head naming several items at once: "### Item 1 / 1.A — Title".
+# Neither pattern above matches (the " / " breaks their id capture), so the
+# whole section — body, TOC entry, docs — used to be dropped in silence. The
+# first id becomes the canonical item_id; sub-item docs still find it by the
+# nearest-ancestor rule in adapters.attach_briefing_docs.
+_SECTION_HEAD_COMPOUND = re.compile(
+    r"^#{2,3}\s+(?:Items?\s+)?"
+    # Both ids must start with a digit, so prose heads that merely contain a
+    # slash ("## Executive Summary / Highlights") can never match.
+    r"(\d[\d\.A-Za-z\-–—]*)"                # first item id
+    r"(?:\s*/\s*\d[\d\.A-Za-z\-–—]*)+"      # "/ 1.A", repeatable
+    r"\s*[:—–\-]\s*(.+)$",
+    re.IGNORECASE,
+)
 _H3 = re.compile(r"^###\s+(.+)$")
 _H4 = re.compile(r"^####\s+(.+)$")
 # Standalone marker line. The colon can sit inside OR outside the closing
@@ -144,7 +158,11 @@ def parse_briefing_markdown(md: str, meta: dict[str, Any]) -> schemas.Briefing:
         # which would otherwise be misread as a new top-level section.
         sec_match = None
         if line.startswith("## ") or line.startswith("### "):
-            sec_match = _SECTION_HEAD.match(line) or _SECTION_HEAD_DOT.match(line)
+            sec_match = (
+                _SECTION_HEAD.match(line)
+                or _SECTION_HEAD_DOT.match(line)
+                or _SECTION_HEAD_COMPOUND.match(line)
+            )
         if sec_match:
             in_executive = False
             in_agenda = True

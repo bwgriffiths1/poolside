@@ -176,3 +176,34 @@ def test_cover_links_omitted_when_unknown(new_format):
     b, xml = new_format  # rendered with no link kwargs
     assert "<w:hyperlink" not in xml
     assert "Meeting materials:" not in xml
+
+
+def test_compound_item_heading_parses():
+    """'### Item 1 / 1.A — Title' names two agenda items at once. Neither
+    section pattern matched it, so the section — body, TOC entry, and its
+    documents — was dropped in silence from both the reader and the docx."""
+    md = (
+        "## Agenda Item Summaries\n\n"
+        "### Item 1 / 1.A — Chair's Opening Remarks and Approval of Minutes\n\n"
+        "Procedural items; minutes approved.\n\n"
+        "### Item 2 — Balancing Ratio\n\nBody B.\n"
+    )
+    b = parse_briefing_markdown(md, {"title": "X"})
+    assert [(s.item_id, s.title) for s in b.sections] == [
+        ("1", "Chair's Opening Remarks and Approval of Minutes"),
+        ("2", "Balancing Ratio"),
+    ]
+    xml = _docx_xml(b)
+    assert "Chair's Opening Remarks" in xml and "Procedural items" in xml
+
+
+def test_prose_heading_with_slash_is_not_an_item():
+    """The compound pattern must not swallow '## Executive Summary /
+    Highlights' — both ids have to start with a digit."""
+    md = (
+        "## Executive Summary / Highlights\n\nIntro prose.\n\n"
+        "## Agenda Item Summaries\n\n### Item 2 — Balancing Ratio\n\nBody.\n"
+    )
+    b = parse_briefing_markdown(md, {"title": "X"})
+    assert [s.item_id for s in b.sections] == ["2"]
+    assert b.executive_summary  # parsed as the exec summary, not an agenda item

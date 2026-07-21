@@ -4,6 +4,8 @@ import { useQuery } from "@tanstack/react-query";
 import { Icon } from "../components/Icon";
 import { VenueTag, TypeTag } from "../components/Tag";
 import { BlockRenderer } from "../components/briefing/BlockRenderer";
+import { DocCards, SectionDocs } from "../components/briefing/SectionDocs";
+import { MeetingLinks } from "../components/meeting/MeetingLinks";
 import { useScrollSpy } from "../hooks/useScrollSpy";
 import { api } from "../lib/api";
 import { qk } from "../lib/queries";
@@ -32,7 +34,7 @@ export function PublicShare() {
         "top",
         ...(data.briefing.executive_summary?.length ? ["exec"] : []),
         ...data.briefing.sections.map((s) => s.id),
-        "sources",
+        ...(data.briefing.other_docs?.length ? ["sources"] : []),
       ]
     : ["top"];
   const active = useScrollSpy(sectionIds, refs, "top");
@@ -104,6 +106,8 @@ export function PublicShare() {
                 {b.word_count.toLocaleString()} words · {b.reading_time} min read
               </span>
             </div>
+
+            <MeetingLinks venue={data.venue} externalId={data.external_id} />
           </header>
 
           {b.tldr.length > 0 && (
@@ -157,6 +161,7 @@ export function PublicShare() {
                   {s.vote && <div className="b-section-vote">{s.vote}</div>}
                 </div>
               </div>
+              <SectionDocs docs={s.docs} />
               {s.body.length > 0 && (
                 <div className="b-section-body">
                   {s.body.map((blk, i) => (
@@ -177,6 +182,23 @@ export function PublicShare() {
             </section>
             );
           })}
+
+          {(b.other_docs?.length ?? 0) > 0 && (
+            <section
+              ref={(el) => {
+                refs.current.sources = el;
+              }}
+              className="briefing-section"
+            >
+              <div className="b-section-head">
+                <div className="b-section-num">§</div>
+                <div>
+                  <h2 className="b-h2">Other documents</h2>
+                </div>
+              </div>
+              <DocCards docs={b.other_docs!} />
+            </section>
+          )}
 
           <footer className="briefing-footer">
             <div className="muted text-sm">

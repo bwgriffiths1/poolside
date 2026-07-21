@@ -1171,6 +1171,7 @@ export interface PublicShareResponse {
   type_short: string;
   type_name: string;
   meeting_date: string;
+  external_id: string;
   briefing: Briefing;
 }
 

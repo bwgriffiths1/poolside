@@ -21,9 +21,11 @@ from pathlib import Path
 
 from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_LINE_SPACING
+from docx.opc.constants import RELATIONSHIP_TYPE as RT
 from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
 from docx.shared import Inches, Pt, Twips, RGBColor
+from docx.text.run import Run
 
 logger = logging.getLogger(__name__)
 
@@ -129,6 +131,28 @@ def _v2_run(para, text, *, size=Pt(10.5), bold=False, color=_CHARCOAL):
     r.font.name = "Calibri"; r.font.size = size
     r.bold = bold; r.font.color.rgb = color
     return r
+
+
+def _v2_link(para, url, text, *, size=Pt(9), color=_CYAN, bold=False):
+    """Append a real, clickable external hyperlink run to `para`.
+
+    python-docx has no public API for hyperlinks, so the relationship is
+    registered on the part by hand and the run is wrapped in w:hyperlink.
+    Formatting still goes through the normal Run wrapper.
+    """
+    r_id = para.part.relate_to(url, RT.HYPERLINK, is_external=True)
+    link = OxmlElement("w:hyperlink")
+    link.set(qn("r:id"), r_id)
+    r_el = OxmlElement("w:r")
+    link.append(r_el)
+    para._p.append(link)
+
+    run = Run(r_el, para)
+    run.text = text
+    run.font.name = "Calibri"; run.font.size = size
+    run.bold = bold; run.font.color.rgb = color
+    run.font.underline = True
+    return run
 
 
 def _v2_pborder(para, side, sz, color, space=0):
@@ -435,6 +459,30 @@ def _render_p_block(doc: Document, text: str) -> None:
             _v2_bold_runs(p, line)
 
 
+def _render_section_docs(doc: Document, docs) -> None:
+    """Materials for one agenda item, listed under its heading.
+
+    Filenames with a scraped source_url become clickable; the rest render as
+    plain gray text so the reader still knows the file exists.
+    """
+    docs = list(docs or [])
+    if not docs:
+        return
+    p = doc.add_paragraph()
+    _v2_spacing(p, before=Pt(0), after=Pt(9))
+    _v2_pindent(p, left=180)
+    _v2_run(p, "MATERIALS   ", size=Pt(8), bold=True, color=_GRAY_TEXT)
+    for i, d in enumerate(docs):
+        if i:
+            _v2_run(p, "   ·   ", size=Pt(8.5), color=_GRAY_MID)
+        name = getattr(d, "filename", "") or ""
+        url = getattr(d, "source_url", None)
+        if url:
+            _v2_link(p, url, name, size=Pt(8.5))
+        else:
+            _v2_run(p, name, size=Pt(8.5), color=_GRAY_TEXT)
+
+
 def _render_body_blocks(doc: Document, blocks) -> None:
     """Walk a section's typed body blocks (p / h / data / callout)."""
     for b in blocks or []:
@@ -451,6 +499,8 @@ def _render_body_blocks(doc: Document, blocks) -> None:
                                getattr(b, "text", "") or "")
         elif kind == "h":
             _render_v2_subheading(doc, getattr(b, "text", "") or "")
+            # Numbered sub-headings carry their own materials.
+            _render_section_docs(doc, getattr(b, "docs", None))
         else:
             _render_p_block(doc, getattr(b, "text", "") or "")
 
@@ -488,6 +538,8 @@ def render_briefing_docx(
     briefing,
     committee: str,
     meeting_dates: list[str],
+    materials_url: str | None = None,
+    webex_url: str | None = None,
 ) -> bytes:
     """
     Render a parsed briefing AST to the NEPOOL-branded v2 .docx design and
@@ -500,6 +552,9 @@ def render_briefing_docx(
     point: markdown is parsed exactly once, so the Word export can no longer
     silently drift from what the reader shows (which happened twice while
     there was a second parser here).
+
+    `materials_url` / `webex_url` are the venue-hosted links (see
+    pipeline/venue_links.py); each renders under the cover header when given.
     """
     import io
 
@@ -562,6 +617,19 @@ def render_briefing_docx(
     p = doc.add_paragraph(); _v2_spacing(p, before=Pt(0), after=Pt(0))
     _v2_pborder(p, "bottom", 4, _GRAY_MID_HEX)
 
+    # Venue links, directly under the header rule — the source materials and
+    # the virtual-attendance permalink, one hop from the briefing.
+    if materials_url or webex_url:
+        p = doc.add_paragraph(); _v2_spacing(p, before=Pt(9), after=Pt(0))
+        if materials_url:
+            _v2_run(p, "Meeting materials:  ", size=Pt(9), color=_GRAY_TEXT)
+            _v2_link(p, materials_url, "View on iso-ne.com")
+        if webex_url:
+            if materials_url:
+                _v2_run(p, "      •      ", size=Pt(9), color=_GRAY_MID)
+            _v2_run(p, "Join virtually:  ", size=Pt(9), color=_GRAY_TEXT)
+            _v2_link(p, webex_url, "ISO-NE Webex")
+
     tldr = list(getattr(briefing, "tldr", None) or [])
     if tldr:
         p = doc.add_paragraph(); _v2_spacing(p, before=Pt(22), after=Pt(11))
@@ -600,6 +668,7 @@ def render_briefing_docx(
             _v2_run(p, number, size=Pt(11), bold=True, color=_CYAN)
             _v2_run(p, "  " + title, size=Pt(11), bold=True, color=_CHARCOAL)
 
+        _render_section_docs(doc, getattr(item, "docs", None))
         _render_body_blocks(doc, getattr(item, "body", None))
 
         next_steps = getattr(item, "next_steps", None) or []

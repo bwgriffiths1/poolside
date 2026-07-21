@@ -79,9 +79,20 @@ export interface MeetingDetail extends MeetingListItem {
 // Briefing block types (typed AST for renderer)
 export type BriefingBlock =
   | { kind: "p"; text: string }
-  | { kind: "h"; text: string }
+  // Numbered sub-headings ("7.a — …") anchor their own materials.
+  | { kind: "h"; text: string; item_id?: string; docs?: BriefingDoc[] }
   | { kind: "callout"; label: string; text: string }
   | { kind: "data"; title: string; rows: string[][] };
+
+export interface BriefingDoc {
+  id: number;
+  filename: string;
+  type: string;
+  source_url?: string | null;
+  ceii?: boolean;
+  item_id: string;
+  item: string;
+}
 
 export interface BriefingSection {
   id: string;
@@ -93,6 +104,8 @@ export interface BriefingSection {
   vote?: string;
   body: BriefingBlock[];
   next_steps?: string[];
+  // Materials filed under this agenda item, distributed by the API.
+  docs?: BriefingDoc[];
 }
 
 export interface Briefing {
@@ -108,6 +121,9 @@ export interface Briefing {
   tldr: string[];
   executive_summary?: BriefingBlock[];
   sections: BriefingSection[];
+  // Documents belonging to no section — meeting-level files, or items the
+  // briefing didn't write up.
+  other_docs?: BriefingDoc[];
 }
 
 export interface IngestJob {

@@ -630,6 +630,36 @@ a:hover { text-decoration: underline; }
   white-space: nowrap;
 }
 
+/* Venue-hosted meeting links (Webex, source materials) */
+.meeting-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+}
+.meeting-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 4px 10px;
+  font-family: var(--font-sans);
+  font-size: 12px;
+  color: var(--ink-soft);
+  text-decoration: none;
+  white-space: nowrap;
+}
+.meeting-link:hover {
+  background: var(--bg-elev);
+  border-color: var(--accent);
+  color: var(--ink);
+}
+/* Trailing external-link glyph sits quieter than the leading icon */
+.meeting-link > svg:last-child {
+  color: var(--muted);
+}
+
 /* Segmented control */
 .seg {
   display: inline-flex;

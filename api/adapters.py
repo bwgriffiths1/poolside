@@ -127,6 +127,98 @@ def document_row(row: dict[str, Any]) -> schemas.DocumentRef:
     )
 
 
+def _briefing_doc(row: dict[str, Any], item_id: str, item_title: str) -> schemas.BriefingDoc:
+    filename = row.get("filename") or row.get("original_filename") or ""
+    ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+    return schemas.BriefingDoc(
+        id=row["id"],
+        filename=filename,
+        type=ext,
+        source_url=row.get("source_url"),
+        ceii=bool(row.get("is_ceii")),
+        item_id=item_id,
+        item=item_title,
+    )
+
+
+# Leading item number on a sub-heading inside a section body, e.g.
+# "7.a — Resource Qualification Process Follow Up". Sub-items are written as
+# headings within their parent's body rather than as their own sections, so
+# this is how their materials find the right anchor.
+_SUBHEAD_ITEM_ID = re.compile(r"^(\d+(?:\.[0-9A-Za-z]+)+)\s*[:—–\-]")
+
+
+def _norm_item_id(item_id: str) -> str:
+    """Agenda writes '1.A', the briefing writes '1.a' — compare case-blind."""
+    return item_id.strip().lower()
+
+
+def _owning_anchor(item_id: str, anchor_ids: list[str]) -> str | None:
+    """Which heading should list a document filed under `item_id`?
+
+    Exact match wins, so 7.a's materials sit under the 7.a sub-heading rather
+    than piling up on section 7. Otherwise the document rolls up to the
+    nearest ancestor the briefing actually wrote up — 7.a.ii lands on 7.a if
+    that heading exists, else on 7. Sub-items the briefing skipped therefore
+    still surface their materials instead of vanishing into the bottom list.
+    """
+    if item_id in anchor_ids:
+        return item_id
+    ancestors = [a for a in anchor_ids if a and item_id.startswith(a + ".")]
+    return max(ancestors, key=len) if ancestors else None
+
+
+def attach_briefing_docs(briefing: schemas.Briefing, meeting_id: int) -> None:
+    """Distribute a meeting's documents across the parsed briefing headings.
+
+    Mutates `briefing` in place. Every numbered heading is an anchor — the
+    sections themselves plus the numbered sub-headings inside their bodies —
+    and each document is filed under the closest one, so materials sit with
+    the discussion they back. Anything matching no heading (meeting-level
+    files, agenda items the briefing skipped) lands in `.other_docs`.
+
+    Every renderer — web reader, public share, Word export — consumes this one
+    distribution so the three cannot drift.
+    """
+    from pipeline import db
+
+    anchors: dict[str, Any] = {}
+    for section in briefing.sections:
+        section.docs = []
+        if section.item_id:
+            anchors.setdefault(_norm_item_id(section.item_id), section)
+        for block in section.body:
+            if getattr(block, "kind", "") != "h":
+                continue
+            block.docs = []
+            m = _SUBHEAD_ITEM_ID.match(block.text or "")
+            if not m:
+                continue
+            block.item_id = m.group(1)
+            anchors.setdefault(_norm_item_id(block.item_id), block)
+
+    anchor_ids = list(anchors)
+    others: list[schemas.BriefingDoc] = []
+
+    for ar in db.get_agenda_items(meeting_id):
+        item_id = str(ar.get("item_id") or "")
+        item_title = ar.get("title") or ""
+        owner = _owning_anchor(_norm_item_id(item_id), anchor_ids) if item_id else None
+        target = anchors[owner].docs if owner else others
+        for row in db.get_documents_for_item(ar["id"]):
+            target.append(_briefing_doc(row, item_id, item_title))
+
+    # A document assigned to several agenda items can reach one anchor twice.
+    for holder in (*anchors.values(), briefing):
+        docs = holder.docs if holder is not briefing else others
+        seen: set[int] = set()
+        deduped = [d for d in docs if not (d.id in seen or seen.add(d.id))]
+        if holder is briefing:
+            briefing.other_docs = deduped
+        else:
+            holder.docs = deduped
+
+
 def _first_sentence(text: str, max_len: int = 180) -> str:
     """Pull a one-liner preview from the start of a markdown body."""
     if not text:

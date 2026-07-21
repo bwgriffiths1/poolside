@@ -1,5 +1,6 @@
 import type { BriefingBlock } from "../../types";
 import { inlineMd } from "../../lib/markdown";
+import { SectionDocs } from "./SectionDocs";
 
 function isDelta(s: string): boolean {
   return /^[-+]/.test(s);
@@ -18,7 +19,14 @@ export function BlockRenderer({ block }: { block: BriefingBlock }) {
       }
       return <p className="b-p">{inlineMd(block.text)}</p>;
     case "h":
-      return <h3 className="b-h3">{inlineMd(block.text)}</h3>;
+      // A numbered sub-heading carries its own materials, so they land beside
+      // the sub-item's discussion rather than on the parent section.
+      return (
+        <>
+          <h3 className="b-h3">{inlineMd(block.text)}</h3>
+          <SectionDocs docs={block.docs} />
+        </>
+      );
     case "callout":
       return (
         <div className="b-callout">

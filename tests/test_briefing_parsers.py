@@ -134,3 +134,45 @@ def test_dot_numbered_sections_parse():
     ]
     xml = _docx_xml(b)
     assert "CHAIR'S OPENING REMARKS" in xml and "Body B." in xml
+
+
+# ── Venue links on the cover ───────────────────────────────────────────
+
+
+def test_venue_links_only_resolve_for_iso_ne():
+    from pipeline import venue_links
+
+    assert venue_links.materials_url("ISO-NE", "160094") == (
+        "https://www.iso-ne.com/event-details?eventId=160094"
+    )
+    assert venue_links.webex_url("ISO-NE") == venue_links.ISO_NE_WEBEX_URL
+    # Other venues (and meetings with no scraped event ID) get nothing.
+    assert venue_links.materials_url("NYISO", "160094") is None
+    assert venue_links.materials_url("ISO-NE", None) is None
+    assert venue_links.webex_url("NYISO") is None
+
+
+def test_cover_links_render_as_real_hyperlinks(new_format):
+    """The URLs must land in document.xml.rels as external relationships —
+    plain text would not be clickable in Word."""
+    from pipeline import venue_links
+
+    b, _ = new_format
+    materials = venue_links.materials_url("ISO-NE", "160094")
+    blob = render_briefing_docx(
+        b, "Markets Committee", ["2025-11-04"],
+        materials_url=materials, webex_url=venue_links.ISO_NE_WEBEX_URL,
+    )
+    z = zipfile.ZipFile(io.BytesIO(blob))
+    rels = z.read("word/_rels/document.xml.rels").decode()
+    xml = z.read("word/document.xml").decode()
+
+    assert materials in rels and venue_links.ISO_NE_WEBEX_URL in rels
+    assert xml.count("<w:hyperlink") == 2
+    assert "View on iso-ne.com" in xml and "ISO-NE Webex" in xml
+
+
+def test_cover_links_omitted_when_unknown(new_format):
+    b, xml = new_format  # rendered with no link kwargs
+    assert "<w:hyperlink" not in xml
+    assert "Meeting materials:" not in xml

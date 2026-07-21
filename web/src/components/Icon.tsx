@@ -35,6 +35,7 @@ import {
   Paperclip,
   Upload,
   MessageCircle,
+  Video,
 } from "lucide-react";
 
 const REGISTRY = {
@@ -74,6 +75,7 @@ const REGISTRY = {
   paperclip: Paperclip,
   upload: Upload,
   chat: MessageCircle,
+  video: Video,
 } as const;
 
 export type IconName = keyof typeof REGISTRY;

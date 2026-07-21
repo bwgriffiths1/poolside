@@ -5,7 +5,7 @@ from urllib.parse import quote
 
 from fastapi import APIRouter, HTTPException, Response
 
-from pipeline import db
+from pipeline import db, venue_links
 from pipeline.briefing import render_briefing_docx
 from datetime import datetime, timezone
 
@@ -48,6 +48,7 @@ def get_briefing(meeting_id: int) -> schemas.Briefing:
     }
 
     parsed = briefing_parser.parse_briefing_markdown(md, meta)
+    adapters.attach_briefing_docs(parsed, meeting_id)
     neighbors = db.get_briefing_neighbors(meeting_id)
     parsed.prev_meeting_id = neighbors.get("prev_id")
     parsed.next_meeting_id = neighbors.get("next_id")
@@ -73,10 +74,16 @@ def export_briefing_docx(meeting_id: int) -> Response:
         "generated_at": str(summary.get("created_at", "")),
         "model": summary.get("model") or summary.get("created_by") or "",
     })
+    adapters.attach_briefing_docs(briefing, meeting_id)
+    venue_short = meeting.get("venue_short")
     docx_bytes = render_briefing_docx(
         briefing,
         committee=meeting.get("type_name") or "Committee",
         meeting_dates=[str(meeting.get("meeting_date", ""))],
+        materials_url=venue_links.materials_url(
+            venue_short, meeting.get("external_id")
+        ),
+        webex_url=venue_links.webex_url(venue_short),
     )
 
     ext_id = meeting.get("external_id") or meeting_id

@@ -857,6 +857,24 @@ def get_images_by_ids(image_ids: list[int]) -> list[dict]:
             return [dict(r) for r in cur.fetchall()]
 
 
+def get_editor_images_by_ids(image_ids: list[int]) -> list[dict]:
+    """Fetch editor-pasted image records by a list of IDs (batch query).
+
+    A different table from document_images: these are clipboard pastes stored
+    as raw `data` bytea, not base64-encoded figures extracted from a PDF.
+    """
+    if not image_ids:
+        return []
+    with _conn() as conn:
+        with _cursor(conn) as cur:
+            cur.execute(
+                "SELECT id, mime_type, data FROM editor_images "
+                "WHERE id = ANY(%s) ORDER BY id",
+                (image_ids,),
+            )
+            return [dict(r) for r in cur.fetchall()]
+
+
 def count_images_for_document(document_id: int) -> int:
     """Return the number of extracted images for a document."""
     with _conn() as conn:

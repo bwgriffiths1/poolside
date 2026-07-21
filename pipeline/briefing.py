@@ -12,6 +12,9 @@ generate_deep_dive_docx_bytes() still parses deep-dive markdown locally
 
 Inline images: <!-- image_id:N --> markers (and their web-resolved
 ![...](/api/images/N) form) are embedded as figures from document_images.
+![...](/api/editor-images/N) — screenshots pasted into the editor — are
+embedded from the separate editor_images table. Both kinds must be handled
+here or they render as literal markdown text in the exported document.
 """
 import base64
 import logging
@@ -29,8 +32,31 @@ from docx.text.run import Run
 
 logger = logging.getLogger(__name__)
 
-# Pattern for inline image references embedded by the summarizer
-_IMAGE_REF_RE = re.compile(r"<!--\s*image_id:(\d+)\s*-->")
+# Every form an image can take in briefing markdown: the summarizer's raw
+# marker, the web-resolved document-figure link, and the editor's pasted
+# screenshot link. Matching them in one pass keeps images in document order
+# and guarantees each is consumed — an unmatched form would otherwise survive
+# into the text runs as literal markdown, which is exactly how pasted
+# screenshots used to export as a bare `![pasted](...)` stub.
+_ANY_IMG_RE = re.compile(
+    r"<!--\s*image_id:(?P<marker>\d+)\s*-->"
+    r"|!\[[^\]]*\]\(/api/images/(?P<doc>\d+)\)"
+    r"|!\[[^\]]*\]\(/api/editor-images/(?P<editor>\d+)\)"
+)
+
+# A figure spans the text column; the height cap keeps a tall screenshot from
+# running off the page (pasted screenshots are far less predictably shaped
+# than the figures pymupdf extracts from a PDF).
+_MAX_IMG_W = 5.5   # inches
+_MAX_IMG_H = 7.0   # inches
+
+_MIME_SUFFIX = {
+    "image/png": ".png",
+    "image/jpeg": ".jpg",
+    "image/jpg": ".jpg",
+    "image/gif": ".gif",
+    "image/webp": ".webp",
+}
 
 
 def _fetch_image_record(image_id: int) -> dict | None:
@@ -44,27 +70,45 @@ def _fetch_image_record(image_id: int) -> dict | None:
         return None
 
 
-def _add_image_to_doc(doc: Document, image_id: int, width: float = 5.5) -> None:
-    """
-    Fetch an image by DB id and embed it inline in the Word document.
-    Adds a caption paragraph below the image.
-    """
-    record = _fetch_image_record(image_id)
-    if not record or not record.get("image_b64"):
-        return
+def _fetch_editor_image_record(image_id: int) -> dict | None:
+    """Fetch an editor-pasted image record from DB by ID. None on failure."""
+    try:
+        import pipeline.db as db
+        rows = db.get_editor_images_by_ids([image_id])
+        return rows[0] if rows else None
+    except Exception as exc:
+        logger.warning("Failed to fetch editor image %d: %s", image_id, exc)
+        return None
 
-    img_bytes = base64.b64decode(record["image_b64"])
-    caption = record.get("description") or ""
 
+def _embed_image_bytes(
+    doc: Document,
+    img_bytes: bytes,
+    *,
+    caption: str = "",
+    suffix: str = ".png",
+    label: str = "image",
+) -> None:
+    """Embed raw image bytes as a figure, scaled to fit the text column.
+
+    Shared by both image sources so extracted figures and pasted screenshots
+    are sized and captioned identically.
+    """
     # Write to temp file (python-docx needs a file path or file-like object)
-    with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
+    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
         tmp.write(img_bytes)
         tmp_path = tmp.name
 
     try:
-        doc.add_picture(tmp_path, width=Inches(width))
+        pic = doc.add_picture(tmp_path, width=Inches(_MAX_IMG_W))
+        # add_picture preserves aspect ratio from the width alone; if that
+        # leaves the figure taller than the page allows, re-fit by height.
+        max_h = Inches(_MAX_IMG_H)
+        if pic.height > max_h:
+            pic.width = int(pic.width * (max_h / pic.height))
+            pic.height = max_h
     except Exception as exc:
-        logger.warning("Failed to embed image %d in docx: %s", image_id, exc)
+        logger.warning("Failed to embed %s in docx: %s", label, exc)
         return
     finally:
         try:
@@ -81,6 +125,51 @@ def _add_image_to_doc(doc: Document, image_id: int, width: float = 5.5) -> None:
         run.italic = True
         run.font.size = Pt(9)
         run.font.color.rgb = RGBColor(0x66, 0x66, 0x66)
+
+
+def _add_image_to_doc(doc: Document, image_id: int) -> None:
+    """Embed an extracted document figure (document_images) by DB id."""
+    record = _fetch_image_record(image_id)
+    if not record or not record.get("image_b64"):
+        return
+    try:
+        img_bytes = base64.b64decode(record["image_b64"])
+    except Exception as exc:
+        logger.warning("Bad base64 for image %d: %s", image_id, exc)
+        return
+    _embed_image_bytes(
+        doc,
+        img_bytes,
+        caption=record.get("description") or "",
+        label=f"image {image_id}",
+    )
+
+
+def _add_editor_image_to_doc(doc: Document, image_id: int) -> None:
+    """Embed an editor-pasted screenshot (editor_images) by DB id.
+
+    These rows hold raw bytea rather than base64, and carry no description —
+    so they render uncaptioned.
+    """
+    record = _fetch_editor_image_record(image_id)
+    if not record or record.get("data") is None:
+        return
+    raw = record["data"]
+    img_bytes = bytes(raw) if isinstance(raw, memoryview) else raw
+    _embed_image_bytes(
+        doc,
+        img_bytes,
+        suffix=_MIME_SUFFIX.get(record.get("mime_type") or "", ".png"),
+        label=f"editor image {image_id}",
+    )
+
+
+def _add_matched_image(doc: Document, m: re.Match) -> None:
+    """Dispatch one _ANY_IMG_RE match to the table that backs that form."""
+    if m.group("editor"):
+        _add_editor_image_to_doc(doc, int(m.group("editor")))
+    else:
+        _add_image_to_doc(doc, int(m.group("marker") or m.group("doc")))
 
 
 # ---------------------------------------------------------------------------
@@ -322,10 +411,10 @@ def _render_v2_body_lines(doc: Document, body_lines: list[str]) -> None:
     i = 0
     while i < len(body_lines):
         line = body_lines[i]
-        # Inline image reference
-        img_match = _IMAGE_REF_RE.search(line)
+        # Inline image reference — any of the three forms
+        img_match = _ANY_IMG_RE.search(line)
         if img_match:
-            _add_image_to_doc(doc, int(img_match.group(1)))
+            _add_matched_image(doc, img_match)
             i += 1
             continue
         # Callout / admonition: `> [!Label] body…` + any continuation `>` lines.
@@ -415,9 +504,6 @@ def _render_v2_exec_summary(doc: Document, exec_lines: list[str]) -> None:
 # Briefing rendering — AST → NEPOOL-branded .docx bytes
 # ---------------------------------------------------------------------------
 
-_RESOLVED_IMG_RE = re.compile(r"!\[[^\]]*\]\(/api/images/(\d+)\)")
-
-
 def _render_v2_subheading(doc: Document, text: str) -> None:
     """H4-style sub-heading: italic cyan number, bold-italic charcoal title."""
     p = doc.add_paragraph()
@@ -436,17 +522,10 @@ def _render_v2_subheading(doc: Document, text: str) -> None:
         r.bold = True; r.italic = True; r.font.color.rgb = _CHARCOAL
 
 
-def _render_p_block(doc: Document, text: str) -> None:
-    """Render a paragraph block from the AST: embed any image references
-    (both the raw `<!-- image_id:N -->` marker and the web-resolved
-    `![...](/api/images/N)` form), then render residual text line by line.
+def _render_p_text(doc: Document, text: str) -> None:
+    """Render plain paragraph text line by line, skipping blanks.
     Bullet lines arrive from the parser as `• ...`."""
-    for m in _IMAGE_REF_RE.finditer(text):
-        _add_image_to_doc(doc, int(m.group(1)))
-    for m in _RESOLVED_IMG_RE.finditer(text):
-        _add_image_to_doc(doc, int(m.group(1)))
-    residual = _RESOLVED_IMG_RE.sub("", _IMAGE_REF_RE.sub("", text))
-    for line in residual.split("\n"):
+    for line in text.split("\n"):
         line = line.strip()
         if not line:
             continue
@@ -457,6 +536,18 @@ def _render_p_block(doc: Document, text: str) -> None:
             _v2_bold_runs(p, line[2:])
         else:
             _v2_bold_runs(p, line)
+
+
+def _render_p_block(doc: Document, text: str) -> None:
+    """Render a paragraph block from the AST, embedding any image reference
+    (summarizer marker, document figure, or pasted screenshot) at the point it
+    appears so figures stay interleaved with the prose around them."""
+    pos = 0
+    for m in _ANY_IMG_RE.finditer(text):
+        _render_p_text(doc, text[pos:m.start()])
+        _add_matched_image(doc, m)
+        pos = m.end()
+    _render_p_text(doc, text[pos:])
 
 
 def _render_section_docs(doc: Document, docs) -> None:

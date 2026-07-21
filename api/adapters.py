@@ -153,6 +153,35 @@ def _norm_item_id(item_id: str) -> str:
     return item_id.strip().lower()
 
 
+# Trailing range on an item id: the "a–c" of "3.1.a–c", the "8–9" of "8–9".
+_ITEM_RANGE = re.compile(r"^(.*?)([0-9A-Za-z]+)\s*[-–—]\s*([0-9A-Za-z]+)$")
+
+
+def _covered_item_ids(item_id: str) -> list[str]:
+    """Every agenda item a heading claims, expanding trailing ranges.
+
+    Briefings group consecutive sub-items under one heading — "3.1.a–c —
+    CAR-PD Tariff Revisions" covers 3.1.a, 3.1.b and 3.1.c. Without the
+    expansion none of those ids match, and the whole group's documents fall
+    through to the trailing list.
+    """
+    ids = [item_id]
+    m = _ITEM_RANGE.match(item_id.strip())
+    if not m:
+        return ids
+    prefix, start, end = m.groups()
+    if start.isdigit() and end.isdigit():
+        span = range(int(start), int(end) + 1)
+        parts = [str(v) for v in span] if int(start) <= int(end) else []
+    elif len(start) == 1 and len(end) == 1 and start.isalpha() and end.isalpha():
+        lo, hi = ord(start.lower()), ord(end.lower())
+        parts = [chr(v) for v in range(lo, hi + 1)] if lo <= hi else []
+    else:
+        parts = []  # mixed or malformed — treat the id as literal
+    ids.extend(f"{prefix}{p}" for p in parts)
+    return ids
+
+
 def _owning_anchor(item_id: str, anchor_ids: list[str]) -> str | None:
     """Which heading should list a document filed under `item_id`?
 
@@ -182,11 +211,15 @@ def attach_briefing_docs(briefing: schemas.Briefing, meeting_id: int) -> None:
     """
     from pipeline import db
 
+    def register(item_id: str, target: Any) -> None:
+        for covered in _covered_item_ids(item_id):
+            anchors.setdefault(_norm_item_id(covered), target)
+
     anchors: dict[str, Any] = {}
     for section in briefing.sections:
         section.docs = []
         if section.item_id:
-            anchors.setdefault(_norm_item_id(section.item_id), section)
+            register(section.item_id, section)
         for block in section.body:
             if getattr(block, "kind", "") != "h":
                 continue
@@ -195,7 +228,7 @@ def attach_briefing_docs(briefing: schemas.Briefing, meeting_id: int) -> None:
             if not m:
                 continue
             block.item_id = m.group(1)
-            anchors.setdefault(_norm_item_id(block.item_id), block)
+            register(block.item_id, block)
 
     anchor_ids = list(anchors)
     others: list[schemas.BriefingDoc] = []

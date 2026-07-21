@@ -207,3 +207,65 @@ def test_prose_heading_with_slash_is_not_an_item():
     b = parse_briefing_markdown(md, {"title": "X"})
     assert [s.item_id for s in b.sections] == ["2"]
     assert b.executive_summary  # parsed as the exec summary, not an agenda item
+
+
+def test_agenda_item_lead_in_parses():
+    """The older prompt wrote '## Agenda Item 2 — Title'. The lead-in allowed
+    'Item'/'Items' but not 'Agenda Item', so meeting 31 lost all six of its
+    agenda items — body, TOC entry and documents alike."""
+    md = (
+        "## Agenda Item 2 — Language Update for Load Weights\n\nBody B.\n\n"
+        "## Agenda Items 5 & 6 — Other Business / Closing Remarks\n\nBody C.\n"
+    )
+    b = parse_briefing_markdown(md, {"title": "X"})
+    assert [(s.item_id, s.title) for s in b.sections] == [
+        ("2", "Language Update for Load Weights"),
+        ("5", "Other Business / Closing Remarks"),
+    ]
+    xml = _docx_xml(b)
+    assert "Body B." in xml and "Body C." in xml
+
+
+def test_hyphenated_title_is_not_an_item_id():
+    """'### Dual-Fuel Resource Accreditation' parsed as item 'Dual' titled
+    'Fuel Resource Accreditation'. Item ids must start with a digit."""
+    md = (
+        "## Agenda Item Summaries\n\n### Item 4 — CAR-SA\n\nBody.\n\n"
+        "#### Dual-Fuel Resource Accreditation\n\nSub body.\n\n"
+        "#### Energy-Limited Cross-Charging\n\nMore.\n"
+    )
+    b = parse_briefing_markdown(md, {"title": "X"})
+    assert [s.item_id for s in b.sections] == ["4"]
+    # The hyphenated heads stay sub-headings inside item 4, keeping their body.
+    heads = [blk.text for blk in b.sections[0].body if getattr(blk, "kind", "") == "h"]
+    assert heads == ["Dual-Fuel Resource Accreditation", "Energy-Limited Cross-Charging"]
+    xml = _docx_xml(b)
+    assert "Sub body." in xml and "More." in xml
+
+
+def test_unrecognized_h2_keeps_its_content():
+    """An h2 matching no known category used to switch every capture mode off,
+    silently swallowing everything under it. It becomes an unnumbered section."""
+    md = (
+        "## In-Meeting Note Updates\n\nTieline outages discussed.\n\n"
+        "## Executive Summary\n\nIntro.\n\n"
+        "## Agenda Item Summaries\n\n### Item 1 — Minutes\n\nBody.\n"
+    )
+    b = parse_briefing_markdown(md, {"title": "X"})
+    assert [(s.item_id, s.title) for s in b.sections] == [
+        ("", "In-Meeting Note Updates"),
+        ("1", "Minutes"),
+    ]
+    assert "Tieline outages discussed." in _docx_xml(b)
+
+
+def test_bare_h2_subtitle_is_dropped():
+    """'## March 17, 2026' under the doc title collects nothing — it is a
+    subtitle, and must not become an empty section in the reader or TOC."""
+    md = (
+        "# NEPOOL Reliability Committee Meeting Briefing\n## March 17, 2026\n\n"
+        "---\n\n## Executive Summary\n\nIntro.\n\n"
+        "## Agenda Item Summaries\n\n### Item 1 — Minutes\n\nBody.\n"
+    )
+    b = parse_briefing_markdown(md, {"title": "X"})
+    assert [s.item_id for s in b.sections] == ["1"]

@@ -148,3 +148,41 @@ def test_prose_subheadings_get_no_docs(fake_db):
     heads = [b_ for s in b.sections for b_ in s.body if getattr(b_, "kind", "") == "h"]
     assert heads and all(h.item_id == "" and h.docs == [] for h in heads)
     assert [d.filename for d in b.sections[0].docs] == ["a07_overview.pdf"]
+
+
+RANGE_MD = """## Agenda Item Summaries
+
+### 3.1.a–c — CAR-PD Tariff Revisions
+
+Body A.
+
+### Items 8–9 — Reports
+
+Body B.
+"""
+
+
+def test_range_headings_claim_every_item_they_cover(fake_db):
+    """One heading can cover consecutive sub-items. Without expanding the
+    range none of those ids match and the group's documents all orphan."""
+    fake_db([
+        ("3.1.a", "Tariff revisions", ["a.pdf"]),
+        ("3.1.b", "Counsel assessment", ["b.pdf"]),
+        ("3.1.c", "Final design", ["c.pdf"]),
+        ("8", "Litigation report", ["eight.pdf"]),
+        ("9", "Committee reports", ["nine.pdf"]),
+    ])
+    b = _briefing(RANGE_MD)
+    adapters.attach_briefing_docs(b, 1)
+
+    by_id = {s.item_id: s for s in b.sections}
+    assert [d.filename for d in by_id["3.1.a–c"].docs] == ["a.pdf", "b.pdf", "c.pdf"]
+    assert [d.filename for d in by_id["8–9"].docs] == ["eight.pdf", "nine.pdf"]
+    assert b.other_docs == []
+
+
+def test_malformed_ranges_stay_literal(fake_db):
+    """A mixed digit/letter span isn't a range — treat the id as written."""
+    assert adapters._covered_item_ids("7-a") == ["7-a"]
+    assert adapters._covered_item_ids("1.A") == ["1.A"]
+    assert adapters._covered_item_ids("9–8") == ["9–8"]  # reversed: no expansion

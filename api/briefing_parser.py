@@ -30,34 +30,45 @@ from typing import Any
 from . import schemas
 
 
+# Optional "Item" / "Items" / "Agenda Item" lead-in before the number.
+# Briefings written before the current prompt say "## Agenda Item 2 — Title";
+# without the "Agenda" alternative those sections matched nothing and the
+# whole item — body, TOC entry, documents — disappeared from the reader and
+# the .docx (meeting 31 lost all six of its agenda items this way).
+_ITEM_LEAD = r"(?:Agenda\s+)?(?:Items?\s+)?"
+# An item id always starts with a digit: "3", "1.A", "8–9", "3.1.a–c".
+# Requiring the leading digit is what stops an ordinary hyphenated title from
+# being read as "<id>-<title>" — "### Dual-Fuel Resource Accreditation" used
+# to parse as item "Dual" titled "Fuel Resource Accreditation".
+_ITEM_ID = r"\d[\d\.A-Za-z\-–—]*"
+
 # Match section heads at either h2 or h3 level. Production prompts vary:
 #   ### Item 3 — Title         (h3 + "Item" prefix + em-dash)
 #   ### Item 3: Title          (h3 + "Item" prefix + colon — meeting 2 style)
 #   ## 2 — Title               (h2 + bare number + em-dash — meeting 10 style)
 #   ### Items 8–9: ...         (plural "Items", range)
-# Capture the item id (e.g. "3", "1.A", "8-9") and the title.
+#   ## Agenda Item 2 — Title   (older prompt's "Agenda Item" lead-in)
 _SECTION_HEAD = re.compile(
-    r"^#{2,3}\s+(?:Items?\s+)?([\d\.A-Za-z\-–—]+)\s*[:—–\-]\s*(.+)$",
+    rf"^#{{2,3}}\s+{_ITEM_LEAD}({_ITEM_ID})\s*[:—–\-]\s*(.+)$",
     re.IGNORECASE,
 )
 # Dot-numbered variant emitted by some stored briefings: "### 1. TITLE".
 # Without this, those items matched nothing — the web reader showed only the
 # exec summary and the docx export lost the item bodies entirely.
 _SECTION_HEAD_DOT = re.compile(
-    r"^#{2,3}\s+(?:Items?\s+)?(\d+(?:\.[0-9A-Za-z]+)*)\.\s+(.+)$",
+    rf"^#{{2,3}}\s+{_ITEM_LEAD}(\d+(?:\.[0-9A-Za-z]+)*)\.\s+(.+)$",
     re.IGNORECASE,
 )
-# Compound head naming several items at once: "### Item 1 / 1.A — Title".
-# Neither pattern above matches (the " / " breaks their id capture), so the
-# whole section — body, TOC entry, docs — used to be dropped in silence. The
-# first id becomes the canonical item_id; sub-item docs still find it by the
-# nearest-ancestor rule in adapters.attach_briefing_docs.
+# Compound head naming several items at once: "### Item 1 / 1.A — Title",
+# "## Agenda Items 5 & 6 — Other Business". Neither pattern above matches
+# (the separator breaks their id capture), so the whole section — body, TOC
+# entry, docs — used to be dropped in silence. The first id becomes the
+# canonical item_id, which keeps the rendered section number short; sub-ids
+# like 1.A still reach it by the nearest-ancestor rule in adapters.
 _SECTION_HEAD_COMPOUND = re.compile(
-    r"^#{2,3}\s+(?:Items?\s+)?"
-    # Both ids must start with a digit, so prose heads that merely contain a
-    # slash ("## Executive Summary / Highlights") can never match.
-    r"(\d[\d\.A-Za-z\-–—]*)"                # first item id
-    r"(?:\s*/\s*\d[\d\.A-Za-z\-–—]*)+"      # "/ 1.A", repeatable
+    rf"^#{{2,3}}\s+{_ITEM_LEAD}"
+    rf"({_ITEM_ID})"                     # first item id
+    rf"(?:\s*[/&]\s*{_ITEM_ID})+"        # "/ 1.A" or "& 6", repeatable
     r"\s*[:—–\-]\s*(.+)$",
     re.IGNORECASE,
 )
@@ -112,6 +123,14 @@ def parse_briefing_markdown(md: str, meta: dict[str, Any]) -> schemas.Briefing:
     def flush_section() -> None:
         nonlocal cur_section, cur_body, cur_next
         if cur_section is None:
+            return
+        # An unnumbered h2 that collected nothing is a subtitle, not a
+        # section — "## March 17, 2026" under the document title. Dropping it
+        # keeps a stray heading out of the reader and the TOC.
+        if not cur_section["item_id"] and not cur_body and not cur_next:
+            cur_section = None
+            cur_body = []
+            cur_next = None
             return
         sections.append(schemas.BriefingSection(
             id=cur_section["id"],
@@ -173,12 +192,23 @@ def parse_briefing_markdown(md: str, meta: dict[str, Any]) -> schemas.Briefing:
             continue
 
         if line.startswith("## "):
-            heading = line[3:].strip().lower()
-            in_takeaways = "takeaway" in heading
-            in_executive = "summary" in heading or "highlights" in heading
-            in_agenda = "agenda" in heading
+            heading = line[3:].strip()
+            low = heading.lower()
+            in_takeaways = "takeaway" in low
+            in_executive = "summary" in low or "highlights" in low
+            in_agenda = "agenda" in low
             if cur_section is not None:
                 flush_section()
+            if not (in_takeaways or in_executive or in_agenda):
+                # An h2 naming none of the known categories still introduces
+                # content — "## In-Meeting Note Updates" carries a meeting's
+                # floor notes. Nothing was capturing after such a heading, so
+                # everything under it was swallowed; open an unnumbered
+                # section instead so the body still renders. in_agenda is what
+                # switches body collection on — without it the section opens
+                # empty.
+                open_section(line, "", heading)
+                in_agenda = True
             i += 1
             continue
 

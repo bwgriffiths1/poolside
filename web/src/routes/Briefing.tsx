@@ -5,13 +5,14 @@ import { Topbar } from "../components/Topbar";
 import { Icon } from "../components/Icon";
 import { VenueTag, TypeTag } from "../components/Tag";
 import { BlockRenderer } from "../components/briefing/BlockRenderer";
+import { DocCards, SectionDocs } from "../components/briefing/SectionDocs";
+import { MeetingLinks } from "../components/meeting/MeetingLinks";
 import { VersionHistory } from "../components/VersionHistory";
 import { useScrollSpy } from "../hooks/useScrollSpy";
 import { useReadingProgress } from "../hooks/useReadingProgress";
 import { api, type ShareToken } from "../lib/api";
 import { qk, useBriefing, useMeeting } from "../lib/queries";
 import { toast } from "../lib/toast";
-import { extFromFilename } from "../lib/format";
 import { inlineMd } from "../lib/markdown";
 import type { Briefing as BriefingType } from "../types";
 
@@ -66,12 +67,14 @@ function TOC({
             <span>Decisions &amp; next steps</span>
           </button>
         </li>
-        <li className={active === "sources" ? "on" : ""}>
-          <button onClick={() => onJump("sources")}>
-            <span className="toc-num" />
-            <span>Source documents</span>
-          </button>
-        </li>
+        {(briefing.other_docs?.length ?? 0) > 0 && (
+          <li className={active === "sources" ? "on" : ""}>
+            <button onClick={() => onJump("sources")}>
+              <span className="toc-num" />
+              <span>Other documents</span>
+            </button>
+          </li>
+        )}
       </ul>
       <div className="b-toc-meta">
         <div className="row">
@@ -128,7 +131,7 @@ export function Briefing() {
         ...(briefing.executive_summary?.length ? ["exec"] : []),
         ...briefing.sections.map((s) => s.id),
         "decisions",
-        "sources",
+        ...(briefing.other_docs?.length ? ["sources"] : []),
       ]
     : ["top"];
   const active = useScrollSpy(sectionIds, refs, "top");
@@ -162,9 +165,9 @@ export function Briefing() {
       .catch(() => toast.error("Couldn't copy the link."));
   };
 
-  const allDocs = (m?.agenda ?? []).flatMap((i) =>
-    i.docs.map((d) => ({ ...d, item: i.title, item_id: i.item_id }))
-  );
+  // Documents live on their own section now (SectionDocs); only what maps to
+  // no section falls through to the list at the end.
+  const otherDocs = briefing?.other_docs ?? [];
 
   if (meetingLoading || briefingLoading) {
     return (
@@ -383,6 +386,8 @@ export function Briefing() {
                 </span>
               )}
             </div>
+
+            <MeetingLinks venue={m.venue} externalId={m.external_id} />
           </header>
 
           {showVersions && (
@@ -469,6 +474,8 @@ export function Briefing() {
                 </button>
               </div>
 
+              <SectionDocs docs={s.docs} />
+
               {s.body.length > 0 && (
                 <div className="b-section-body">
                   {s.body.map((b, i) => (
@@ -542,51 +549,27 @@ export function Briefing() {
             </section>
           )}
 
-          <section
-            ref={(el) => {
-              refs.current.sources = el;
-            }}
-            className="briefing-section"
-          >
-            <div className="b-section-head">
-              <div className="b-section-num">§</div>
-              <div>
-                <h2 className="b-h2">Source documents</h2>
-                <div className="muted text-sm">
-                  {allDocs.length} files ingested · all available on the
-                  Meeting page
+          {otherDocs.length > 0 && (
+            <section
+              ref={(el) => {
+                refs.current.sources = el;
+              }}
+              className="briefing-section"
+            >
+              <div className="b-section-head">
+                <div className="b-section-num">§</div>
+                <div>
+                  <h2 className="b-h2">Other documents</h2>
+                  <div className="muted text-sm">
+                    {otherDocs.length} file{otherDocs.length === 1 ? "" : "s"}{" "}
+                    not tied to a section above · all available on the Meeting
+                    page
+                  </div>
                 </div>
               </div>
-            </div>
-            <div className="b-sources">
-              {allDocs.slice(0, 24).map((d) => {
-                const href = d.source_url || undefined;
-                return (
-                  <a
-                    key={d.id}
-                    className="b-source"
-                    href={href}
-                    target={href ? "_blank" : undefined}
-                    rel={href ? "noopener noreferrer" : undefined}
-                    onClick={(e) => {
-                      if (!href) e.preventDefault();
-                    }}
-                    style={!href ? { cursor: "default", opacity: 0.75 } : undefined}
-                    title={href || "No source URL recorded for this document"}
-                  >
-                    <div className="b-source-ext">{extFromFilename(d.filename)}</div>
-                    <div>
-                      <div className="b-source-name">{d.filename}</div>
-                      <div className="b-source-item">
-                        Item {d.item_id} · {d.item}
-                      </div>
-                    </div>
-                    <Icon name="external" size={12} />
-                  </a>
-                );
-              })}
-            </div>
-          </section>
+              <DocCards docs={otherDocs} />
+            </section>
+          )}
 
           <footer className="briefing-footer">
             <div className="muted text-sm">

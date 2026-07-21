@@ -75,6 +75,18 @@ class MeetingDetail(MeetingListItem):
     agenda: list[AgendaItem]
 
 
+class BriefingDoc(BaseModel):
+    """A source document as shown in the briefing, carrying the agenda item
+    it was filed under so unmatched docs can still identify themselves."""
+    id: int
+    filename: str
+    type: str
+    source_url: Optional[str] = None
+    ceii: bool = False
+    item_id: str = ""
+    item: str = ""
+
+
 class BriefingBlockP(BaseModel):
     kind: Literal["p"]
     text: str
@@ -83,6 +95,11 @@ class BriefingBlockP(BaseModel):
 class BriefingBlockH(BaseModel):
     kind: Literal["h"]
     text: str
+    # Sub-item heading inside a section ("7.a — Resource Qualification").
+    # Numbered sub-headings anchor their own materials; set by
+    # adapters.attach_briefing_docs, empty for prose sub-heads.
+    item_id: str = ""
+    docs: list[BriefingDoc] = []
 
 
 class BriefingBlockCallout(BaseModel):
@@ -111,6 +128,8 @@ class BriefingSection(BaseModel):
     vote: Optional[str] = None
     body: list[BriefingBlock]
     next_steps: Optional[list[str]] = None
+    # Materials filed under this agenda item, attached by adapters.attach_briefing_docs.
+    docs: list[BriefingDoc] = []
 
 
 class Briefing(BaseModel):
@@ -129,6 +148,9 @@ class Briefing(BaseModel):
     # parsed as blocks. Empty for briefings that have no exec-summary section.
     executive_summary: list[BriefingBlock] = []
     sections: list[BriefingSection]
+    # Documents that map to no section — meeting-level files, or items the
+    # briefing didn't write up. Listed once at the end so nothing is lost.
+    other_docs: list[BriefingDoc] = []
 
 
 RoundupStatus = Literal["draft", "generating", "complete", "error"]

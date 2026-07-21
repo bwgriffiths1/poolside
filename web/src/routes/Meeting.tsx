@@ -10,6 +10,7 @@ import { AgendaRow } from "../components/agenda/AgendaRow";
 import { AddAgendaItem } from "../components/agenda/AddAgendaItem";
 import { AgendaEmpty } from "../components/agenda/AgendaEmpty";
 import { idForAnchor } from "../components/agenda/anchors";
+import { MeetingLinks } from "../components/meeting/MeetingLinks";
 import { WatchToggle } from "../components/meeting/WatchToggle";
 import { SummarizeRunner } from "../components/meeting/SummarizeRunner";
 import { SummarizeJobBanner } from "../components/meeting/SummarizeJobBanner";
@@ -182,6 +183,7 @@ export function Meeting() {
               </span>
               <Pill status={m.status} />
             </div>
+            <MeetingLinks venue={m.venue} externalId={m.external_id} />
             {detail.one_line && (
               <p className="meeting-headline serif">{detail.one_line}</p>
             )}

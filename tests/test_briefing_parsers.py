@@ -134,3 +134,138 @@ def test_dot_numbered_sections_parse():
     ]
     xml = _docx_xml(b)
     assert "CHAIR'S OPENING REMARKS" in xml and "Body B." in xml
+
+
+# ── Venue links on the cover ───────────────────────────────────────────
+
+
+def test_venue_links_only_resolve_for_iso_ne():
+    from pipeline import venue_links
+
+    assert venue_links.materials_url("ISO-NE", "160094") == (
+        "https://www.iso-ne.com/event-details?eventId=160094"
+    )
+    assert venue_links.webex_url("ISO-NE") == venue_links.ISO_NE_WEBEX_URL
+    # Other venues (and meetings with no scraped event ID) get nothing.
+    assert venue_links.materials_url("NYISO", "160094") is None
+    assert venue_links.materials_url("ISO-NE", None) is None
+    assert venue_links.webex_url("NYISO") is None
+
+
+def test_cover_links_render_as_real_hyperlinks(new_format):
+    """The URLs must land in document.xml.rels as external relationships —
+    plain text would not be clickable in Word."""
+    from pipeline import venue_links
+
+    b, _ = new_format
+    materials = venue_links.materials_url("ISO-NE", "160094")
+    blob = render_briefing_docx(
+        b, "Markets Committee", ["2025-11-04"],
+        materials_url=materials, webex_url=venue_links.ISO_NE_WEBEX_URL,
+    )
+    z = zipfile.ZipFile(io.BytesIO(blob))
+    rels = z.read("word/_rels/document.xml.rels").decode()
+    xml = z.read("word/document.xml").decode()
+
+    assert materials in rels and venue_links.ISO_NE_WEBEX_URL in rels
+    assert xml.count("<w:hyperlink") == 2
+    assert "View on iso-ne.com" in xml and "ISO-NE Webex" in xml
+
+
+def test_cover_links_omitted_when_unknown(new_format):
+    b, xml = new_format  # rendered with no link kwargs
+    assert "<w:hyperlink" not in xml
+    assert "Meeting materials:" not in xml
+
+
+def test_compound_item_heading_parses():
+    """'### Item 1 / 1.A — Title' names two agenda items at once. Neither
+    section pattern matched it, so the section — body, TOC entry, and its
+    documents — was dropped in silence from both the reader and the docx."""
+    md = (
+        "## Agenda Item Summaries\n\n"
+        "### Item 1 / 1.A — Chair's Opening Remarks and Approval of Minutes\n\n"
+        "Procedural items; minutes approved.\n\n"
+        "### Item 2 — Balancing Ratio\n\nBody B.\n"
+    )
+    b = parse_briefing_markdown(md, {"title": "X"})
+    assert [(s.item_id, s.title) for s in b.sections] == [
+        ("1", "Chair's Opening Remarks and Approval of Minutes"),
+        ("2", "Balancing Ratio"),
+    ]
+    xml = _docx_xml(b)
+    assert "Chair's Opening Remarks" in xml and "Procedural items" in xml
+
+
+def test_prose_heading_with_slash_is_not_an_item():
+    """The compound pattern must not swallow '## Executive Summary /
+    Highlights' — both ids have to start with a digit."""
+    md = (
+        "## Executive Summary / Highlights\n\nIntro prose.\n\n"
+        "## Agenda Item Summaries\n\n### Item 2 — Balancing Ratio\n\nBody.\n"
+    )
+    b = parse_briefing_markdown(md, {"title": "X"})
+    assert [s.item_id for s in b.sections] == ["2"]
+    assert b.executive_summary  # parsed as the exec summary, not an agenda item
+
+
+def test_agenda_item_lead_in_parses():
+    """The older prompt wrote '## Agenda Item 2 — Title'. The lead-in allowed
+    'Item'/'Items' but not 'Agenda Item', so meeting 31 lost all six of its
+    agenda items — body, TOC entry and documents alike."""
+    md = (
+        "## Agenda Item 2 — Language Update for Load Weights\n\nBody B.\n\n"
+        "## Agenda Items 5 & 6 — Other Business / Closing Remarks\n\nBody C.\n"
+    )
+    b = parse_briefing_markdown(md, {"title": "X"})
+    assert [(s.item_id, s.title) for s in b.sections] == [
+        ("2", "Language Update for Load Weights"),
+        ("5", "Other Business / Closing Remarks"),
+    ]
+    xml = _docx_xml(b)
+    assert "Body B." in xml and "Body C." in xml
+
+
+def test_hyphenated_title_is_not_an_item_id():
+    """'### Dual-Fuel Resource Accreditation' parsed as item 'Dual' titled
+    'Fuel Resource Accreditation'. Item ids must start with a digit."""
+    md = (
+        "## Agenda Item Summaries\n\n### Item 4 — CAR-SA\n\nBody.\n\n"
+        "#### Dual-Fuel Resource Accreditation\n\nSub body.\n\n"
+        "#### Energy-Limited Cross-Charging\n\nMore.\n"
+    )
+    b = parse_briefing_markdown(md, {"title": "X"})
+    assert [s.item_id for s in b.sections] == ["4"]
+    # The hyphenated heads stay sub-headings inside item 4, keeping their body.
+    heads = [blk.text for blk in b.sections[0].body if getattr(blk, "kind", "") == "h"]
+    assert heads == ["Dual-Fuel Resource Accreditation", "Energy-Limited Cross-Charging"]
+    xml = _docx_xml(b)
+    assert "Sub body." in xml and "More." in xml
+
+
+def test_unrecognized_h2_keeps_its_content():
+    """An h2 matching no known category used to switch every capture mode off,
+    silently swallowing everything under it. It becomes an unnumbered section."""
+    md = (
+        "## In-Meeting Note Updates\n\nTieline outages discussed.\n\n"
+        "## Executive Summary\n\nIntro.\n\n"
+        "## Agenda Item Summaries\n\n### Item 1 — Minutes\n\nBody.\n"
+    )
+    b = parse_briefing_markdown(md, {"title": "X"})
+    assert [(s.item_id, s.title) for s in b.sections] == [
+        ("", "In-Meeting Note Updates"),
+        ("1", "Minutes"),
+    ]
+    assert "Tieline outages discussed." in _docx_xml(b)
+
+
+def test_bare_h2_subtitle_is_dropped():
+    """'## March 17, 2026' under the doc title collects nothing — it is a
+    subtitle, and must not become an empty section in the reader or TOC."""
+    md = (
+        "# NEPOOL Reliability Committee Meeting Briefing\n## March 17, 2026\n\n"
+        "---\n\n## Executive Summary\n\nIntro.\n\n"
+        "## Agenda Item Summaries\n\n### Item 1 — Minutes\n\nBody.\n"
+    )
+    b = parse_briefing_markdown(md, {"title": "X"})
+    assert [s.item_id for s in b.sections] == ["1"]

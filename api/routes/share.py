@@ -120,7 +120,7 @@ def _load_valid_share(token: str) -> dict[str, Any]:
             cur.execute(
                 """
                 SELECT st.*, m.id AS meeting_id, m.title AS meeting_title,
-                       m.meeting_date, m.location,
+                       m.meeting_date, m.location, m.external_id,
                        mt.name AS type_name, mt.short_name AS type_short,
                        v.short_name AS venue_short, v.name AS venue_name
                   FROM share_tokens st
@@ -169,11 +169,13 @@ def public_share_render(token: str) -> dict[str, Any]:
         "model": summary.get("model") or summary.get("created_by") or "",
     }
     briefing = briefing_parser.parse_briefing_markdown(md, meta)
+    adapters.attach_briefing_docs(briefing, row["meeting_id"])
     return {
         "venue": row.get("venue_short"),
         "type_short": row.get("type_short"),
         "type_name": row.get("type_name"),
         "meeting_date": str(row.get("meeting_date") or ""),
+        "external_id": row.get("external_id") or "",
         "briefing": briefing.model_dump(),
     }
 

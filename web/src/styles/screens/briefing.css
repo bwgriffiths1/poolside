@@ -512,6 +512,71 @@
 .delta-neg { color: var(--danger); }
 
 /* Sources */
+/* Per-section materials — a callout between the section head and its body,
+   built to match .b-next so a section reads as one family of boxes. */
+.b-section-docs {
+  margin: 0 0 var(--pad-4) 0;
+  padding: var(--pad-3) var(--pad-4);
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+.b-section-docs-label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+.b-section-docs ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.b-doc-row {
+  display: grid;
+  grid-template-columns: 38px 1fr auto;
+  gap: 8px;
+  align-items: baseline;
+  padding: 4px 0;
+  text-decoration: none;
+}
+.b-doc-row:hover { text-decoration: none; }
+.b-doc-ext {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+.b-doc-name {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  color: var(--ink);
+  /* Filenames are long and unbreakable — wrap rather than truncate, so the
+     reader can match them against what ISO-NE posted. */
+  overflow-wrap: anywhere;
+}
+.b-doc-row:hover .b-doc-name {
+  color: var(--accent);
+  text-decoration: underline;
+}
+.b-doc-row .b-doc-link-icon { color: var(--muted); }
+.b-doc-more {
+  margin-top: 4px;
+  padding: 0;
+  font-family: var(--font-sans);
+  font-size: 12px;
+  color: var(--muted);
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+.b-doc-more:hover { color: var(--ink); text-decoration: underline; }
+
 .b-sources {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
@@ -652,6 +717,24 @@
   a {
     color: inherit !important;
     text-decoration: none !important;
+  }
+  /* Joining live is meaningless on paper; the materials URL is not, so
+     spell it out — a printed link can't be clicked. */
+  .meeting-link-webex {
+    display: none !important;
+  }
+  .meeting-link-materials {
+    border: none !important;
+    padding: 0 !important;
+  }
+  .meeting-link-materials::after {
+    content: " — " attr(href);
+    font-size: 10px;
+    color: #555;
+    word-break: break-all;
+  }
+  .meeting-link-materials > svg:last-child {
+    display: none !important;
   }
 }
 

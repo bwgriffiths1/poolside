@@ -10,7 +10,6 @@ import { qk } from "../lib/queries";
 import { Markdown, inlineMd } from "../lib/markdown";
 import { useDocketJob } from "../hooks/useDocketJob";
 import { useScrollSpy } from "../hooks/useScrollSpy";
-import { toast } from "../lib/toast";
 
 function fmtDate(iso: string | null | undefined): string {
   if (!iso) return "—";
@@ -263,14 +262,19 @@ export function Docket() {
 
   const { substantive, administrative, interventions } = useMemo(() => {
     const filings = d?.filings ?? [];
-    const interv = filings.filter((f) => f.document_class === "Intervention");
-    const rest = filings.filter((f) => f.document_class !== "Intervention");
     return {
+      // Treatment decides the split, not class: an Intervention paired
+      // with a protest/comments (doc-ful) is substantive and belongs in
+      // the main timeline with a summary.
+      substantive: filings.filter((f) => f.treatment !== "skip"),
       // Skip-tier housekeeping (notices, counsel/service-list changes,
       // transcripts…) collapses behind a toggle — signal stays up top.
-      substantive: rest.filter((f) => f.treatment !== "skip"),
-      administrative: rest.filter((f) => f.treatment === "skip"),
-      interventions: interv,
+      administrative: filings.filter(
+        (f) => f.treatment === "skip" && f.document_class !== "Intervention",
+      ),
+      interventions: filings.filter(
+        (f) => f.treatment === "skip" && f.document_class === "Intervention",
+      ),
     };
   }, [d?.filings]);
 
@@ -368,19 +372,16 @@ export function Docket() {
               {jobs.isStartingSync ? "Starting…" : "Sync"}
             </button>
             {brief?.detailed && (
-              <button
+              // Plain same-origin link: the browser downloads natively via
+              // Content-Disposition. No fetch/blob/revokeObjectURL dance —
+              // that pattern crashed Safari on first use.
+              <a
                 className="btn btn-ghost btn-sm"
+                href={`/api/dockets/${did}/docx`}
                 title="Word export: state of play + one page per filing with eLibrary links"
-                onClick={() =>
-                  api
-                    .downloadDocketDocx(did)
-                    .catch((e: Error) =>
-                      toast.error(`Download failed: ${e.message}`),
-                    )
-                }
               >
                 <Icon name="download" size={12} /> Word
-              </button>
+              </a>
             )}
             <button
               className="btn btn-ghost btn-sm"

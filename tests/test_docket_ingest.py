@@ -45,12 +45,25 @@ def test_normalize_rejects_garbage(bad):
     ("ALJ Issuance", "full"),
     ("Pleading/Motion", "brief"),
     ("Report/Form", "brief"),
-    ("Intervention", "skip"),
     ("Notice", "skip"),
     ("Transcript", "skip"),
 ])
 def test_default_treatment_map(cls, tier):
     assert classify_treatment(cls, CFG) == tier
+
+
+def test_docless_forces_skip_for_any_class():
+    assert classify_treatment("Intervention", CFG, is_docless=True) == "skip"
+    assert classify_treatment("Comments/Protest", CFG, is_docless=True) == "skip"
+
+
+def test_docful_intervention_is_substantive():
+    """A motion to intervene PAIRED with a protest/comments (real PDF —
+    e.g. FirstLight in ER26-3047) must be summarized, not roster-only."""
+    assert classify_treatment(
+        "Intervention", CFG,
+        description="Motion to Intervene and Protest of FirstLight under ER26-3047.",
+    ) == "full"
 
 
 def test_unknown_class_falls_back_to_brief():
@@ -89,7 +102,11 @@ def test_config_override_wins():
 def test_load_ferc_config_merges_defaults():
     cfg = load_ferc_config()
     assert "full" in cfg["treatment_map"]
-    assert "Intervention" in cfg["treatment_map"]["skip"]
+    assert "Notice" in cfg["treatment_map"]["skip"]
+    # Intervention is deliberately in NO static tier: doc-less → skip,
+    # doc-ful (motion + protest) → full, decided per filing.
+    assert not any("Intervention" in (cfg["treatment_map"][t] or [])
+                   for t in ("full", "brief", "skip"))
 
 
 # ── doc-less detection ──────────────────────────────────────────────────

@@ -237,10 +237,10 @@ def generate_docket_docx_bytes(docket_id: int) -> tuple[bytes, str]:
         files_by_filing.setdefault(x["filing_id"], []).append(x)
 
     # Substantive filings, oldest first — the document reads as a record.
+    # Treatment decides (not class): a doc-ful Intervention carrying a
+    # protest gets its page like any other substantive filing.
     subs = sorted(
-        [f for f in filings
-         if f.get("document_class") != "Intervention"
-         and f.get("treatment") != "skip"],
+        [f for f in filings if f.get("treatment") != "skip"],
         key=lambda f: str(f.get("filed_date") or f.get("issued_date") or ""),
     )
     intervenors = sorted(

@@ -255,6 +255,27 @@ def get_docket_job(job_id: int, _: dict = Depends(current_user)) -> dict[str, An
     return _serialize_job(row)
 
 
+@router.get("/dockets/{docket_id}/docx")
+def download_docket_docx(
+    docket_id: int,
+    _: dict = Depends(current_user),
+) -> Response:
+    """The docket briefing as .docx: state of play + one page per
+    substantive filing with eLibrary links. Rendered from the DB — instant."""
+    from pipeline.docket_docx import generate_docket_docx_bytes
+
+    try:
+        data, filename = generate_docket_docx_bytes(docket_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    return Response(
+        content=data,
+        media_type=("application/vnd.openxmlformats-officedocument"
+                    ".wordprocessingml.document"),
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 _MIME_BY_EXT = {
     "pdf": "application/pdf",
     "docx": ("application/vnd.openxmlformats-officedocument"

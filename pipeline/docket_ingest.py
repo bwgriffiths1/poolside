@@ -68,7 +68,6 @@ DEFAULT_TREATMENT_MAP: dict[str, list[str]] = {
         "Agreement/Understanding/Contract",
     ],
     "skip": [
-        "Intervention",
         "Notice",
         "Transcript",
         "Drawing/Maps",
@@ -99,6 +98,9 @@ _PROMPT_BY_CLASS = {
     "Comments/Protest": "ferc_comment_prompt",
     "Briefing/Arguments of Law": "ferc_comment_prompt",
     "Testimony": "ferc_comment_prompt",
+    # Doc-FUL interventions are motions paired with protest/comments —
+    # party/points/stance is exactly the comment lens.
+    "Intervention": "ferc_comment_prompt",
 }
 _FALLBACK_PROMPT = "ferc_motion_prompt"
 
@@ -151,7 +153,11 @@ def normalize_docket_number(raw: str) -> str:
 
 
 def classify_treatment(document_class: str | None, cfg: dict | None = None,
-                       description: str | None = None) -> str:
+                       description: str | None = None,
+                       is_docless: bool = False) -> str:
+    # Doc-less filings (the intervention wave) are roster material only.
+    if is_docless:
+        return "skip"
     # Administrative housekeeping is skip-tier regardless of class.
     if description and _ADMIN_DESC_RE.search(description):
         return "skip"
@@ -160,6 +166,10 @@ def classify_treatment(document_class: str | None, cfg: dict | None = None,
     for tier in ("full", "brief", "skip"):
         if cls in (tmap.get(tier) or []):
             return tier
+    # An Intervention that carries real documents is a motion PAIRED with
+    # a protest/comments (e.g. FirstLight in ER26-3047) — substantive.
+    if cls == "Intervention":
+        return "full"
     return "brief"
 
 
@@ -283,9 +293,9 @@ def ingest_new_filings(docket: dict, ferc: FercClient, cfg: dict,
                 errors.append(f"{acc}: filelist failed: {exc}")
 
         doc_class, doc_type = _first_class_type(hit)
-        treatment = ("skip" if docless
-                     else classify_treatment(doc_class, cfg,
-                                             description=hit.get("description")))
+        treatment = classify_treatment(doc_class, cfg,
+                                       description=hit.get("description"),
+                                       is_docless=docless)
         di = docinfo or {}
         filing = db.upsert_docket_filing(
             docket["id"], acc,
@@ -519,9 +529,9 @@ def sync_docket(docket_id: int, progress=logger.info,
     # Re-apply classification to stored rows so treatment-map/config changes
     # (and rule fixes) take effect on old filings without a re-crawl.
     for f in db.list_docket_filings(docket_id):
-        want = ("skip" if f["is_docless"]
-                else classify_treatment(f.get("document_class"), cfg,
-                                        description=f.get("description")))
+        want = classify_treatment(f.get("document_class"), cfg,
+                                  description=f.get("description"),
+                                  is_docless=bool(f["is_docless"]))
         if want != f["treatment"]:
             db.update_filing_treatment(f["id"], want)
 

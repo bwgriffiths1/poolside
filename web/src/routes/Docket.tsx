@@ -7,7 +7,7 @@ import { Tag } from "../components/Tag";
 import { VersionHistory } from "../components/VersionHistory";
 import { api, type DocketFiling } from "../lib/api";
 import { qk } from "../lib/queries";
-import { Markdown } from "../lib/markdown";
+import { Markdown, inlineMd } from "../lib/markdown";
 import { useDocketJob } from "../hooks/useDocketJob";
 import { useScrollSpy } from "../hooks/useScrollSpy";
 
@@ -262,14 +262,19 @@ export function Docket() {
 
   const { substantive, administrative, interventions } = useMemo(() => {
     const filings = d?.filings ?? [];
-    const interv = filings.filter((f) => f.document_class === "Intervention");
-    const rest = filings.filter((f) => f.document_class !== "Intervention");
     return {
+      // Treatment decides the split, not class: an Intervention paired
+      // with a protest/comments (doc-ful) is substantive and belongs in
+      // the main timeline with a summary.
+      substantive: filings.filter((f) => f.treatment !== "skip"),
       // Skip-tier housekeeping (notices, counsel/service-list changes,
       // transcripts…) collapses behind a toggle — signal stays up top.
-      substantive: rest.filter((f) => f.treatment !== "skip"),
-      administrative: rest.filter((f) => f.treatment === "skip"),
-      interventions: interv,
+      administrative: filings.filter(
+        (f) => f.treatment === "skip" && f.document_class !== "Intervention",
+      ),
+      interventions: filings.filter(
+        (f) => f.treatment === "skip" && f.document_class === "Intervention",
+      ),
     };
   }, [d?.filings]);
 
@@ -285,17 +290,43 @@ export function Docket() {
   // State-of-play sections, split at `## ` so each is a jump target.
   const sop = useMemo(() => splitByH2(d?.brief?.detailed), [d?.brief?.detailed]);
 
+  // "Key Takeaways" gets the briefing page's numbered-band treatment above
+  // the State of Play — pull its bullets out of the markdown when the
+  // section exists and is a plain bullet list (analyst rewrites fall back
+  // to normal rendering).
+  const { takeaways, bodySections } = useMemo(() => {
+    const kt = sop.sections.find(
+      (s) => s.title.toLowerCase().replace(/[^a-z ]/g, "").trim() ===
+        "key takeaways",
+    );
+    if (!kt) return { takeaways: null, bodySections: sop.sections };
+    const bullets = kt.md
+      .split("\n")
+      .slice(1) // drop the ## heading line
+      .map((ln) => ln.trim())
+      .filter((ln) => ln && !/^-{3,}$/.test(ln)) // drop blanks + --- rules
+      .map((ln) => /^[-*]\s+(.*)$/.exec(ln)?.[1]);
+    if (!bullets.length || bullets.some((b) => b == null)) {
+      return { takeaways: null, bodySections: sop.sections };
+    }
+    return {
+      takeaways: bullets as string[],
+      bodySections: sop.sections.filter((s) => s !== kt),
+    };
+  }, [sop.sections]);
+
   // "On this page" rail — briefing-page mechanics (useScrollSpy over .main).
   const refs = useRef<Record<string, HTMLElement | null>>({});
   const sectionIds = useMemo(
     () => [
       "top",
-      ...sop.sections.map((s) => s.id),
+      ...(takeaways ? ["sop"] : []),
+      ...bodySections.map((s) => s.id),
       ...(d?.intervenors.length ? ["intervenors"] : []),
       "filings",
       ...substantive.map((f) => `f${f.id}`),
     ],
-    [sop.sections, d?.intervenors.length, substantive],
+    [takeaways, bodySections, d?.intervenors.length, substantive],
   );
   const active = useScrollSpy(sectionIds, refs, "top");
   const jump = (target: string) => {
@@ -340,6 +371,18 @@ export function Docket() {
               <Icon name="refresh" size={12} />
               {jobs.isStartingSync ? "Starting…" : "Sync"}
             </button>
+            {brief?.detailed && (
+              // Plain same-origin link: the browser downloads natively via
+              // Content-Disposition. No fetch/blob/revokeObjectURL dance —
+              // that pattern crashed Safari on first use.
+              <a
+                className="btn btn-ghost btn-sm"
+                href={`/api/dockets/${did}/docx`}
+                title="Word export: state of play + one page per filing with eLibrary links"
+              >
+                <Icon name="download" size={12} /> Word
+              </a>
+            )}
             <button
               className="btn btn-ghost btn-sm"
               disabled={del.isPending || !!jobActive}
@@ -365,9 +408,16 @@ export function Docket() {
             <div className="b-toc-label">On this page</div>
             <ul>
               <li className={active === "top" ? "on" : ""}>
-                <button onClick={() => jump("top")}>State of Play</button>
+                <button onClick={() => jump("top")}>
+                  {takeaways ? "Key Takeaways" : "State of Play"}
+                </button>
               </li>
-              {sop.sections.map((s) => (
+              {takeaways && (
+                <li className={active === "sop" ? "on" : ""}>
+                  <button onClick={() => jump("sop")}>State of Play</button>
+                </li>
+              )}
+              {bodySections.map((s) => (
                 <li
                   key={s.id}
                   className={`toc-sub${active === s.id ? " on" : ""}`}
@@ -460,8 +510,30 @@ export function Docket() {
           </div>
         )}
 
+        {/* ── Key takeaways band (briefing treatment) ───────────────── */}
+        {takeaways && (
+          <section className="briefing-tldr el-section">
+            <div className="b-eyebrow">Key takeaways</div>
+            <ol>
+              {takeaways.map((t, i) => (
+                <li key={i}>
+                  <span className="tldr-num">
+                    {String(i + 1).padStart(2, "0")}
+                  </span>
+                  <span>{inlineMd(t)}</span>
+                </li>
+              ))}
+            </ol>
+          </section>
+        )}
+
         {/* ── State of play ─────────────────────────────────────────── */}
-        <section className="el-section">
+        <section
+          className="el-section"
+          ref={(el) => {
+            refs.current.sop = el;
+          }}
+        >
           <div className="el-section-head">
             <h2 className="el-section-title">State of Play</h2>
             <div className="el-section-actions">
@@ -509,7 +581,7 @@ export function Docket() {
           {brief?.detailed ? (
             <article className="ru-body">
               {sop.preamble && <Markdown source={sop.preamble} preserveH2 />}
-              {sop.sections.map((s) => (
+              {bodySections.map((s) => (
                 <div
                   key={s.id}
                   ref={(el) => {

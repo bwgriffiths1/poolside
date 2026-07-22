@@ -854,6 +854,8 @@ export const api = {
     jobId: number
   ): Promise<{ job_id: number; status: string; changed: boolean }> =>
     postJson(`/docket-jobs/${jobId}/cancel`, {}),
+  // (The docket .docx downloads through a plain <a href> on the docket
+  // page — same-origin GET with Content-Disposition; no blob dance.)
 };
 
 export interface MaterialResult {

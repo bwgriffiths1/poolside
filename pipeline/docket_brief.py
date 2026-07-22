@@ -85,12 +85,15 @@ def _intervenor_block(filings: list[dict]) -> str:
 
 
 def _timeline_block(filings: list[dict]) -> str:
-    """One line per non-intervention filing, oldest first — the procedural
-    record including skip-tier items (notices etc.) that carry no summary."""
+    """One line per filing, oldest first — the procedural record including
+    skip-tier items (notices etc.) that carry no summary. The doc-less
+    intervention wave stays out (the roster covers it); an Intervention
+    paired with a protest (doc-ful, substantive) earns its line."""
     rows = []
     for f in sorted(filings, key=lambda r: str(r.get("filed_date")
                                                or r.get("issued_date") or "")):
-        if f.get("document_class") == "Intervention":
+        if (f.get("document_class") == "Intervention"
+                and f.get("treatment") == "skip"):
             continue
         who = "; ".join(author_orgs(f.get("filing_parties"))) or "?"
         rows.append(f"- {f.get('filed_date') or f.get('issued_date') or '?'} — "

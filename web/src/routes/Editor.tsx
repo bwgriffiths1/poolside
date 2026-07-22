@@ -9,7 +9,7 @@ import { qk } from "../lib/queries";
 import { toast } from "../lib/toast";
 import { Markdown } from "../lib/markdown";
 
-type EntityType = "meeting" | "agenda_item";
+type EntityType = "meeting" | "agenda_item" | "docket" | "docket_filing";
 type ViewMode = "split" | "source" | "preview";
 
 export function Editor() {
@@ -17,7 +17,11 @@ export function Editor() {
   const navigate = useNavigate();
   const qc = useQueryClient();
 
-  const entityType = (type === "meeting" ? "meeting" : "agenda_item") as EntityType;
+  const entityType = (
+    type === "meeting" || type === "docket" || type === "docket_filing"
+      ? type
+      : "agenda_item"
+  ) as EntityType;
   const entityId = Number(id);
 
   const { data, isLoading } = useQuery({
@@ -71,6 +75,10 @@ export function Editor() {
       qc.invalidateQueries({ queryKey: qk.summaryVersions(entityType, entityId) });
       qc.invalidateQueries({ queryKey: qk.allMeetingDetails });
       qc.invalidateQueries({ queryKey: qk.allBriefings });
+      if (data?.docket_id != null) {
+        qc.invalidateQueries({ queryKey: qk.docket(data.docket_id) });
+        qc.invalidateQueries({ queryKey: qk.dockets });
+      }
       setDirty(false);
     },
     onError: (e: Error) => toast.error(`Save failed: ${e.message}`),
@@ -175,6 +183,12 @@ export function Editor() {
     if (!imageItem) return; // not an image — let the default paste happen
 
     e.preventDefault();
+    // Image paste is backed by editor_images, which is meeting-bound —
+    // docket summaries are text-only for now.
+    if (entityType === "docket" || entityType === "docket_filing") {
+      toast.error("Image paste isn't supported for docket summaries yet.");
+      return;
+    }
     const file = imageItem.getAsFile();
     if (!file) return;
 
@@ -230,17 +244,36 @@ export function Editor() {
     return { words, chars: body.length };
   }, [body]);
 
+  const isDocketEntity =
+    entityType === "docket" || entityType === "docket_filing";
+  // Where "back" leads: the owning meeting, or the owning docket page.
+  const backTo = data
+    ? isDocketEntity
+      ? `/docket/${data.docket_id}`
+      : `/meeting/${data.meeting_id}`
+    : null;
+  const entityLabel =
+    entityType === "meeting"
+      ? "Briefing"
+      : entityType === "docket"
+        ? "State of Play"
+        : entityType === "docket_filing"
+          ? "Filing"
+          : "Item";
+
   return (
     <>
       <Topbar
         crumbs={[
           entityType === "meeting"
             ? { label: "Briefings", to: "/briefings" }
-            : { label: "Meetings", to: "/meetings" },
-          data
+            : isDocketEntity
+              ? { label: "FERC eLibrary", to: "/elibrary" }
+              : { label: "Meetings", to: "/meetings" },
+          data && backTo
             ? {
-                label: `${entityType === "meeting" ? "Briefing" : "Item"}: ${data.parent_label}`,
-                to: `/meeting/${data.meeting_id}`,
+                label: `${entityLabel}: ${data.parent_label}`,
+                to: backTo,
               }
             : { label: "Loading…" },
           { label: "Edit" },
@@ -252,9 +285,7 @@ export function Editor() {
             )}
             <button
               className="btn btn-sm"
-              onClick={() =>
-                data && navigate(`/meeting/${data.meeting_id}`)
-              }
+              onClick={() => backTo && navigate(backTo)}
             >
               <Icon name="x" size={12} /> Cancel
             </button>
@@ -279,7 +310,13 @@ export function Editor() {
           <>
             <header className="editor-header">
               <div className="page-eyebrow">
-                {entityType === "meeting" ? "Meeting briefing" : "Agenda item summary"}
+                {entityType === "meeting"
+                  ? "Meeting briefing"
+                  : entityType === "docket"
+                    ? "Docket state of play"
+                    : entityType === "docket_filing"
+                      ? "Filing summary"
+                      : "Agenda item summary"}
               </div>
               <h1 className="editor-title">{data.parent_label}</h1>
               <div className="row" style={{ gap: 16, marginTop: 12, flexWrap: "wrap" }}>

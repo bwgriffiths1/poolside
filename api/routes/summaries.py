@@ -33,6 +33,7 @@ def get_summary(entity_type: str, entity_id: int) -> dict[str, Any]:
     # Look up the parent so we can echo a friendly title.
     parent_label = ""
     meeting_id: int | None = None
+    docket_id: int | None = None
     if et == "meeting":
         m = db.get_meeting(entity_id)
         if m is None:
@@ -50,18 +51,21 @@ def get_summary(entity_type: str, entity_id: int) -> dict[str, Any]:
         if d is None:
             raise HTTPException(status_code=404, detail="Docket not found")
         parent_label = f"{d.get('docket_number','')} — State of Play"
+        docket_id = entity_id
     elif et == "docket_filing":
         f = db.get_docket_filing(entity_id)
         if f is None:
             raise HTTPException(status_code=404, detail="Filing not found")
         parent_label = (f"{f.get('accession_number','')}: "
                         f"{(f.get('description') or '')[:80]}")
+        docket_id = f["docket_id"]
 
     s = db.get_current_summary(et, entity_id) or {}
     return {
         "entity_type": et,
         "entity_id": entity_id,
         "meeting_id": meeting_id,
+        "docket_id": docket_id,
         "parent_label": parent_label,
         "one_line": s.get("one_line") or "",
         "detailed": s.get("detailed") or "",

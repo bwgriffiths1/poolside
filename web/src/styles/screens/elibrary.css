@@ -1,0 +1,366 @@
+/* ── FERC eLibrary list ─────────────────────────────────────────────── */
+
+.el-add {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.el-add-number {
+  width: 240px;
+  font-family: var(--font-mono);
+}
+
+.el-add-title {
+  flex: 1;
+  min-width: 200px;
+}
+
+.el-add-hint {
+  font-size: 12px;
+  color: var(--muted);
+  margin: 6px 0 var(--pad-5);
+}
+
+.el-row {
+  display: grid;
+  grid-template-columns: minmax(200px, 1fr) auto auto 20px;
+  align-items: center;
+  gap: var(--pad-4);
+  padding: var(--pad-4);
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  text-align: left;
+  cursor: pointer;
+  font-family: inherit;
+  color: inherit;
+  transition: border-color 120ms ease;
+}
+
+.el-row:hover {
+  border-color: var(--accent-soft);
+}
+
+.el-row-number {
+  font-family: var(--font-mono);
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.el-row-title {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 1;
+  -webkit-box-orient: vertical;
+}
+
+.el-row-meta {
+  display: flex;
+  gap: 14px;
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+/* ── Docket detail ──────────────────────────────────────────────────── */
+
+.el-meta {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 6px;
+}
+
+.el-job {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: var(--pad-4);
+  border: 1px solid color-mix(in srgb, var(--info) 35%, transparent);
+  background: color-mix(in srgb, var(--info) 7%, transparent);
+  border-radius: var(--radius-lg);
+  margin-bottom: var(--pad-5);
+}
+
+.el-job > svg {
+  color: var(--info);
+  animation: ru-spin 1.2s linear infinite;
+  flex-shrink: 0;
+}
+
+.el-job-failed {
+  border-color: color-mix(in srgb, var(--danger) 35%, transparent);
+  background: color-mix(in srgb, var(--danger) 6%, transparent);
+}
+
+.el-job-failed > svg {
+  color: var(--danger);
+  animation: none;
+}
+
+.el-job-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.el-job-title {
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.el-job-progress {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.el-section {
+  margin-bottom: var(--pad-6);
+}
+
+.el-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: var(--pad-3);
+  flex-wrap: wrap;
+}
+
+.el-section-title {
+  font-family: var(--font-serif);
+  font-size: 19px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  margin: 0;
+}
+
+.el-count {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--muted);
+  margin-left: 4px;
+}
+
+.el-section-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.el-stale {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--warn, #b45309);
+  background: color-mix(in srgb, var(--warn, #b45309) 12%, transparent);
+  padding: 3px 8px;
+  border-radius: 999px;
+}
+
+.el-brief-meta {
+  font-size: 11px;
+  color: var(--muted-soft);
+  margin-top: 8px;
+}
+
+/* Intervenor roster */
+
+.el-intervenors {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.el-intervenor {
+  font-size: 12px;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-elev);
+  color: var(--fg);
+}
+
+/* Filings timeline */
+
+.el-filings {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.el-filing {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-elev);
+  overflow: hidden;
+}
+
+.el-filing.open {
+  border-color: var(--accent-soft);
+}
+
+.el-filing-head {
+  display: grid;
+  grid-template-columns: 92px 1fr 20px;
+  gap: var(--pad-4);
+  align-items: start;
+  width: 100%;
+  padding: var(--pad-3) var(--pad-4);
+  background: none;
+  border: none;
+  text-align: left;
+  font-family: inherit;
+  color: inherit;
+}
+
+.el-filing-date {
+  font-size: 12px;
+  color: var(--muted);
+  padding-top: 2px;
+  white-space: nowrap;
+}
+
+.el-filing-main {
+  min-width: 0;
+}
+
+.el-filing-toprow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 3px;
+}
+
+.el-cite {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.el-due {
+  font-size: 11px;
+  color: var(--warn, #b45309);
+}
+
+.el-pending {
+  font-size: 11px;
+  color: var(--muted-soft);
+  font-style: italic;
+}
+
+.el-filing-party {
+  font-size: 12px;
+  font-weight: 600;
+  margin-bottom: 2px;
+}
+
+.el-filing-desc {
+  font-size: 13px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.rot-90 {
+  transform: rotate(90deg);
+}
+
+.el-filing-body {
+  padding: 0 var(--pad-4) var(--pad-4) calc(92px + var(--pad-4) + var(--pad-4));
+  border-top: 1px solid var(--border);
+  padding-top: var(--pad-3);
+}
+
+.el-filing-origdesc {
+  font-size: 12px;
+  color: var(--muted);
+  font-style: italic;
+  margin-bottom: var(--pad-3);
+}
+
+.el-filing-summary {
+  font-size: 13.5px;
+  line-height: 1.6;
+}
+
+.el-files {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: var(--pad-3);
+}
+
+.el-file {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--fg);
+}
+
+.el-file svg {
+  color: var(--muted-soft);
+  flex-shrink: 0;
+}
+
+.el-file-desc {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.el-file-meta {
+  color: var(--muted-soft);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.el-file.excluded {
+  color: var(--muted-soft);
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+}
+
+.el-filing-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: var(--pad-3);
+}
+
+.el-interventions-note {
+  margin-top: var(--pad-3);
+}
+
+@media (max-width: 720px) {
+  .el-row {
+    grid-template-columns: 1fr 20px;
+  }
+  .el-row-meta,
+  .el-row .ru-row-status {
+    display: none;
+  }
+  .el-filing-head {
+    grid-template-columns: 1fr 20px;
+  }
+  .el-filing-date {
+    grid-column: 1;
+    padding-top: 0;
+  }
+  .el-filing-body {
+    padding-left: var(--pad-4);
+  }
+}

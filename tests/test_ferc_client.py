@@ -93,7 +93,9 @@ def test_retries_exhausted_raises(monkeypatch):
     assert session.request.call_count == 3
 
 
-def test_download_payload_shape():
+def test_download_payload_matches_spa():
+    """The payload mirrors what elibrary.ferc.gov's own UI sends: only
+    fileidLst populated."""
     client, session = make_client()
     resp = MagicMock()
     resp.status_code = 200
@@ -104,13 +106,28 @@ def test_download_payload_shape():
     assert out.startswith(b"%PDF")
     body = session.request.call_args.kwargs["json"]
     assert body == {
-        "FileType": "pdf",
-        "accession": "20260101-0001",
+        "FileType": "",
+        "accession": "",
         "fileid": 0,
-        "FileIDAll": "ABC-GUID",
+        "FileIDAll": "",
         "fileidLst": ["ABC-GUID"],
         "Islegacy": False,
     }
+
+
+def test_download_gets_deeper_retry_budget(monkeypatch):
+    """FERC's origin 520s intermittently on big files; their own SPA
+    retries through it. Downloads must survive a 520 streak longer than
+    the metadata retry budget."""
+    monkeypatch.setattr("pipeline.ferc_client.time.sleep", lambda s: None)
+    client, session = make_client()
+    ok = MagicMock()
+    ok.status_code = 200
+    ok.content = b"%PDF ok"
+    ok.raise_for_status.return_value = None
+    session.request.side_effect = [json_response({}, status=520)] * 5 + [ok]
+    assert client.download_file("GUID") == b"%PDF ok"
+    assert session.request.call_count == 6
 
 
 def test_docinfo_url():

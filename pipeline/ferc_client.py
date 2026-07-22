@@ -41,7 +41,10 @@ _HEADERS = {
 _PACE_SECONDS = 2.0
 _TIMEOUT = 120
 _RETRIES = 3
-_BACKOFF_BASE = 5.0  # 5s, 10s, 20s
+# Downloads hit FERC's flaky-origin 520s far more than metadata calls
+# (bigger payloads); their own SPA retries through them, so do we.
+_DOWNLOAD_RETRIES = 6
+_BACKOFF_BASE = 5.0  # 5s, 10s, 20s, 40s, 60s (capped)
 
 
 class FercClientError(Exception):
@@ -64,12 +67,12 @@ class FercClient:
             time.sleep(wait)
 
     def _request(self, method: str, path: str, *, json_body=None,
-                 expect_json: bool = True):
+                 expect_json: bool = True, retries: int = _RETRIES):
         """One API call with pacing + retry/backoff on 5xx and transport
         errors. 4xx returns are surfaced immediately (they're deterministic)."""
         url = f"{BASE_URL}/{path}"
         last_exc: Exception | None = None
-        for attempt in range(_RETRIES):
+        for attempt in range(retries):
             self._pace()
             try:
                 resp = self.session.request(
@@ -83,13 +86,13 @@ class FercClient:
             except (FercClientError, requests.RequestException) as exc:
                 self._last_call = time.monotonic()
                 last_exc = exc
-                if attempt < _RETRIES - 1:
-                    delay = _BACKOFF_BASE * (2 ** attempt)
+                if attempt < retries - 1:
+                    delay = min(_BACKOFF_BASE * (2 ** attempt), 60)
                     logger.warning("FERC %s attempt %d/%d failed (%s); "
                                    "retrying in %.0fs", path, attempt + 1,
-                                   _RETRIES, exc, delay)
+                                   retries, exc, delay)
                     time.sleep(delay)
-        raise FercClientError(f"{path} failed after {_RETRIES} attempts: {last_exc}")
+        raise FercClientError(f"{path} failed after {retries} attempts: {last_exc}")
 
     # ── endpoints ────────────────────────────────────────────────────────
 
@@ -149,20 +152,27 @@ class FercClient:
             "GET", f"File/GetFileListFromP8/{accession_number}")
         return data.get("DataList") or []
 
-    def download_file(self, file_id: str, accession_number: str,
-                      file_type: str = "pdf") -> bytes:
-        """Raw bytes for one file. file_type is the extension eLibrary
-        reported (pdf/docx/txt), lowercased for the payload."""
+    def download_file(self, file_id: str, accession_number: str = "",
+                      file_type: str = "") -> bytes:
+        """Raw bytes for one file.
+
+        The payload mirrors the eLibrary SPA byte-for-byte: only fileidLst
+        is populated. FERC's origin 520s intermittently on large files —
+        their own UI just retries until one lands (observed 520,520,200 in
+        the wild) — so downloads get a deeper retry budget than metadata
+        calls. accession_number/file_type are accepted for call-site
+        clarity but the API ignores them."""
         payload = {
-            "FileType": (file_type or "pdf").lower().lstrip("."),
-            "accession": accession_number,
+            "FileType": "",
+            "accession": "",
             "fileid": 0,
-            "FileIDAll": file_id,
+            "FileIDAll": "",
             "fileidLst": [file_id],
             "Islegacy": False,
         }
         return self._request("POST", "File/DownloadP8File",
-                             json_body=payload, expect_json=False)
+                             json_body=payload, expect_json=False,
+                             retries=_DOWNLOAD_RETRIES)
 
 
 def docinfo_url(accession_number: str) -> str:

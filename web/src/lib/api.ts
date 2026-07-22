@@ -548,16 +548,16 @@ export const api = {
   },
 
   // ── Rich-text summary editor ────────────────────────────────────────────
-  getSummary: (entity_type: "meeting" | "agenda_item", entity_id: number) =>
+  getSummary: (entity_type: SummaryEntityType, entity_id: number) =>
     get<SummaryPayload>(`/summaries/${entity_type}/${entity_id}`),
   saveSummary: (
-    entity_type: "meeting" | "agenda_item",
+    entity_type: SummaryEntityType,
     entity_id: number,
     body: { one_line?: string; detailed: string }
   ) => mutate(`/summaries/${entity_type}/${entity_id}`, "PUT", body),
 
   listSummaryVersions: (
-    entity_type: "meeting" | "agenda_item",
+    entity_type: SummaryEntityType,
     entity_id: number
   ) =>
     get<SummaryVersionMeta[]>(
@@ -565,7 +565,7 @@ export const api = {
     ),
 
   getSummaryVersion: (
-    entity_type: "meeting" | "agenda_item",
+    entity_type: SummaryEntityType,
     entity_id: number,
     version_id: number
   ) =>
@@ -574,7 +574,7 @@ export const api = {
     ),
 
   restoreSummaryVersion: (
-    entity_type: "meeting" | "agenda_item",
+    entity_type: SummaryEntityType,
     entity_id: number,
     version_id: number
   ) =>
@@ -803,6 +803,57 @@ export const api = {
     });
     if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
   },
+
+  // ── FERC eLibrary dockets ────────────────────────────────────────────
+  dockets: () => get<DocketListItem[]>(`/dockets`, () => []),
+
+  docket: (id: number) => get<DocketDetail>(`/dockets/${id}`),
+
+  addDocket: (body: {
+    docket_number: string;
+    title?: string;
+  }): Promise<{ docket: DocketListItem; job: DocketJobStart | null }> =>
+    postJson(`/dockets`, body),
+
+  updateDocket: (
+    id: number,
+    body: { title?: string; notes?: string; auto_refresh?: boolean }
+  ): Promise<DocketListItem> => {
+    return (async () => {
+      const res = await fetch(`${BASE}/dockets/${id}`, {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+      return (await res.json()) as DocketListItem;
+    })();
+  },
+
+  deleteDocket: async (id: number): Promise<void> => {
+    const res = await fetch(`${BASE}/dockets/${id}`, {
+      method: "DELETE",
+      credentials: "include",
+    });
+    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+  },
+
+  syncDocket: (id: number): Promise<DocketJobStart> =>
+    postJson(`/dockets/${id}/sync`, {}),
+
+  generateStateOfPlay: (id: number): Promise<DocketJobStart> =>
+    postJson(`/dockets/${id}/state-of-play`, {}),
+
+  getDocketActiveJob: (docketId: number) =>
+    get<DocketJob | null>(`/dockets/${docketId}/active-job`),
+
+  getDocketJob: (jobId: number) => get<DocketJob>(`/docket-jobs/${jobId}`),
+
+  cancelDocketJob: (
+    jobId: number
+  ): Promise<{ job_id: number; status: string; changed: boolean }> =>
+    postJson(`/docket-jobs/${jobId}/cancel`, {}),
 };
 
 export interface MaterialResult {
@@ -852,10 +903,116 @@ function fileToBase64(file: File): Promise<string> {
   });
 }
 
+export type SummaryEntityType =
+  | "meeting"
+  | "agenda_item"
+  | "docket"
+  | "docket_filing";
+
+// ── FERC eLibrary dockets ──────────────────────────────────────────────
+
+export interface DocketListItem {
+  id: number;
+  docket_number: string;
+  title: string | null;
+  notes: string | null;
+  auto_refresh: boolean;
+  last_crawled_at: string | null;
+  created_by: string | null;
+  created_at: string | null;
+  filing_count?: number;
+  intervenor_count?: number;
+  latest_filed_date?: string | null;
+  brief_status?: string | null;
+  brief_generated_at?: string | null;
+}
+
+export interface DocketFilingFile {
+  id: number;
+  file_desc: string | null;
+  orig_file_name: string | null;
+  file_type: string | null;
+  file_size: number | null;
+  page_count: number | null;
+  included: boolean;
+  has_content: boolean;
+}
+
+export interface DocketFilingParty {
+  type: "AUTHOR" | "AGENT" | string;
+  org: string;
+}
+
+export interface DocketFiling {
+  id: number;
+  accession_number: string;
+  category: string | null;
+  document_class: string | null;
+  document_type: string | null;
+  description: string | null;
+  sub_docket: string | null;
+  filed_date: string | null;
+  issued_date: string | null;
+  posted_date: string | null;
+  comments_due_date: string | null;
+  response_due_date: string | null;
+  ferc_cite: string | null;
+  filing_parties: DocketFilingParty[];
+  treatment: "full" | "brief" | "skip";
+  is_docless: boolean;
+  summary_one_line: string | null;
+  summary_detailed: string | null;
+  summary_status: string | null;
+  elibrary_url: string;
+  filelist_url: string;
+  files: DocketFilingFile[];
+}
+
+export interface DocketBrief {
+  summary_id: number;
+  version: number | null;
+  status: string | null;
+  detailed: string | null;
+  is_manual: boolean;
+  created_at: string | null;
+  created_by: string | null;
+  stale: boolean;
+}
+
+export interface DocketDetail extends DocketListItem {
+  brief: DocketBrief | null;
+  filings: DocketFiling[];
+  intervenors: { org: string; date: string | null }[];
+}
+
+export interface DocketJob {
+  id: number;
+  docket_id: number;
+  mode: "sync" | "brief";
+  status: string;
+  progress_text: string;
+  filings_found: number;
+  filings_summarized: number;
+  input_tokens: number;
+  output_tokens: number;
+  cost_usd: number | null;
+  error: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+  created_by: string | null;
+}
+
+export interface DocketJobStart {
+  job_id: number;
+  already_running: boolean;
+  mode?: string;
+}
+
 export interface SummaryPayload {
-  entity_type: "meeting" | "agenda_item";
+  entity_type: SummaryEntityType;
   entity_id: number;
-  meeting_id: number;
+  meeting_id: number | null;
+  docket_id?: number | null;
   parent_label: string;
   one_line: string;
   detailed: string;

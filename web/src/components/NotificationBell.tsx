@@ -50,6 +50,13 @@ function describe(n: NotificationRow): { title: string; sub: string } {
       sub: `${p.new_doc_count ?? "?"} new document(s)${items} — summaries may be stale.`,
     };
   }
+  if (n.kind === "docket_filings_new") {
+    const p = n.payload as { docket_number?: string; count?: number };
+    return {
+      title: `New FERC filings — ${p.docket_number ?? "docket"}`,
+      sub: `${p.count ?? "?"} new filing(s) on eLibrary — open the docket and Sync to summarize.`,
+    };
+  }
   return { title: n.kind, sub: "" };
 }
 
@@ -105,7 +112,12 @@ export function NotificationBell() {
         qc.invalidateQueries({ queryKey: qk.notificationsList });
       });
     }
-    if (n.meeting_id) navigate(`/meeting/${n.meeting_id}`);
+    if (n.meeting_id) {
+      navigate(`/meeting/${n.meeting_id}`);
+    } else if (n.kind === "docket_filings_new") {
+      const p = n.payload as { docket_id?: number };
+      if (p.docket_id) navigate(`/docket/${p.docket_id}`);
+    }
     setOpen(false);
   };
 

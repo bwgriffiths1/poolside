@@ -9,6 +9,8 @@ Jobs (all ET):
   * Mon 07:30          — weekly week-ahead email digest (opt-in per user).
   * Mon-Fri 08:00-18:00, every 30 min — refresh upcoming meetings:
                          pull new docs, run auto-assignment, bump lifecycle.
+  * Mon-Fri 07:15      — FERC eLibrary check on tracked dockets: store new
+                         filings (no LLM), notify so a user can click Sync.
 
 All jobs are idempotent and call the same code paths as POST /api/admin/*.
 """
@@ -186,6 +188,51 @@ def _prune_images_job() -> None:
         _notify_job_failed("prune_images", e)
 
 
+def _docket_check_job() -> None:
+    """Daily FERC eLibrary check for tracked dockets (auto_refresh only).
+
+    Crawl + enrich is metadata-only — NO LLM spend. New filings raise a
+    broadcast notification; summarization stays a one-click user action
+    (the meetings auto_resummarize=false stance). Dockets with an active
+    job are skipped rather than raced."""
+    from pipeline import db
+    from pipeline.docket_ingest import check_for_new_filings
+
+    from .services.docket_jobs import active_job_id
+    from .services.notify import create_notification
+
+    try:
+        dockets = [d for d in db.list_dockets() if d.get("auto_refresh")]
+    except Exception as e:
+        log.exception("docket_check: could not list dockets: %s", e)
+        _notify_job_failed("docket_check", e)
+        return
+
+    for d in dockets:
+        try:
+            if active_job_id(d["id"]) is not None:
+                log.info("docket_check: %s has an active job — skipping",
+                         d["docket_number"])
+                continue
+            new_count = check_for_new_filings(d["id"])
+            if new_count > 0:
+                create_notification(
+                    kind="docket_filings_new",
+                    user_id=None,  # broadcast
+                    payload={
+                        "docket_id": d["id"],
+                        "docket_number": d["docket_number"],
+                        "count": new_count,
+                    },
+                )
+                log.info("docket_check: %s has %d new filing(s)",
+                         d["docket_number"], new_count)
+        except Exception as e:
+            log.exception("docket_check failed for %s: %s",
+                          d.get("docket_number"), e)
+            _notify_job_failed("docket_check", e)
+
+
 def start_scheduler() -> AsyncIOScheduler | None:
     """Start the scheduler. Returns the instance, or None when disabled.
 
@@ -228,6 +275,12 @@ def start_scheduler() -> AsyncIOScheduler | None:
         _prune_images_job,
         CronTrigger(day_of_week="sun", hour=5, minute=0),
         id="prune_images",
+        replace_existing=True,
+    )
+    s.add_job(
+        _docket_check_job,
+        CronTrigger(day_of_week="mon-fri", hour=7, minute=15),
+        id="docket_check",
         replace_existing=True,
     )
     s.start()

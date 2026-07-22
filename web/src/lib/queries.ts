@@ -6,9 +6,9 @@
 // permanently pending unless AppShell happened to prime the cache first).
 
 import { useQuery } from "@tanstack/react-query";
-import { api, type SummarizeMode } from "./api";
+import { api, type SummarizeMode, type SummaryEntityType } from "./api";
 
-type SummaryEntity = "meeting" | "agenda_item";
+type SummaryEntity = SummaryEntityType;
 
 export const qk = {
   me: ["me"] as const,
@@ -47,6 +47,10 @@ export const qk = {
 
   deepDives: ["deep-dives"] as const,
   deepDive: (id: number) => ["deep-dive", id] as const,
+
+  dockets: ["dockets"] as const,
+  docket: (id: number) => ["docket", id] as const,
+  docketJob: (id: number | null) => ["docket-job", id] as const,
 
   myPrefs: ["my-prefs"] as const,
 

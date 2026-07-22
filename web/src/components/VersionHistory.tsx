@@ -2,14 +2,19 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Icon } from "./Icon";
 import { Markdown } from "../lib/markdown";
-import { api, type SummaryVersionMeta } from "../lib/api";
+import {
+  api,
+  type SummaryEntityType,
+  type SummaryVersionMeta,
+} from "../lib/api";
 import { qk } from "../lib/queries";
 import { toast } from "../lib/toast";
 
 interface VersionHistoryProps {
-  entityType: "meeting" | "agenda_item";
+  entityType: SummaryEntityType;
   entityId: number;
-  meetingId: number;
+  /** Owning meeting, when the entity belongs to one (docket entities don't). */
+  meetingId?: number;
   /** Currently displayed version's id, used to indicate "current" in the list */
   currentVersionId?: number | null;
   /** Called after a successful restore so the parent can collapse the panel */
@@ -38,9 +43,15 @@ export function VersionHistory({
       api.restoreSummaryVersion(entityType, entityId, version_id),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: qk.summaryVersions(entityType, entityId) });
-      qc.invalidateQueries({ queryKey: qk.meeting(meetingId) });
       qc.invalidateQueries({ queryKey: qk.summary(entityType, entityId) });
-      qc.invalidateQueries({ queryKey: qk.briefing(meetingId) });
+      if (meetingId != null) {
+        qc.invalidateQueries({ queryKey: qk.meeting(meetingId) });
+        qc.invalidateQueries({ queryKey: qk.briefing(meetingId) });
+      }
+      if (entityType === "docket") {
+        qc.invalidateQueries({ queryKey: qk.docket(entityId) });
+        qc.invalidateQueries({ queryKey: qk.dockets });
+      }
       onRestored?.();
     },
     onError: (e: Error) => toast.error(`Restore failed: ${e.message}`),

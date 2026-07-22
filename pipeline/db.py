@@ -2074,3 +2074,287 @@ def delete_meeting_attachment(attachment_id: int) -> bool:
             cur.execute("DELETE FROM meeting_attachments WHERE id = %s",
                         (attachment_id,))
             return cur.rowcount > 0
+
+
+# ---------------------------------------------------------------------------
+# FERC dockets — eLibrary docket tracking (migration 014)
+# ---------------------------------------------------------------------------
+
+def create_docket(docket_number: str, title: str | None = None,
+                  notes: str | None = None,
+                  created_by: str | None = None) -> dict:
+    """Get-or-create a tracked docket by its normalized number. Adding an
+    already-tracked docket is idempotent: the existing row comes back
+    untouched and the route just navigates to it."""
+    with _conn() as conn:
+        with _cursor(conn) as cur:
+            cur.execute("""
+                INSERT INTO dockets (docket_number, title, notes, created_by)
+                VALUES (%s, %s, %s, %s)
+                ON CONFLICT (docket_number)
+                DO UPDATE SET docket_number = EXCLUDED.docket_number
+                RETURNING *
+            """, (docket_number, title, notes, created_by))
+            return dict(cur.fetchone())
+
+
+def get_docket(docket_id: int) -> dict | None:
+    with _conn() as conn:
+        with _cursor(conn) as cur:
+            cur.execute("SELECT * FROM dockets WHERE id = %s", (docket_id,))
+            row = cur.fetchone()
+            return dict(row) if row else None
+
+
+def get_docket_by_number(docket_number: str) -> dict | None:
+    with _conn() as conn:
+        with _cursor(conn) as cur:
+            cur.execute("SELECT * FROM dockets WHERE docket_number = %s",
+                        (docket_number,))
+            row = cur.fetchone()
+            return dict(row) if row else None
+
+
+def list_dockets() -> list[dict]:
+    """All tracked dockets, newest first, each with filing rollups and the
+    current state-of-play status joined in (list page in one query)."""
+    with _conn() as conn:
+        with _cursor(conn) as cur:
+            cur.execute("""
+                SELECT d.*,
+                       COALESCE(f.filing_count, 0)      AS filing_count,
+                       COALESCE(f.intervenor_count, 0)  AS intervenor_count,
+                       f.latest_filed_date,
+                       sv.status  AS brief_status,
+                       sv.created_at AS brief_generated_at
+                  FROM dockets d
+                  LEFT JOIN (
+                      SELECT docket_id,
+                             COUNT(*) AS filing_count,
+                             COUNT(*) FILTER (WHERE document_class = 'Intervention')
+                                 AS intervenor_count,
+                             MAX(COALESCE(filed_date, issued_date)) AS latest_filed_date
+                        FROM docket_filings
+                       GROUP BY docket_id
+                  ) f ON f.docket_id = d.id
+                  LEFT JOIN LATERAL (
+                      SELECT status, created_at
+                        FROM summary_versions
+                       WHERE entity_type = 'docket'
+                         AND entity_id   = d.id
+                         AND status != 'superseded'
+                    ORDER BY CASE status WHEN 'approved' THEN 0 ELSE 1 END,
+                             version DESC
+                       LIMIT 1
+                  ) sv ON true
+                 ORDER BY d.created_at DESC
+            """)
+            return [dict(r) for r in cur.fetchall()]
+
+
+def update_docket(docket_id: int, **fields) -> None:
+    """Update specified fields on a docket (whitelisted)."""
+    allowed = {"title", "notes", "auto_refresh", "last_crawled_at"}
+    updates = {k: v for k, v in fields.items() if k in allowed}
+    if not updates:
+        return
+    set_clause = ", ".join(f"{k} = %s" for k in updates)
+    values = list(updates.values()) + [docket_id]
+    with _conn() as conn:
+        with _cursor(conn) as cur:
+            cur.execute(
+                f"UPDATE dockets SET {set_clause} WHERE id = %s", values,
+            )
+
+
+def touch_docket_crawled(docket_id: int) -> None:
+    with _conn() as conn:
+        with _cursor(conn) as cur:
+            cur.execute(
+                "UPDATE dockets SET last_crawled_at = NOW() WHERE id = %s",
+                (docket_id,))
+
+
+def delete_docket(docket_id: int) -> bool:
+    """Delete a docket (filings/files/jobs cascade). Cleans up the docket's
+    summary_versions rows too — those don't FK back to dockets."""
+    with _conn() as conn:
+        with _cursor(conn) as cur:
+            cur.execute("""
+                DELETE FROM summary_versions
+                 WHERE (entity_type = 'docket' AND entity_id = %s)
+                    OR (entity_type = 'docket_filing' AND entity_id IN
+                        (SELECT id FROM docket_filings WHERE docket_id = %s))
+            """, (docket_id, docket_id))
+            cur.execute("DELETE FROM dockets WHERE id = %s", (docket_id,))
+            return cur.rowcount > 0
+
+
+def upsert_docket_filing(docket_id: int, accession_number: str,
+                         **fields) -> dict:
+    """Insert or refresh one filing row keyed by (docket, accession).
+    On conflict the metadata columns are updated in place — re-running an
+    enrichment never duplicates a filing."""
+    allowed = {"category", "document_class", "document_type", "description",
+               "sub_docket", "filed_date", "issued_date", "posted_date",
+               "comments_due_date", "response_due_date", "ferc_cite",
+               "fed_reg_num", "filing_parties", "treatment", "is_docless",
+               "raw_hit", "raw_docinfo"}
+    cols = {k: v for k, v in fields.items() if k in allowed}
+    import json as _json
+    for jsonb_col in ("filing_parties", "raw_hit", "raw_docinfo"):
+        if jsonb_col in cols and cols[jsonb_col] is not None:
+            cols[jsonb_col] = _json.dumps(cols[jsonb_col])
+    col_names = ["docket_id", "accession_number"] + list(cols)
+    placeholders = ", ".join(["%s"] * len(col_names))
+    update_clause = ", ".join(
+        f"{k} = EXCLUDED.{k}" for k in cols) or "accession_number = EXCLUDED.accession_number"
+    with _conn() as conn:
+        with _cursor(conn) as cur:
+            cur.execute(f"""
+                INSERT INTO docket_filings ({', '.join(col_names)})
+                VALUES ({placeholders})
+                ON CONFLICT (docket_id, accession_number)
+                DO UPDATE SET {update_clause}
+                RETURNING *
+            """, [docket_id, accession_number] + list(cols.values()))
+            return dict(cur.fetchone())
+
+
+def get_docket_filing(filing_id: int) -> dict | None:
+    with _conn() as conn:
+        with _cursor(conn) as cur:
+            cur.execute("SELECT * FROM docket_filings WHERE id = %s",
+                        (filing_id,))
+            row = cur.fetchone()
+            return dict(row) if row else None
+
+
+def get_docket_accessions(docket_id: int) -> set[str]:
+    """Accession numbers already stored for a docket — the crawl diff."""
+    with _conn() as conn:
+        with _cursor(conn) as cur:
+            cur.execute(
+                "SELECT accession_number FROM docket_filings WHERE docket_id = %s",
+                (docket_id,))
+            return {r["accession_number"] for r in cur.fetchall()}
+
+
+def list_docket_filings(docket_id: int) -> list[dict]:
+    """Every filing on a docket, newest first, each with its current
+    (approved-preferred) summary joined in — shared by the docket API and
+    the state-of-play generator so both see the same set."""
+    with _conn() as conn:
+        with _cursor(conn) as cur:
+            cur.execute("""
+                SELECT df.*,
+                       sv.detailed AS summary_detailed,
+                       sv.one_line AS summary_one_line,
+                       sv.status   AS summary_status,
+                       sv.version  AS summary_version
+                  FROM docket_filings df
+                  LEFT JOIN LATERAL (
+                      SELECT detailed, one_line, status, version
+                        FROM summary_versions
+                       WHERE entity_type = 'docket_filing'
+                         AND entity_id   = df.id
+                         AND status != 'superseded'
+                    ORDER BY CASE status WHEN 'approved' THEN 0 ELSE 1 END,
+                             version DESC
+                       LIMIT 1
+                  ) sv ON true
+                 WHERE df.docket_id = %s
+                 ORDER BY COALESCE(df.filed_date, df.issued_date) DESC, df.id DESC
+            """, (docket_id,))
+            return [dict(r) for r in cur.fetchall()]
+
+
+def upsert_docket_filing_file(filing_id: int, file_id: str, **fields) -> dict:
+    """Insert or refresh one file row keyed by (filing, eLibrary file GUID).
+    raw_content deliberately excluded — the extraction cache is written by
+    set_filing_file_content and must survive metadata refreshes."""
+    allowed = {"file_desc", "orig_file_name", "file_type", "file_size",
+               "page_count", "file_list_order", "included"}
+    cols = {k: v for k, v in fields.items() if k in allowed}
+    col_names = ["filing_id", "file_id"] + list(cols)
+    placeholders = ", ".join(["%s"] * len(col_names))
+    update_clause = ", ".join(
+        f"{k} = EXCLUDED.{k}" for k in cols) or "file_id = EXCLUDED.file_id"
+    with _conn() as conn:
+        with _cursor(conn) as cur:
+            cur.execute(f"""
+                INSERT INTO docket_filing_files ({', '.join(col_names)})
+                VALUES ({placeholders})
+                ON CONFLICT (filing_id, file_id)
+                DO UPDATE SET {update_clause}
+                RETURNING *
+            """, [filing_id, file_id] + list(cols.values()))
+            return dict(cur.fetchone())
+
+
+def list_docket_filing_files(docket_id: int,
+                             with_content: bool = False) -> list[dict]:
+    """All file rows across a docket's filings in one query (no N+1),
+    ordered for display. raw_content is heavy — opt in via with_content."""
+    content_col = "dff.raw_content," if with_content else "NULL AS raw_content,"
+    with _conn() as conn:
+        with _cursor(conn) as cur:
+            cur.execute(f"""
+                SELECT dff.id, dff.filing_id, dff.file_id, dff.file_desc,
+                       dff.orig_file_name, dff.file_type, dff.file_size,
+                       dff.page_count, dff.file_list_order, dff.included,
+                       {content_col}
+                       (dff.raw_content IS NOT NULL) AS has_content
+                  FROM docket_filing_files dff
+                  JOIN docket_filings df ON df.id = dff.filing_id
+                 WHERE df.docket_id = %s
+                 ORDER BY dff.filing_id, dff.file_list_order NULLS LAST, dff.id
+            """, (docket_id,))
+            return [dict(r) for r in cur.fetchall()]
+
+
+def list_filing_files(filing_id: int, with_content: bool = False) -> list[dict]:
+    """File rows for one filing, in list order."""
+    content_col = "raw_content," if with_content else "NULL AS raw_content,"
+    with _conn() as conn:
+        with _cursor(conn) as cur:
+            cur.execute(f"""
+                SELECT id, filing_id, file_id, file_desc, orig_file_name,
+                       file_type, file_size, page_count, file_list_order,
+                       included, {content_col}
+                       (raw_content IS NOT NULL) AS has_content
+                  FROM docket_filing_files
+                 WHERE filing_id = %s
+                 ORDER BY file_list_order NULLS LAST, id
+            """, (filing_id,))
+            return [dict(r) for r in cur.fetchall()]
+
+
+def set_filing_file_content(file_row_id: int, raw_content: str) -> None:
+    with _conn() as conn:
+        with _cursor(conn) as cur:
+            cur.execute(
+                "UPDATE docket_filing_files SET raw_content = %s WHERE id = %s",
+                (raw_content, file_row_id))
+
+
+def update_filing_treatment(filing_id: int, treatment: str) -> None:
+    with _conn() as conn:
+        with _cursor(conn) as cur:
+            cur.execute(
+                "UPDATE docket_filings SET treatment = %s WHERE id = %s",
+                (treatment, filing_id))
+
+
+def get_docket_filing_file(file_row_id: int) -> dict | None:
+    """One file row joined with its filing's accession (download passthrough)."""
+    with _conn() as conn:
+        with _cursor(conn) as cur:
+            cur.execute("""
+                SELECT dff.*, df.accession_number, df.docket_id
+                  FROM docket_filing_files dff
+                  JOIN docket_filings df ON df.id = dff.filing_id
+                 WHERE dff.id = %s
+            """, (file_row_id,))
+            row = cur.fetchone()
+            return dict(row) if row else None

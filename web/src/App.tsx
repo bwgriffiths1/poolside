@@ -9,6 +9,8 @@ import { Roundups } from "./routes/Roundups";
 import { Roundup } from "./routes/Roundup";
 import { DeepDives } from "./routes/DeepDives";
 import { DeepDive } from "./routes/DeepDive";
+import { ELibrary } from "./routes/ELibrary";
+import { Docket } from "./routes/Docket";
 import { Add } from "./routes/Add";
 import { Editor } from "./routes/Editor";
 import { Prompts } from "./routes/Prompts";
@@ -39,6 +41,8 @@ export function App() {
           <Route path="/roundup/:id" element={<Roundup />} />
           <Route path="/deep-dives" element={<DeepDives />} />
           <Route path="/deep-dive/:id" element={<DeepDive />} />
+          <Route path="/elibrary" element={<ELibrary />} />
+          <Route path="/docket/:id" element={<Docket />} />
           <Route path="/initiatives" element={<Initiatives />} />
           <Route path="/initiatives/:code" element={<InitiativeDetail />} />
           <Route path="/search" element={<Search />} />

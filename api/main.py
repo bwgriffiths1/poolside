@@ -36,6 +36,7 @@ from .routes import (
     briefings,
     config as config_route,
     deep_dives,
+    dockets,
     documents,
     editor_images,
     item_materials,
@@ -108,6 +109,23 @@ async def lifespan(app: FastAPI):
                     log.info("reaped %d stale summarize_jobs row(s)", _cur.rowcount)
     except Exception as e:
         log.warning("could not reap stale summarize_jobs: %s", e)
+
+    # Same for docket jobs (FERC crawl/summarize threads).
+    try:
+        from pipeline import db as _db
+        with _db._conn() as _conn:
+            with _db._cursor(_conn) as _cur:
+                _cur.execute(
+                    """UPDATE docket_jobs
+                          SET status = 'failed',
+                              error = COALESCE(error, 'server restarted mid-run'),
+                              finished_at = NOW()
+                        WHERE status IN ('queued', 'running', 'cancelling')"""
+                )
+                if _cur.rowcount:
+                    log.info("reaped %d stale docket_jobs row(s)", _cur.rowcount)
+    except Exception as e:
+        log.warning("could not reap stale docket_jobs: %s", e)
 
     # Same for monthly roundups: their generation thread is just as dead
     # after a restart. Without this the row shows 'generating' (UI spinner)
@@ -192,6 +210,7 @@ app.include_router(meetings.router, dependencies=_AUTH)
 app.include_router(briefings.router, dependencies=_AUTH)
 app.include_router(roundups.router, dependencies=_AUTH)
 app.include_router(deep_dives.router, dependencies=_AUTH)
+app.include_router(dockets.router, dependencies=_AUTH)
 app.include_router(ask.router, dependencies=_AUTH)
 app.include_router(documents.router, dependencies=_AUTH)
 app.include_router(attachments.router, dependencies=_AUTH)

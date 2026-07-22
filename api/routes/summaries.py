@@ -16,11 +16,11 @@ from .. import lifecycle
 
 router = APIRouter(tags=["summaries"])
 
-EntityType = Literal["meeting", "agenda_item"]
+EntityType = Literal["meeting", "agenda_item", "docket", "docket_filing"]
 
 
 def _validate_entity_type(t: str) -> EntityType:
-    if t not in ("meeting", "agenda_item"):
+    if t not in ("meeting", "agenda_item", "docket", "docket_filing"):
         raise HTTPException(status_code=400, detail=f"Unknown entity_type: {t}")
     return t  # type: ignore[return-value]
 
@@ -30,7 +30,7 @@ def get_summary(entity_type: str, entity_id: int) -> dict[str, Any]:
     """Return the current summary for an entity (meeting or agenda_item)."""
     et = _validate_entity_type(entity_type)
 
-    # Look up the parent (meeting or agenda item) so we can echo a friendly title.
+    # Look up the parent so we can echo a friendly title.
     parent_label = ""
     meeting_id: int | None = None
     if et == "meeting":
@@ -39,12 +39,23 @@ def get_summary(entity_type: str, entity_id: int) -> dict[str, Any]:
             raise HTTPException(status_code=404, detail="Meeting not found")
         parent_label = f"{m.get('type_short','')} — {m.get('meeting_date','')}"
         meeting_id = entity_id
-    else:
+    elif et == "agenda_item":
         item = db.get_agenda_item(entity_id)
         if item is None:
             raise HTTPException(status_code=404, detail="Agenda item not found")
         parent_label = f"Item {item.get('item_id','')}: {item.get('title','')}"
         meeting_id = item["meeting_id"]
+    elif et == "docket":
+        d = db.get_docket(entity_id)
+        if d is None:
+            raise HTTPException(status_code=404, detail="Docket not found")
+        parent_label = f"{d.get('docket_number','')} — State of Play"
+    elif et == "docket_filing":
+        f = db.get_docket_filing(entity_id)
+        if f is None:
+            raise HTTPException(status_code=404, detail="Filing not found")
+        parent_label = (f"{f.get('accession_number','')}: "
+                        f"{(f.get('description') or '')[:80]}")
 
     s = db.get_current_summary(et, entity_id) or {}
     return {
@@ -78,17 +89,25 @@ def save_summary(
     if not isinstance(detailed, str):
         raise HTTPException(status_code=400, detail="`detailed` (string) is required")
 
-    # Resolve meeting_id for the lifecycle bump
+    # Resolve meeting_id for the lifecycle bump (meeting entities only —
+    # docket entities have no lifecycle).
+    meeting_id = None
     if et == "meeting":
         m = db.get_meeting(entity_id)
         if m is None:
             raise HTTPException(status_code=404, detail="Meeting not found")
         meeting_id = entity_id
-    else:
+    elif et == "agenda_item":
         item = db.get_agenda_item(entity_id)
         if item is None:
             raise HTTPException(status_code=404, detail="Agenda item not found")
         meeting_id = item["meeting_id"]
+    elif et == "docket":
+        if db.get_docket(entity_id) is None:
+            raise HTTPException(status_code=404, detail="Docket not found")
+    elif et == "docket_filing":
+        if db.get_docket_filing(entity_id) is None:
+            raise HTTPException(status_code=404, detail="Filing not found")
 
     row = db.save_manual_summary(
         entity_type=et,
@@ -97,7 +116,8 @@ def save_summary(
         detailed=detailed,
         created_by="user",
     )
-    lifecycle.bump_lifecycle(meeting_id)
+    if meeting_id is not None:
+        lifecycle.bump_lifecycle(meeting_id)
     return {
         "id": row["id"],
         "version": row["version"],
@@ -166,15 +186,22 @@ def restore_version(
     Resolve the meeting_id for the lifecycle bump.
     """
     et = _validate_entity_type(entity_type)
+    meeting_id = None
     if et == "meeting":
         if db.get_meeting(entity_id) is None:
             raise HTTPException(status_code=404, detail="Meeting not found")
         meeting_id = entity_id
-    else:
+    elif et == "agenda_item":
         item = db.get_agenda_item(entity_id)
         if item is None:
             raise HTTPException(status_code=404, detail="Agenda item not found")
         meeting_id = item["meeting_id"]
+    elif et == "docket":
+        if db.get_docket(entity_id) is None:
+            raise HTTPException(status_code=404, detail="Docket not found")
+    elif et == "docket_filing":
+        if db.get_docket_filing(entity_id) is None:
+            raise HTTPException(status_code=404, detail="Filing not found")
 
     # Verify the version belongs to this entity
     with db._conn() as conn:
@@ -187,5 +214,6 @@ def restore_version(
                 raise HTTPException(status_code=404, detail="Version not found for this entity")
 
     db.approve_summary_version(version_id)
-    lifecycle.bump_lifecycle(meeting_id)
+    if meeting_id is not None:
+        lifecycle.bump_lifecycle(meeting_id)
     return {"status": "ok", "restored_version_id": version_id}

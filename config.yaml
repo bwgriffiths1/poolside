@@ -51,6 +51,18 @@ agenda_parsing:
   match_model: claude-haiku-4-5-20251001
   escalation_model: claude-sonnet-4-6
 
+ferc:
+  # Per-documentClass treatment tiers for docket filings. Classes not listed
+  # anywhere default to 'brief' so new FERC classes are never silently
+  # dropped. Full taxonomy: elibrary.ferc.gov/eLibrary/assets/class-type.pdf
+  # (defaults live in pipeline/docket_ingest.py DEFAULT_TREATMENT_MAP; list a
+  # tier here to override that tier wholesale).
+  # treatment_map:
+  #   skip: [Intervention, Notice, Transcript]
+  # Context guards for the per-filing LLM call:
+  max_chars_per_file: 150000
+  max_chars_per_filing: 400000
+
 summarization:
   # When true, the refresh cron auto-runs an item-scoped re-summarize as new
   # documents land on an already-summarized meeting (unattended LLM spend).

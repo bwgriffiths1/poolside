@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Topbar } from "../components/Topbar";
@@ -9,6 +9,7 @@ import { api, type DocketFiling } from "../lib/api";
 import { qk } from "../lib/queries";
 import { Markdown } from "../lib/markdown";
 import { useDocketJob } from "../hooks/useDocketJob";
+import { useScrollSpy } from "../hooks/useScrollSpy";
 
 function fmtDate(iso: string | null | undefined): string {
   if (!iso) return "—";
@@ -47,6 +48,58 @@ function classLabel(f: DocketFiling): string {
     Notice: "Notice",
   };
   return map[c] || c;
+}
+
+/** Sections with more files than this collapse behind "+N more" —
+ *  SectionDocs' behavior, kept in sync by taste rather than import. */
+const FILES_VISIBLE = 4;
+
+/** A filing's files as briefing-style material rows (b-section-docs look),
+ *  each a live download through the FERC passthrough. */
+function FilingFiles({ f }: { f: DocketFiling }) {
+  const [expanded, setExpanded] = useState(false);
+  if (!f.files.length) return null;
+  const hidden = expanded ? 0 : Math.max(0, f.files.length - FILES_VISIBLE);
+  const shown = hidden ? f.files.slice(0, FILES_VISIBLE) : f.files;
+
+  return (
+    <div className="b-section-docs el-files-top">
+      <div className="b-section-docs-label">
+        <Icon name="paperclip" size={11} /> Files
+      </div>
+      <ul>
+        {shown.map((x) => (
+          <li key={x.id}>
+            <a
+              className={`b-doc-row${x.included ? "" : " el-doc-excluded"}`}
+              href={`/api/dockets/files/${x.id}/download`}
+              title={
+                "Download from FERC (takes 15-60s to start)" +
+                (x.included ? "" : " — excluded from summarization")
+              }
+            >
+              <span className="b-doc-ext">
+                {(x.file_type || "?").toUpperCase()}
+              </span>
+              <span className="b-doc-name">
+                {x.file_desc || x.orig_file_name}
+              </span>
+              <span className="el-file-meta mono">
+                {x.page_count && x.page_count > 1 ? `${x.page_count}pp · ` : ""}
+                {fmtBytes(x.file_size)}
+              </span>
+              <Icon name="download" size={11} className="b-doc-link-icon" />
+            </a>
+          </li>
+        ))}
+      </ul>
+      {hidden > 0 && (
+        <button className="b-doc-more" onClick={() => setExpanded(true)}>
+          +{hidden} more
+        </button>
+      )}
+    </div>
+  );
 }
 
 function FilingRow({ f }: { f: DocketFiling }) {
@@ -92,6 +145,7 @@ function FilingRow({ f }: { f: DocketFiling }) {
 
       {open && (
         <div className="el-filing-body">
+          <FilingFiles f={f} />
           {f.summary_one_line && f.description && (
             <div className="el-filing-origdesc">{f.description}</div>
           )}
@@ -99,32 +153,6 @@ function FilingRow({ f }: { f: DocketFiling }) {
             <article className="el-filing-summary">
               <Markdown source={f.summary_detailed} />
             </article>
-          )}
-          {f.files.length > 0 && (
-            <div className="el-files">
-              {f.files.map((x) => (
-                <a
-                  key={x.id}
-                  className={`el-file${x.included ? "" : " excluded"}`}
-                  href={`/api/dockets/files/${x.id}/download`}
-                  title={
-                    "Download from FERC (takes 15-60s to start)" +
-                    (x.included ? "" : " — excluded from summarization")
-                  }
-                >
-                  <Icon name="download" size={12} />
-                  <span className="el-file-desc">
-                    {x.file_desc || x.orig_file_name}
-                  </span>
-                  <span className="el-file-meta mono">
-                    {x.page_count && x.page_count > 1
-                      ? `${x.page_count}pp · `
-                      : ""}
-                    {fmtBytes(x.file_size)}
-                  </span>
-                </a>
-              ))}
-            </div>
           )}
           <div className="el-filing-actions">
             <a
@@ -205,6 +233,34 @@ export function Docket() {
     };
   }, [d?.filings]);
 
+  // Alphabetized roster for the two-column list.
+  const roster = useMemo(
+    () =>
+      [...(d?.intervenors ?? [])].sort((a, b) =>
+        a.org.localeCompare(b.org, "en", { sensitivity: "base" }),
+      ),
+    [d?.intervenors],
+  );
+
+  // "On this page" rail — briefing-page mechanics (useScrollSpy over .main).
+  const refs = useRef<Record<string, HTMLElement | null>>({});
+  const sectionIds = useMemo(
+    () => [
+      "top",
+      ...(d?.intervenors.length ? ["intervenors"] : []),
+      "filings",
+      ...substantive.map((f) => `f${f.id}`),
+    ],
+    [d?.intervenors.length, substantive],
+  );
+  const active = useScrollSpy(sectionIds, refs, "top");
+  const jump = (target: string) => {
+    const el = refs.current[target];
+    const main = document.querySelector(".main") as HTMLElement | null;
+    if (!el || !main) return;
+    main.scrollTo({ top: el.offsetTop - 80, behavior: "smooth" });
+  };
+
   if (isLoading || !d) {
     return (
       <>
@@ -259,8 +315,53 @@ export function Docket() {
         }
       />
 
-      <div className="page">
-        <div className="page-header">
+      <div className="el-layout">
+        <aside className="briefing-side">
+          <nav className="b-toc">
+            <div className="b-toc-label">On this page</div>
+            <ul>
+              <li className={active === "top" ? "on" : ""}>
+                <button onClick={() => jump("top")}>State of Play</button>
+              </li>
+              {d.intervenors.length > 0 && (
+                <li className={active === "intervenors" ? "on" : ""}>
+                  <button onClick={() => jump("intervenors")}>
+                    <span className="toc-num" />
+                    <span>Intervenors</span>
+                  </button>
+                </li>
+              )}
+              <li className={active === "filings" ? "on" : ""}>
+                <button onClick={() => jump("filings")}>
+                  <span className="toc-num" />
+                  <span>Filings</span>
+                </button>
+              </li>
+              {substantive.map((f, i) => (
+                <li
+                  key={f.id}
+                  className={`toc-sub${active === `f${f.id}` ? " on" : ""}`}
+                >
+                  <button onClick={() => jump(`f${f.id}`)}>
+                    <span className="toc-num">{i + 1}</span>
+                    <span>
+                      {classLabel(f)}
+                      {authorLine(f) ? ` — ${authorLine(f)}` : ""}
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </nav>
+        </aside>
+
+        <div className="el-article">
+        <div
+          className="page-header"
+          ref={(el) => {
+            refs.current.top = el;
+          }}
+        >
           <div className="page-eyebrow">FERC docket</div>
           <h1 className="page-title">{d.docket_number}</h1>
           {d.title && <p className="page-subtitle">{d.title}</p>}
@@ -379,26 +480,35 @@ export function Docket() {
         </section>
 
         {/* ── Intervenors ───────────────────────────────────────────── */}
-        {d.intervenors.length > 0 && (
-          <section className="el-section">
+        {roster.length > 0 && (
+          <section
+            className="el-section"
+            ref={(el) => {
+              refs.current.intervenors = el;
+            }}
+          >
             <div className="el-section-head">
               <h2 className="el-section-title">
-                Intervenors{" "}
-                <span className="el-count">{d.intervenors.length}</span>
+                Intervenors <span className="el-count">{roster.length}</span>
               </h2>
             </div>
-            <div className="el-intervenors">
-              {d.intervenors.map((iv) => (
-                <span className="el-intervenor" key={iv.org} title={`Intervened ${fmtDate(iv.date)}`}>
+            <ul className="el-intervenor-cols">
+              {roster.map((iv) => (
+                <li key={iv.org} title={`Intervened ${fmtDate(iv.date)}`}>
                   {iv.org}
-                </span>
+                </li>
               ))}
-            </div>
+            </ul>
           </section>
         )}
 
         {/* ── Filings timeline ──────────────────────────────────────── */}
-        <section className="el-section">
+        <section
+          className="el-section"
+          ref={(el) => {
+            refs.current.filings = el;
+          }}
+        >
           <div className="el-section-head">
             <h2 className="el-section-title">
               Filings <span className="el-count">{substantive.length}</span>
@@ -409,7 +519,14 @@ export function Docket() {
           ) : (
             <div className="el-filings">
               {substantive.map((f) => (
-                <FilingRow key={f.id} f={f} />
+                <div
+                  key={f.id}
+                  ref={(el) => {
+                    refs.current[`f${f.id}`] = el;
+                  }}
+                >
+                  <FilingRow f={f} />
+                </div>
               ))}
             </div>
           )}
@@ -454,6 +571,7 @@ export function Docket() {
         </section>
 
         <div style={{ height: 64 }} />
+        </div>
       </div>
     </>
   );

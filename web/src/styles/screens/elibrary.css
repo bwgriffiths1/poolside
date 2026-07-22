@@ -71,6 +71,31 @@
 
 /* ── Docket detail ──────────────────────────────────────────────────── */
 
+/* Briefing-style layout: sticky "On this page" rail + article column
+   (reuses .briefing-side and .b-toc from briefing.css). */
+.el-layout {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  gap: var(--pad-7);
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: var(--pad-6) var(--pad-7) var(--pad-8);
+}
+
+.el-article {
+  min-width: 0;
+}
+
+@media (max-width: 980px) {
+  .el-layout {
+    grid-template-columns: 1fr;
+    padding: var(--pad-5);
+  }
+  .el-layout .briefing-side {
+    display: none;
+  }
+}
+
 .el-meta {
   font-size: 12px;
   color: var(--muted);
@@ -187,21 +212,28 @@
   margin-top: 8px;
 }
 
-/* Intervenor roster */
+/* Intervenor roster — alphabetized two-column list */
 
-.el-intervenors {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
+.el-intervenor-cols {
+  columns: 2;
+  column-gap: var(--pad-6);
+  list-style: none;
+  margin: 0;
+  padding: 0;
 }
 
-.el-intervenor {
-  font-size: 12px;
-  padding: 4px 10px;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  background: var(--bg-elev);
-  color: var(--fg);
+.el-intervenor-cols li {
+  font-size: 13px;
+  line-height: 1.5;
+  padding: 3px 0;
+  break-inside: avoid;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+}
+
+@media (max-width: 640px) {
+  .el-intervenor-cols {
+    columns: 1;
+  }
 }
 
 /* Filings timeline */
@@ -310,51 +342,25 @@
   line-height: 1.6;
 }
 
-.el-files {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  margin-top: var(--pad-3);
+/* Files block at the top of an expanded filing — b-section-docs look
+   (briefing.css) with docket extras: size column + excluded strike. */
+.el-files-top {
+  margin-bottom: var(--pad-3);
 }
 
-.el-file {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 12px;
-  color: var(--fg);
-  text-decoration: none;
-  border-radius: var(--radius-sm, 6px);
-  padding: 2px 4px;
-  margin: 0 -4px;
-}
-
-.el-file:hover {
-  background: color-mix(in srgb, var(--accent-soft) 18%, transparent);
-}
-
-.el-file:hover .el-file-desc {
-  text-decoration: underline;
-}
-
-.el-file svg {
-  color: var(--muted-soft);
-  flex-shrink: 0;
-}
-
-.el-file-desc {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.el-files-top .b-doc-row {
+  /* briefing's grid is ext/name/icon — ours adds a size column */
+  grid-template-columns: 38px 1fr auto auto;
 }
 
 .el-file-meta {
   color: var(--muted-soft);
   font-size: 11px;
   white-space: nowrap;
+  flex-shrink: 0;
 }
 
-.el-file.excluded {
+.el-doc-excluded .b-doc-name {
   color: var(--muted-soft);
   text-decoration: line-through;
   text-decoration-thickness: 1px;

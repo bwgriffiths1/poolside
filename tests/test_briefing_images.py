@@ -115,7 +115,9 @@ def test_document_figure_still_embeds(fake_images):
 
     assert "/api/images/7" not in xml
     assert len(_media_files(zf)) == 1
-    assert "Figure 7" in xml, "caption dropped"
+    # The editorial redesign renders captions upper-cased for the label
+    # feel (_embed_image_bytes: caption.upper()) — assert case-blind.
+    assert "figure 7" in xml.lower(), "caption dropped"
 
 
 def test_summarizer_marker_still_embeds(fake_images):

@@ -59,6 +59,27 @@ def test_unknown_class_falls_back_to_brief():
     assert classify_treatment(None, CFG) == "brief"
 
 
+@pytest.mark.parametrize("desc", [
+    "Avangrid Networks, Inc. et al. submit request to update the service list in ER26-925.",
+    "Notice of Substitution of Counsel of Avangrid Networks under ER26-925.",
+    "SEIA submits request for removal from official service lists.",
+    "Notice of Appearance of Jane Q. Counsel in ER26-925.",
+    "Notice of Withdrawal of Appearance under ER26-925.",
+    "Combined Notice of Filings #1, December 31, 2025.",
+])
+def test_administrative_descriptions_force_skip(desc):
+    """Counsel/service-list housekeeping must not burn LLM tokens or clutter
+    the timeline, whatever class FERC filed it under."""
+    assert classify_treatment("Pleading/Motion", CFG, description=desc) == "skip"
+
+
+def test_substantive_motion_stays_brief():
+    assert classify_treatment(
+        "Pleading/Motion", CFG,
+        description="Motion for Extension of Time to file comments of NEPGA.",
+    ) == "brief"
+
+
 def test_config_override_wins():
     cfg = {"treatment_map": {**DEFAULT_TREATMENT_MAP,
                              "skip": ["Report/Form"], "brief": []}}

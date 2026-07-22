@@ -2336,3 +2336,25 @@ def set_filing_file_content(file_row_id: int, raw_content: str) -> None:
             cur.execute(
                 "UPDATE docket_filing_files SET raw_content = %s WHERE id = %s",
                 (raw_content, file_row_id))
+
+
+def update_filing_treatment(filing_id: int, treatment: str) -> None:
+    with _conn() as conn:
+        with _cursor(conn) as cur:
+            cur.execute(
+                "UPDATE docket_filings SET treatment = %s WHERE id = %s",
+                (treatment, filing_id))
+
+
+def get_docket_filing_file(file_row_id: int) -> dict | None:
+    """One file row joined with its filing's accession (download passthrough)."""
+    with _conn() as conn:
+        with _cursor(conn) as cur:
+            cur.execute("""
+                SELECT dff.*, df.accession_number, df.docket_id
+                  FROM docket_filing_files dff
+                  JOIN docket_filings df ON df.id = dff.filing_id
+                 WHERE dff.id = %s
+            """, (file_row_id,))
+            row = cur.fetchone()
+            return dict(row) if row else None

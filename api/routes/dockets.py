@@ -10,12 +10,12 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel
 
 from pipeline import db
 from pipeline.docket_ingest import author_orgs, normalize_docket_number
-from pipeline.ferc_client import docinfo_url
+from pipeline.ferc_client import FercClient, FercClientError, docinfo_url, filelist_url
 
 from ..auth import current_user
 from ..services import docket_jobs as jobs_service
@@ -71,6 +71,7 @@ def _filing_row(f: dict, files: list[dict]) -> dict[str, Any]:
         "summary_detailed": f.get("summary_detailed"),
         "summary_status": f.get("summary_status"),
         "elibrary_url": docinfo_url(f["accession_number"]),
+        "filelist_url": filelist_url(f["accession_number"]),
         "files": [{
             "id": x["id"],
             "file_desc": x.get("file_desc"),
@@ -252,6 +253,41 @@ def get_docket_job(job_id: int, _: dict = Depends(current_user)) -> dict[str, An
     if not row:
         raise HTTPException(status_code=404, detail="Job not found")
     return _serialize_job(row)
+
+
+_MIME_BY_EXT = {
+    "pdf": "application/pdf",
+    "docx": ("application/vnd.openxmlformats-officedocument"
+             ".wordprocessingml.document"),
+    "txt": "text/plain",
+}
+
+
+@router.get("/dockets/files/{file_row_id}/download")
+def download_filing_file(
+    file_row_id: int,
+    _: dict = Depends(current_user),
+) -> Response:
+    """Passthrough download of one eLibrary file.
+
+    We deliberately store no bytes (only extracted text), so this re-fetches
+    from FERC on each click — expect a 15-60s wait before the download
+    starts; the client's retry budget rides out the origin's 520 streaks."""
+    row = db.get_docket_filing_file(file_row_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="File not found")
+    try:
+        data = FercClient().download_file(row["file_id"])
+    except FercClientError as e:
+        raise HTTPException(status_code=502,
+                            detail=f"FERC download failed: {e}")
+    ext = (row.get("file_type") or "pdf").lower()
+    filename = row.get("orig_file_name") or f"{row['accession_number']}.{ext}"
+    return Response(
+        content=data,
+        media_type=_MIME_BY_EXT.get(ext, "application/octet-stream"),
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.post("/docket-jobs/{job_id}/cancel")

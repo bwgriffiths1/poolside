@@ -964,6 +964,7 @@ export interface DocketFiling {
   summary_detailed: string | null;
   summary_status: string | null;
   elibrary_url: string;
+  filelist_url: string;
   files: DocketFilingFile[];
 }
 

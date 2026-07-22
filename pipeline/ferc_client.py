@@ -181,3 +181,9 @@ def docinfo_url(accession_number: str) -> str:
     """Public eLibrary page for a filing — where UI rows link out to."""
     return (f"https://elibrary.ferc.gov/eLibrary/docinfo?"
             f"accession_number={accession_number}")
+
+
+def filelist_url(accession_number: str) -> str:
+    """Public eLibrary file-list page for a filing."""
+    return (f"https://elibrary.ferc.gov/eLibrary/filelist?"
+            f"accession_number={accession_number}")

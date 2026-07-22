@@ -103,20 +103,26 @@ function FilingRow({ f }: { f: DocketFiling }) {
           {f.files.length > 0 && (
             <div className="el-files">
               {f.files.map((x) => (
-                <div
+                <a
                   key={x.id}
                   className={`el-file${x.included ? "" : " excluded"}`}
-                  title={x.included ? undefined : "Excluded from summarization"}
+                  href={`/api/dockets/files/${x.id}/download`}
+                  title={
+                    "Download from FERC (takes 15-60s to start)" +
+                    (x.included ? "" : " — excluded from summarization")
+                  }
                 >
-                  <Icon name="doc" size={12} />
+                  <Icon name="download" size={12} />
                   <span className="el-file-desc">
                     {x.file_desc || x.orig_file_name}
                   </span>
                   <span className="el-file-meta mono">
-                    {x.page_count ? `${x.page_count}pp · ` : ""}
+                    {x.page_count && x.page_count > 1
+                      ? `${x.page_count}pp · `
+                      : ""}
                     {fmtBytes(x.file_size)}
                   </span>
-                </div>
+                </a>
               ))}
             </div>
           )}
@@ -127,7 +133,15 @@ function FilingRow({ f }: { f: DocketFiling }) {
               target="_blank"
               rel="noreferrer"
             >
-              <Icon name="external" size={12} /> eLibrary
+              <Icon name="external" size={12} /> Doc info
+            </a>
+            <a
+              className="btn btn-ghost btn-sm"
+              href={f.filelist_url}
+              target="_blank"
+              rel="noreferrer"
+            >
+              <Icon name="list" size={12} /> File list
             </a>
             {f.summary_detailed && (
               <button
@@ -152,6 +166,7 @@ export function Docket() {
   const jobs = useDocketJob(did);
   const [showHistory, setShowHistory] = useState(false);
   const [showInterventions, setShowInterventions] = useState(false);
+  const [showAdmin, setShowAdmin] = useState(false);
 
   const jobActive =
     jobs.job &&
@@ -177,13 +192,16 @@ export function Docket() {
     },
   });
 
-  const { substantive, interventions } = useMemo(() => {
+  const { substantive, administrative, interventions } = useMemo(() => {
     const filings = d?.filings ?? [];
+    const interv = filings.filter((f) => f.document_class === "Intervention");
+    const rest = filings.filter((f) => f.document_class !== "Intervention");
     return {
-      substantive: filings.filter((f) => f.document_class !== "Intervention"),
-      interventions: filings.filter(
-        (f) => f.document_class === "Intervention",
-      ),
+      // Skip-tier housekeeping (notices, counsel/service-list changes,
+      // transcripts…) collapses behind a toggle — signal stays up top.
+      substantive: rest.filter((f) => f.treatment !== "skip"),
+      administrative: rest.filter((f) => f.treatment === "skip"),
+      interventions: interv,
     };
   }, [d?.filings]);
 
@@ -393,6 +411,25 @@ export function Docket() {
               {substantive.map((f) => (
                 <FilingRow key={f.id} f={f} />
               ))}
+            </div>
+          )}
+          {administrative.length > 0 && (
+            <div className="el-interventions-note">
+              <button
+                className="btn btn-ghost btn-sm"
+                onClick={() => setShowAdmin(!showAdmin)}
+              >
+                <Icon name="filter" size={12} />
+                {showAdmin ? "Hide" : "Show"} {administrative.length}{" "}
+                administrative filing{administrative.length === 1 ? "" : "s"}
+              </button>
+              {showAdmin && (
+                <div className="el-filings" style={{ marginTop: 8 }}>
+                  {administrative.map((f) => (
+                    <FilingRow key={f.id} f={f} />
+                  ))}
+                </div>
+              )}
             </div>
           )}
           {interventions.length > 0 && (

@@ -123,8 +123,21 @@
   white-space: nowrap;
 }
 
+/* One shared reading column for the whole docket page — the state-of-play
+   prose, the roster and the filings timeline all align (the ru-body 760px
+   cap against full-width filings looked broken). */
+.el-section,
+.el-job,
+.el-meta {
+  max-width: 880px;
+}
+
 .el-section {
   margin-bottom: var(--pad-6);
+}
+
+.el-section .ru-body {
+  max-width: none; /* inherit the section's 880px, not roundup's 760px */
 }
 
 .el-section-head {
@@ -310,6 +323,18 @@
   gap: 8px;
   font-size: 12px;
   color: var(--fg);
+  text-decoration: none;
+  border-radius: var(--radius-sm, 6px);
+  padding: 2px 4px;
+  margin: 0 -4px;
+}
+
+.el-file:hover {
+  background: color-mix(in srgb, var(--accent-soft) 18%, transparent);
+}
+
+.el-file:hover .el-file-desc {
+  text-decoration: underline;
 }
 
 .el-file svg {

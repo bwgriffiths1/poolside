@@ -109,6 +109,16 @@ _EXCLUDED_FILE_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Administrative housekeeping that would otherwise land in the 'brief' tier
+# via Pleading/Motion: counsel substitutions, service-list changes,
+# appearances. Matched against the filing description; forces 'skip'.
+_ADMIN_DESC_RE = re.compile(
+    r"substitut\w+\s+of\s+counsel|service\s+lists?\b|"
+    r"notice\s+of\s+appearance|withdrawal\s+of\s+(counsel|appearance)|"
+    r"combined\s+notice\s+of\s+filings",
+    re.IGNORECASE,
+)
+
 # Extensions we can actually extract text from.
 _EXTRACTABLE = {"pdf", "docx", "txt"}
 
@@ -140,7 +150,11 @@ def normalize_docket_number(raw: str) -> str:
     return num
 
 
-def classify_treatment(document_class: str | None, cfg: dict | None = None) -> str:
+def classify_treatment(document_class: str | None, cfg: dict | None = None,
+                       description: str | None = None) -> str:
+    # Administrative housekeeping is skip-tier regardless of class.
+    if description and _ADMIN_DESC_RE.search(description):
+        return "skip"
     tmap = (cfg or load_ferc_config())["treatment_map"]
     cls = (document_class or "").strip()
     for tier in ("full", "brief", "skip"):
@@ -270,7 +284,8 @@ def ingest_new_filings(docket: dict, ferc: FercClient, cfg: dict,
 
         doc_class, doc_type = _first_class_type(hit)
         treatment = ("skip" if docless
-                     else classify_treatment(doc_class, cfg))
+                     else classify_treatment(doc_class, cfg,
+                                             description=hit.get("description")))
         di = docinfo or {}
         filing = db.upsert_docket_filing(
             docket["id"], acc,
@@ -500,6 +515,15 @@ def sync_docket(docket_id: int, progress=logger.info,
     ferc = ferc or FercClient()
 
     new_rows, errors = ingest_new_filings(docket, ferc, cfg, progress=progress)
+
+    # Re-apply classification to stored rows so treatment-map/config changes
+    # (and rule fixes) take effect on old filings without a re-crawl.
+    for f in db.list_docket_filings(docket_id):
+        want = ("skip" if f["is_docless"]
+                else classify_treatment(f.get("document_class"), cfg,
+                                        description=f.get("description")))
+        if want != f["treatment"]:
+            db.update_filing_treatment(f["id"], want)
 
     summarized = 0
     if summarize:

@@ -40,10 +40,12 @@ _HEADERS = {
 # Seconds between consecutive API calls — polite pacing for a federal site.
 _PACE_SECONDS = 2.0
 _TIMEOUT = 120
-_RETRIES = 3
-# Downloads hit FERC's flaky-origin 520s far more than metadata calls
-# (bigger payloads); their own SPA retries through them, so do we.
-_DOWNLOAD_RETRIES = 6
+# FERC's origin 520s in streaks across ALL endpoints when it has a bad
+# hour (observed live: search, metadata and downloads all affected, while
+# eLibrary's own SPA just re-fires requests until one lands). Everything
+# runs inside background jobs, so patience is cheap and correct.
+_RETRIES = 5
+_DOWNLOAD_RETRIES = 6  # downloads are the flakiest (largest payloads)
 _BACKOFF_BASE = 5.0  # 5s, 10s, 20s, 40s, 60s (capped)
 
 

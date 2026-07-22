@@ -88,9 +88,9 @@ def test_retries_exhausted_raises(monkeypatch):
     monkeypatch.setattr("pipeline.ferc_client.time.sleep", lambda s: None)
     client, session = make_client()
     session.request.side_effect = requests.ConnectionError("dead")
-    with pytest.raises(FercClientError, match="failed after 3 attempts"):
+    with pytest.raises(FercClientError, match="failed after 5 attempts"):
         client.get_file_list("20260101-0001")
-    assert session.request.call_count == 3
+    assert session.request.call_count == 5
 
 
 def test_download_payload_matches_spa():

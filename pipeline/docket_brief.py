@@ -133,10 +133,10 @@ def build_brief_prompt(docket: dict, filings: list[dict],
         + (f"Title: {docket['title']}\n" if docket.get("title") else "")
         + (f"Notes: {docket['notes']}\n" if docket.get("notes") else "")
         + f"\n[INTERVENORS — chronological]\n\n{_intervenor_block(filings)}\n"
-        + f"\n[PROCEDURAL TIMELINE — every filing, oldest first]\n\n"
+        + "\n[PROCEDURAL TIMELINE — every filing, oldest first]\n\n"
         + f"{_timeline_block(filings)}\n"
         + f"\n[PENDING DEADLINES]\n\n{_pending_deadlines(filings)}\n"
-        + f"\n[FILING SUMMARIES — OLDEST FIRST]\n\n"
+        + "\n[FILING SUMMARIES — OLDEST FIRST]\n\n"
         + "\n\n".join(blocks)
     )
 

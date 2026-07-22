@@ -30,6 +30,8 @@ from docx.oxml import OxmlElement
 from docx.shared import Inches, Pt, Twips, RGBColor
 from docx.text.run import Run
 
+from pipeline import brand
+
 logger = logging.getLogger(__name__)
 
 # Every form an image can take in briefing markdown: the summarizer's raw
@@ -107,6 +109,13 @@ def _embed_image_bytes(
         if pic.height > max_h:
             pic.width = int(pic.width * (max_h / pic.height))
             pic.height = max_h
+        # Centre the figure and give it air above.
+        img_para = doc.paragraphs[-1]
+        img_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        _v2_spacing(img_para, before=Pt(8), after=Pt(0))
+        # Keep the image on the same page as its caption below, if any.
+        if caption:
+            img_para.paragraph_format.keep_with_next = True
     except Exception as exc:
         logger.warning("Failed to embed %s in docx: %s", label, exc)
         return
@@ -117,14 +126,14 @@ def _embed_image_bytes(
             pass
 
     if caption:
+        # Editorial caption: mono, muted, centred, under a hairline — mirrors
+        # the web .b-figure figcaption. Kept upper-case for the label feel.
         cap_para = doc.add_paragraph()
-        cap_para.paragraph_format.space_before = Pt(2)
-        cap_para.paragraph_format.space_after = Pt(8)
+        _v2_spacing(cap_para, before=Pt(5), after=Pt(10))
         cap_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        run = cap_para.add_run(caption)
-        run.italic = True
-        run.font.size = Pt(9)
-        run.font.color.rgb = RGBColor(0x66, 0x66, 0x66)
+        _v2_pborder(cap_para, "top", 4, _GRAY_MID_HEX, space=4)
+        _v2_run(cap_para, caption.upper(), size=brand.SZ_CAPTION,
+                color=_GRAY_TEXT, font=_LABEL)
 
 
 def _add_image_to_doc(doc: Document, image_id: int) -> None:
@@ -165,7 +174,15 @@ def _add_editor_image_to_doc(doc: Document, image_id: int) -> None:
 
 
 def _add_matched_image(doc: Document, m: re.Match) -> None:
-    """Dispatch one _ANY_IMG_RE match to the table that backs that form."""
+    """Dispatch one _ANY_IMG_RE match to the table that backs that form.
+
+    Binds the immediately-preceding paragraph — typically the figure's
+    "Figure: …" caption — to the image with keep-with-next, so a page break
+    can't strand the caption at the foot of one page with its chart on the
+    next.
+    """
+    if doc.paragraphs:
+        doc.paragraphs[-1].paragraph_format.keep_with_next = True
     if m.group("editor"):
         _add_editor_image_to_doc(doc, int(m.group("editor")))
     else:
@@ -203,26 +220,36 @@ def _format_date_range(iso_dates: list[str]) -> str:
 # Redesigned briefing (v2) — NEPOOL brand design system
 # ---------------------------------------------------------------------------
 
-# Brand colors
-_CHARCOAL   = RGBColor(0x3A, 0x3A, 0x3B)
-_CYAN       = RGBColor(0x00, 0xAD, 0xEF)
-_CYAN_BG    = "EAF7FD"
-_GRAY_BG    = "F4F5F6"
-_GRAY_MID   = RGBColor(0xC8, 0xCA, 0xCC)
-_GRAY_TEXT  = RGBColor(0x88, 0x88, 0x88)
-_CYAN_HEX     = "00ADEF"
-_GRAY_MID_HEX = "C8CACC"
+# Editorial palette — legacy constant names now resolve to the shared
+# brand.py tokens (mirror of web/src/styles/tokens.css), so both this briefing
+# renderer and the deep-dive path below share one palette. New code should
+# prefer brand.* directly; these aliases keep the older structural code terse.
+_INK        = brand.INK
+_INK_SOFT   = brand.INK_SOFT
+_CHARCOAL   = brand.INK          # was cyan-era charcoal; now editorial ink
+_CYAN       = brand.ACCENT       # accent (terracotta)
+_CYAN_BG    = brand.ACCENT_TINT  # tint band fill
+_GRAY_BG    = brand.ELEV         # soft card fill
+_GRAY_MID   = brand.MUTED_SOFT
+_GRAY_TEXT  = brand.MUTED
+_CYAN_HEX     = brand.ACCENT_HEX
+_GRAY_MID_HEX = brand.BORDER     # hairline rule colour
+_BORDER_SOFT  = brand.BORDER_SOFT
+_BODY       = brand.BODY_FONT
+_LABEL      = brand.LABEL_FONT
 _CONTENT_W    = 9360  # 6.5" in twips
 
 
-def _v2_run(para, text, *, size=Pt(10.5), bold=False, color=_CHARCOAL):
+def _v2_run(para, text, *, size=brand.SZ_BODY, bold=False, color=_INK,
+            italic=False, font=None):
     r = para.add_run(text)
-    r.font.name = "Calibri"; r.font.size = size
-    r.bold = bold; r.font.color.rgb = color
+    r.font.name = font or _BODY; r.font.size = size
+    r.bold = bold; r.italic = italic; r.font.color.rgb = color
     return r
 
 
-def _v2_link(para, url, text, *, size=Pt(9), color=_CYAN, bold=False):
+def _v2_link(para, url, text, *, size=brand.SZ_LINK, color=_CYAN, bold=False,
+             underline=True, font=None):
     """Append a real, clickable external hyperlink run to `para`.
 
     python-docx has no public API for hyperlinks, so the relationship is
@@ -238,9 +265,9 @@ def _v2_link(para, url, text, *, size=Pt(9), color=_CYAN, bold=False):
 
     run = Run(r_el, para)
     run.text = text
-    run.font.name = "Calibri"; run.font.size = size
+    run.font.name = font or _BODY; run.font.size = size
     run.bold = bold; run.font.color.rgb = color
-    run.font.underline = True
+    run.font.underline = underline
     return run
 
 
@@ -319,14 +346,70 @@ def _v2_spacing(para, *, before=None, after=None, line=None):
         pf.line_spacing = line
 
 
-def _v2_bold_runs(para, text, *, size=Pt(10.5), color=_CHARCOAL):
-    text = re.sub(r"\\(.)", r"\1", text)
-    for part in re.split(r"(\*\*[^*]+\*\*)", text):
-        m = re.fullmatch(r"\*\*([^*]+)\*\*", part)
-        if m:
-            _v2_run(para, m.group(1), size=size, bold=True, color=color)
-        elif part:
-            _v2_run(para, part, size=size, bold=False, color=color)
+# Inline markdown, matching web/src/lib/markdown.tsx::inline so the Word export
+# renders exactly what the reader shows. Order matters: image before link.
+_INLINE_ESC = set("$_*`[](){}#.-+!|<>%~&")
+_INLINE_RE = re.compile(
+    r"!\[([^\]]*)\]\(([^)\s]+)\)"     # 1 alt, 2 src   (image)
+    r"|\[([^\]]+)\]\(([^)\s]+)\)"      # 3 text, 4 href (link)
+    r"|\*\*([^*]+)\*\*"                # 5 bold
+    r"|\*([^*]+)\*"                    # 6 italic
+    r"|`([^`]+)`"                      # 7 code
+)
+
+
+def _unescape_inline(s: str) -> str:
+    out: list[str] = []
+    i = 0
+    while i < len(s):
+        if s[i] == "\\" and i + 1 < len(s) and s[i + 1] in _INLINE_ESC:
+            out.append(s[i + 1]); i += 2
+        else:
+            out.append(s[i]); i += 1
+    return "".join(out)
+
+
+def _inline_runs(para, text, *, size=brand.SZ_BODY, color=_INK_SOFT, italic=False):
+    """Render inline markdown into runs: **bold**, *italic*, `code`,
+    [text](url). Bold lifts to ink; links become real clickable runs; code
+    sets in the label mono. Backslash-escapes are unwound with the same
+    character set the web uses so `\\$9,337/MWh` renders clean."""
+    pos = 0
+    for m in _INLINE_RE.finditer(text):
+        if m.start() > pos:
+            _v2_run(para, _unescape_inline(text[pos:m.start()]),
+                    size=size, color=color, italic=italic)
+        if m.group(2) is not None:            # image → fall back to alt text
+            alt = _unescape_inline(m.group(1) or "")
+            if alt:
+                _v2_run(para, alt, size=size, color=color, italic=italic)
+        elif m.group(4) is not None:          # link
+            _v2_link(para, m.group(4), _unescape_inline(m.group(3)), size=size)
+        elif m.group(5) is not None:          # bold
+            _v2_run(para, _unescape_inline(m.group(5)),
+                    size=size, bold=True, color=_INK, italic=italic)
+        elif m.group(6) is not None:          # italic
+            _v2_run(para, _unescape_inline(m.group(6)),
+                    size=size, color=color, italic=True)
+        elif m.group(7) is not None:          # code
+            _v2_run(para, _unescape_inline(m.group(7)),
+                    size=size, color=_INK, font=_LABEL)
+        pos = m.end()
+    if pos < len(text):
+        _v2_run(para, _unescape_inline(text[pos:]), size=size, color=color, italic=italic)
+
+
+def _v2_bold_runs(para, text, *, size=brand.SZ_BODY, color=_INK_SOFT):
+    """Back-compat shim — all inline rendering now flows through _inline_runs."""
+    _inline_runs(para, text, size=size, color=color)
+
+
+def _smallcaps(run) -> None:
+    """Set the small-caps run property (w:smallCaps) for editorial group heads."""
+    rPr = run._r.get_or_add_rPr()
+    el = OxmlElement("w:smallCaps")
+    el.set(qn("w:val"), "1")
+    rPr.append(el)
 
 
 def _is_table_row(line: str) -> bool:
@@ -346,23 +429,61 @@ def _parse_table_row(line: str) -> list[str]:
     return [c.strip() for c in line.strip()[1:-1].split("|")]
 
 
+_DELTA_POS = ("+",)
+_DELTA_NEG = ("-", "−", "–")  # hyphen, minus sign, en-dash
+
+
 def _add_word_table(doc: Document, rows: list[list[str]]) -> None:
-    """Render a list of cell-lists as a Word table; first row is treated as header."""
+    """Render cell-lists as a borderless editorial table (mirrors web .b-table):
+    mono uppercase header under an accent rule, hairline row separators, no
+    vertical lines; value columns right-aligned in the mono face with +/-
+    deltas coloured. First row is the header."""
     if not rows:
         return
     ncols = max(len(r) for r in rows)
     tbl = doc.add_table(rows=len(rows), cols=ncols)
-    tbl.style = "Table Grid"
+    tbl.autofit = True
     for ri, row_data in enumerate(rows):
+        is_header = ri == 0
         for ci in range(ncols):
-            cell_text = row_data[ci] if ci < len(row_data) else ""
+            cell_text = (row_data[ci] if ci < len(row_data) else "").strip()
             cell = tbl.rows[ri].cells[ci]
             cell.text = ""
+            _v2_cell_margins(cell, top=54, bottom=54,
+                             left=(0 if ci == 0 else 80), right=120)
+
+            # Borders: borderless by default (header underline + row hairlines);
+            # a full grid only when the shared TABLE_STYLE token asks for it.
+            if brand.TABLE_STYLE == "ruled":
+                edge = {"val": "single", "sz": 6, "color": _GRAY_MID_HEX, "space": 0}
+                borders = {"top": edge, "bottom": edge, "left": edge, "right": edge}
+            elif is_header:
+                borders = {"bottom": {"val": "single", "sz": 12,
+                                      "color": _CYAN_HEX, "space": 0}}
+            else:
+                borders = {"bottom": {"val": "single", "sz": 6,
+                                      "color": _BORDER_SOFT, "space": 0}}
+            _v2_cell_borders(cell, **borders)
+
             p = cell.paragraphs[0]
-            _v2_bold_runs(p, cell_text, size=Pt(9.5), color=_CHARCOAL)
-            if ri == 0:
-                for run in p.runs:
-                    run.bold = True
+            _v2_spacing(p, before=Pt(0), after=Pt(0))
+            value_col = ci > 0
+            if value_col:
+                p.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+
+            if is_header:
+                _v2_run(p, cell_text.upper(), size=brand.SZ_LABEL, bold=True,
+                        color=_GRAY_TEXT, font=_LABEL)
+            elif value_col:
+                delta = None
+                if cell_text.startswith(_DELTA_POS):
+                    delta = brand.SUCCESS
+                elif cell_text.startswith(_DELTA_NEG):
+                    delta = brand.DANGER
+                _v2_run(p, cell_text, size=brand.SZ_BODY_SM,
+                        color=delta or _INK, bold=bool(delta), font=_LABEL)
+            else:
+                _inline_runs(p, cell_text, size=brand.SZ_BODY_SM, color=_INK)
 
 
 _CALLOUT_OPEN_RE = re.compile(r"^>\s*\[!([^\]]+)\]\s*(.*)$")
@@ -378,31 +499,18 @@ def _render_v2_callout(doc: Document, label: str, body_text: str) -> None:
     p = doc.add_paragraph()
     _v2_pshading(p, _CYAN_BG)
     _v2_pborder(p, "left", 24, _CYAN_HEX, space=8)
-    _v2_pborder(p, "top", 4, _CYAN_HEX, space=4)
-    _v2_pborder(p, "bottom", 4, _CYAN_HEX, space=4)
     _v2_pindent(p, left=180, right=120)
-    _v2_spacing(p, before=Pt(6), after=Pt(6), line=Pt(13))
+    _v2_spacing(p, before=Pt(8), after=Pt(8), line=1.3)
+    p.paragraph_format.keep_together = True
 
-    lr = p.add_run(label.upper())
-    lr.font.name = "Calibri"; lr.font.size = Pt(8.5)
-    lr.bold = True; lr.font.color.rgb = _CYAN
-
+    _v2_run(p, label.upper(), size=brand.SZ_LABEL, bold=True,
+            color=_CYAN, font=_LABEL)
     p.add_run("\n")
 
-    # Body text — strip a leading single space if present, then render with
-    # inline **bold** support but in italic.
+    # Body — serif italic with inline bold/link support.
     body_text = body_text.strip()
     if body_text:
-        for part in re.split(r"(\*\*[^*]+\*\*)", body_text):
-            m = re.fullmatch(r"\*\*([^*]+)\*\*", part)
-            if m:
-                r = p.add_run(m.group(1))
-                r.font.name = "Calibri"; r.font.size = Pt(10.5)
-                r.bold = True; r.italic = True; r.font.color.rgb = _CHARCOAL
-            elif part:
-                r = p.add_run(part)
-                r.font.name = "Calibri"; r.font.size = Pt(10.5)
-                r.italic = True; r.font.color.rgb = _CHARCOAL
+        _inline_runs(p, body_text, size=brand.SZ_BODY_SM, color=_INK, italic=True)
 
 
 def _render_v2_body_lines(doc: Document, body_lines: list[str]) -> None:
@@ -505,21 +613,17 @@ def _render_v2_exec_summary(doc: Document, exec_lines: list[str]) -> None:
 # ---------------------------------------------------------------------------
 
 def _render_v2_subheading(doc: Document, text: str) -> None:
-    """H4-style sub-heading: italic cyan number, bold-italic charcoal title."""
+    """Run-in sub-heading inside a section body (mirrors web .b-h3): serif and
+    ink, with the leading number/label in accent when present."""
     p = doc.add_paragraph()
-    _v2_spacing(p, before=Pt(12), after=Pt(4))
+    _v2_spacing(p, before=Pt(12), after=Pt(4), line=brand.LINE_SPACING)
+    p.paragraph_format.keep_with_next = True
     if ":" in text:
         num, title = text.split(":", 1)
-        r = p.add_run(num.strip())
-        r.font.name = "Calibri"; r.font.size = Pt(10.5)
-        r.italic = True; r.font.color.rgb = _CYAN
-        r = p.add_run(":  " + title.strip())
-        r.font.name = "Calibri"; r.font.size = Pt(10.5)
-        r.bold = True; r.italic = True; r.font.color.rgb = _CHARCOAL
+        _v2_run(p, num.strip(), size=brand.SZ_H, bold=True, color=_CYAN)
+        _v2_run(p, ":  " + title.strip(), size=brand.SZ_H, bold=True, color=_INK)
     else:
-        r = p.add_run(text)
-        r.font.name = "Calibri"; r.font.size = Pt(10.5)
-        r.bold = True; r.italic = True; r.font.color.rgb = _CHARCOAL
+        _v2_run(p, text, size=brand.SZ_H, bold=True, color=_INK)
 
 
 def _render_p_text(doc: Document, text: str) -> None:
@@ -530,12 +634,16 @@ def _render_p_text(doc: Document, text: str) -> None:
         if not line:
             continue
         p = doc.add_paragraph()
-        _v2_spacing(p, before=Pt(0), after=Pt(7), line=Pt(12.1))
+        p.paragraph_format.widow_control = True
         if line.startswith("\u2022 "):
-            _v2_run(p, "\u2013  ", size=Pt(10.5), color=_CHARCOAL)
-            _v2_bold_runs(p, line[2:])
+            _v2_spacing(p, before=Pt(0), after=Pt(3), line=brand.LINE_SPACING)
+            p.paragraph_format.left_indent = Pt(14)
+            p.paragraph_format.first_line_indent = Pt(-14)
+            _v2_run(p, "\u2013  ", size=brand.SZ_BODY, bold=True, color=_CYAN)
+            _inline_runs(p, line[2:], size=brand.SZ_BODY, color=_INK_SOFT)
         else:
-            _v2_bold_runs(p, line)
+            _v2_spacing(p, before=Pt(0), after=brand.SPACE_AFTER, line=brand.LINE_SPACING)
+            _inline_runs(p, line, size=brand.SZ_BODY, color=_INK_SOFT)
 
 
 def _render_p_block(doc: Document, text: str) -> None:
@@ -551,27 +659,46 @@ def _render_p_block(doc: Document, text: str) -> None:
 
 
 def _render_section_docs(doc: Document, docs) -> None:
-    """Materials for one agenda item, listed under its heading.
+    """Materials for an agenda item as a grey left-bar list (same technique as
+    the executive summary), NOT a table: a table's built-in cell inset pushes
+    the box slightly off the body's left edge and is where Word's spacing goes
+    haywire. Every paragraph shares one left indent, so the bar Word draws by
+    merging the identical left borders is dead straight, and one filename per
+    line (the extension is already in the name) keeps the left edge flush.
 
-    Filenames with a scraped source_url become clickable; the rest render as
-    plain gray text so the reader still knows the file exists.
+    Filenames with a scraped source_url become clickable (accent, no underline);
+    the rest render as plain text so the file is still listed.
     """
     docs = list(docs or [])
     if not docs:
         return
+
+    indent = Pt(12)  # constant for label + every row → the merged bar is straight
+
+    def _bar(p, *, keep=True):
+        _v2_pborder(p, "left", 16, brand.MUTED_SOFT_HEX, space=8)
+        p.paragraph_format.left_indent = indent
+        p.paragraph_format.widow_control = True
+        if keep:
+            p.paragraph_format.keep_with_next = True
+
     p = doc.add_paragraph()
-    _v2_spacing(p, before=Pt(0), after=Pt(9))
-    _v2_pindent(p, left=180)
-    _v2_run(p, "MATERIALS   ", size=Pt(8), bold=True, color=_GRAY_TEXT)
+    _v2_spacing(p, before=Pt(2), after=Pt(3), line=brand.LINE_SPACING)
+    _bar(p)
+    _v2_run(p, "MATERIALS", size=brand.SZ_LABEL, bold=True, color=_GRAY_TEXT, font=_LABEL)
+
     for i, d in enumerate(docs):
-        if i:
-            _v2_run(p, "   ·   ", size=Pt(8.5), color=_GRAY_MID)
         name = getattr(d, "filename", "") or ""
         url = getattr(d, "source_url", None)
+        rp = doc.add_paragraph()
+        _v2_spacing(rp, before=Pt(0), after=Pt(2), line=1.15)
+        _bar(rp, keep=i < len(docs) - 1)
         if url:
-            _v2_link(p, url, name, size=Pt(8.5))
+            _v2_link(rp, url, name, size=brand.SZ_CAPTION, underline=False)
         else:
-            _v2_run(p, name, size=Pt(8.5), color=_GRAY_TEXT)
+            _v2_run(rp, name, size=brand.SZ_CAPTION, color=_INK_SOFT)
+
+    _v2_spacing(doc.add_paragraph(), before=Pt(0), after=Pt(4))
 
 
 def _render_body_blocks(doc: Document, blocks) -> None:
@@ -596,33 +723,77 @@ def _render_body_blocks(doc: Document, blocks) -> None:
             _render_p_block(doc, getattr(b, "text", "") or "")
 
 
+def _exec_band(p) -> int:
+    """Apply the executive-summary treatment to one paragraph and return the
+    base left indent (points). Default 'band' runs a slim accent rule down the
+    left of every exec paragraph \u2014 Word joins the per-paragraph left borders
+    into one continuous bar; 'tint' shades the block; 'plain' adds nothing."""
+    if brand.EXEC_TREATMENT == "band":
+        _v2_pborder(p, "left", 18, _CYAN_HEX, space=9)
+        return 11
+    if brand.EXEC_TREATMENT == "tint":
+        _v2_pshading(p, _CYAN_BG)
+        p.paragraph_format.right_indent = Pt(6)
+        return 8
+    return 0
+
+
 def _render_exec_blocks(doc: Document, blocks) -> None:
-    """Executive summary as one continuous shaded box, from typed blocks."""
+    """Executive summary as flowing prose (mirrors web .briefing-exec): each
+    typed block rendered on its own \u2014 run-in bold sub-heads, spaced paragraphs,
+    and real bullet lists \u2014 instead of one flat tint slab. The first prose
+    paragraph reads as the lead (ink)."""
     if not blocks:
         return
-    p = doc.add_paragraph()
-    _v2_pshading(p, _CYAN_BG)
-    _v2_pborder(p, "top", 10, _CYAN_HEX, space=6)
-    _v2_pborder(p, "bottom", 10, _CYAN_HEX, space=6)
-    _v2_spacing(p, before=Pt(0), after=Pt(0), line=Pt(12.1))
-    first = True
+    first_prose = True
     for b in blocks:
         kind = getattr(b, "kind", "p")
-        text = getattr(b, "text", "") or ""
-        for line in text.split("\n"):
-            line = line.strip()
-            if not line:
-                continue
-            if not first:
-                p.add_run("\n")
-            first = False
-            if kind == "h":
-                _v2_run(p, line, size=Pt(10.5), bold=True, color=_CHARCOAL)
-            elif line.startswith("\u2022 "):
-                _v2_run(p, "\u2013  ", size=Pt(10.5), color=_CHARCOAL)
-                _v2_bold_runs(p, line[2:])
-            else:
-                _v2_bold_runs(p, line)
+        text = (getattr(b, "text", "") or "").strip()
+        if not text:
+            continue
+
+        if kind == "h":
+            p = doc.add_paragraph()
+            _v2_spacing(p, before=Pt(10), after=Pt(4), line=brand.LINE_SPACING)
+            p.paragraph_format.keep_with_next = True
+            base = _exec_band(p)
+            if base:
+                p.paragraph_format.left_indent = Pt(base)
+            _v2_run(p, text, size=brand.SZ_H, bold=True, color=_INK)
+            continue
+
+        lines = [ln.strip() for ln in text.split("\n") if ln.strip()]
+        if lines and all(ln.startswith("\u2022 ") for ln in lines):
+            for ln in lines:
+                p = doc.add_paragraph()
+                _v2_spacing(p, before=Pt(0), after=Pt(3), line=brand.LINE_SPACING)
+                p.paragraph_format.widow_control = True
+                base = _exec_band(p)
+                p.paragraph_format.left_indent = Pt(base + 14)
+                p.paragraph_format.first_line_indent = Pt(-14)
+                _v2_run(p, "\u2013  ", size=brand.SZ_BODY, bold=True, color=_CYAN)
+                _inline_runs(p, ln[2:], size=brand.SZ_BODY, color=_INK_SOFT)
+        else:
+            p = doc.add_paragraph()
+            _v2_spacing(p, before=Pt(0), after=brand.SPACE_AFTER, line=brand.LINE_SPACING)
+            p.paragraph_format.widow_control = True
+            base = _exec_band(p)
+            if base:
+                p.paragraph_format.left_indent = Pt(base)
+            _inline_runs(p, " ".join(lines), size=brand.SZ_BODY,
+                         color=(_INK if first_prose else _INK_SOFT))
+            first_prose = False
+
+
+def _eyebrow(doc: Document, text: str):
+    """Section eyebrow label (KEY TAKEAWAYS / EXECUTIVE SUMMARY / …): mono,
+    accent, under an accent hairline. Mirrors the web .b-eyebrow."""
+    p = doc.add_paragraph()
+    _v2_spacing(p, before=Pt(22), after=Pt(10))
+    p.paragraph_format.keep_with_next = True
+    _v2_run(p, text, size=brand.SZ_EYEBROW, bold=True, color=_CYAN, font=_LABEL)
+    _v2_pborder(p, "bottom", 10, _CYAN_HEX, space=4)
+    return p
 
 
 def render_briefing_docx(
@@ -656,12 +827,14 @@ def render_briefing_docx(
     # Page setup
     sec = doc.sections[0]
     sec.page_width = Inches(8.5); sec.page_height = Inches(11)
-    sec.top_margin = Twips(1008); sec.bottom_margin = Twips(1008)
-    sec.left_margin = Inches(1.0); sec.right_margin = Inches(1.0)
+    sec.top_margin = brand.MARGIN_TOPBOT; sec.bottom_margin = brand.MARGIN_TOPBOT
+    sec.left_margin = brand.MARGIN_SIDE; sec.right_margin = brand.MARGIN_SIDE
+    content_w = (sec.page_width - sec.left_margin - sec.right_margin) // 635  # twips
 
     style = doc.styles["Normal"]
-    style.font.name = "Calibri"; style.font.size = Pt(10.5)
-    style.font.color.rgb = _CHARCOAL
+    style.font.name = _BODY; style.font.size = brand.SZ_BODY
+    style.font.color.rgb = _INK_SOFT
+    style.paragraph_format.line_spacing = brand.LINE_SPACING
 
     sec.different_first_page_header_footer = True
     if sec.first_page_header.paragraphs:
@@ -677,34 +850,35 @@ def render_briefing_docx(
     pPr = fp._p.get_or_add_pPr()
     tabs = OxmlElement("w:tabs")
     tab_c = OxmlElement("w:tab")
-    tab_c.set(qn("w:val"), "center"); tab_c.set(qn("w:pos"), str(_CONTENT_W // 2))
+    tab_c.set(qn("w:val"), "center"); tab_c.set(qn("w:pos"), str(content_w // 2))
     tabs.append(tab_c)
     tab_r = OxmlElement("w:tab")
-    tab_r.set(qn("w:val"), "right"); tab_r.set(qn("w:pos"), str(_CONTENT_W))
+    tab_r.set(qn("w:val"), "right"); tab_r.set(qn("w:pos"), str(content_w))
     tabs.append(tab_r)
     pPr.append(tabs)
-    _v2_run(fp, "Meeting Briefing", size=Pt(8.5), color=_GRAY_MID)
+    _v2_run(fp, "Meeting Briefing", size=brand.SZ_FOOTER, color=_GRAY_TEXT, font=_LABEL)
     fp.add_run("\t")
-    _v2_run(fp, "Page ", size=Pt(8.5), color=_GRAY_MID)
-    pr = fp.add_run(); pr.font.name = "Calibri"; pr.font.size = Pt(8.5); pr.font.color.rgb = _GRAY_MID
+    _v2_run(fp, "Page ", size=brand.SZ_FOOTER, color=_GRAY_TEXT, font=_LABEL)
+    pr = fp.add_run(); pr.font.name = _LABEL; pr.font.size = brand.SZ_FOOTER; pr.font.color.rgb = _GRAY_TEXT
     _v2_page_number(pr)
     fp.add_run("\t")
-    _v2_run(fp, f"{date_str} \u2022 {committee}", size=Pt(8.5), color=_GRAY_MID)
+    _v2_run(fp, f"{date_str} \u2022 {committee}", size=brand.SZ_FOOTER, color=_GRAY_TEXT, font=_LABEL)
     _v2_pborder(fp, "top", 6, _CYAN_HEX, space=4)
 
     if doc.paragraphs:
         doc.paragraphs[0]._p.getparent().remove(doc.paragraphs[0]._p)
 
     p = doc.add_paragraph(); _v2_spacing(p, before=Pt(0), after=Pt(0))
-    _v2_pborder(p, "top", 36, _CYAN_HEX)
-    p = doc.add_paragraph(); _v2_spacing(p, before=Pt(0), after=Pt(0))
-    _v2_run(p, "N E P O O L", size=Pt(8), bold=True, color=_CYAN)
-    p = doc.add_paragraph(); _v2_spacing(p, before=Pt(0), after=Pt(4))
-    _v2_run(p, committee, size=Pt(28), bold=True, color=_CHARCOAL)
-    p = doc.add_paragraph(); _v2_spacing(p, before=Pt(0), after=Pt(10)); _v2_right_tab(p)
-    _v2_run(p, "Meeting Briefing", size=Pt(12), color=_CYAN)
+    _v2_pborder(p, "top", 30, _CYAN_HEX)
+    p = doc.add_paragraph(); _v2_spacing(p, before=Pt(10), after=Pt(2))
+    _v2_run(p, "N E P O O L", size=brand.SZ_LABEL, bold=True, color=_CYAN, font=_LABEL)
+    p = doc.add_paragraph(); _v2_spacing(p, before=Pt(0), after=Pt(6))
+    p.paragraph_format.keep_with_next = True
+    _v2_run(p, committee, size=brand.SZ_MASTHEAD, bold=True, color=_INK)
+    p = doc.add_paragraph(); _v2_spacing(p, before=Pt(0), after=Pt(12)); _v2_right_tab(p, pos=content_w)
+    _v2_run(p, "Meeting Briefing", size=brand.SZ_HEADLINE, color=_CYAN, italic=True)
     p.add_run("\t")
-    _v2_run(p, date_str, size=Pt(12), color=_GRAY_TEXT)
+    _v2_run(p, date_str, size=brand.SZ_HEADLINE, color=_GRAY_TEXT)
     p = doc.add_paragraph(); _v2_spacing(p, before=Pt(0), after=Pt(0))
     _v2_pborder(p, "bottom", 4, _GRAY_MID_HEX)
 
@@ -713,51 +887,71 @@ def render_briefing_docx(
     if materials_url or webex_url:
         p = doc.add_paragraph(); _v2_spacing(p, before=Pt(9), after=Pt(0))
         if materials_url:
-            _v2_run(p, "Meeting materials:  ", size=Pt(9), color=_GRAY_TEXT)
+            _v2_run(p, "Meeting materials:  ", size=brand.SZ_LINK, color=_GRAY_TEXT)
             _v2_link(p, materials_url, "View on iso-ne.com")
         if webex_url:
             if materials_url:
-                _v2_run(p, "      •      ", size=Pt(9), color=_GRAY_MID)
-            _v2_run(p, "Join virtually:  ", size=Pt(9), color=_GRAY_TEXT)
+                _v2_run(p, "      •      ", size=brand.SZ_LINK, color=_GRAY_MID)
+            _v2_run(p, "Join virtually:  ", size=brand.SZ_LINK, color=_GRAY_TEXT)
             _v2_link(p, webex_url, "ISO-NE Webex")
 
     tldr = list(getattr(briefing, "tldr", None) or [])
     if tldr:
-        p = doc.add_paragraph(); _v2_spacing(p, before=Pt(22), after=Pt(11))
-        _v2_run(p, "KEY TAKEAWAYS", size=Pt(10), bold=True, color=_CHARCOAL)
-        _v2_pborder(p, "bottom", 8, _CYAN_HEX, space=4)
+        _eyebrow(doc, "KEY TAKEAWAYS")
+        gutter = Pt(22)
         for rank, tk in enumerate(tldr, 1):
-            p = doc.add_paragraph(); _v2_spacing(p, before=Pt(0), after=Pt(6))
-            _v2_run(p, f"{rank}.  ", size=Pt(10.5), bold=True, color=_CYAN)
-            _v2_bold_runs(p, tk, size=Pt(10.5), color=_CHARCOAL)
+            p = doc.add_paragraph()
+            pf = p.paragraph_format
+            _v2_spacing(p, before=Pt(4), after=Pt(4), line=brand.LINE_SPACING)
+            # Hanging indent + a tab stop at the gutter: the number sits in a
+            # fixed-width gutter and a real tab (not spaces) advances the text to
+            # the gutter, so the body's left edge is flush on the first line and
+            # every wrapped line — no raggedness from the number's width.
+            pf.left_indent = gutter
+            pf.first_line_indent = -gutter
+            pf.tab_stops.add_tab_stop(gutter)
+            pf.widow_control = True
+            # `w:between` (not a per-paragraph top border) — Word collapses
+            # identical top/bottom borders on consecutive paragraphs into one
+            # outer rule, so top borders drew a line only above item 2. A
+            # `between` border on every (identically-bordered) takeaway is
+            # rendered between each consecutive pair, giving a hairline between
+            # all of them.
+            _v2_pborder(p, "between", 4, _BORDER_SOFT, space=6)
+            _v2_run(p, f"{rank}.", size=brand.SZ_BODY, bold=True, color=_CYAN, font=_LABEL)
+            p.add_run()._r.append(OxmlElement("w:tab"))
+            _inline_runs(p, tk, size=brand.SZ_BODY, color=_INK)
 
     exec_blocks = list(getattr(briefing, "executive_summary", None) or [])
     if exec_blocks:
-        p = doc.add_paragraph(); _v2_spacing(p, before=Pt(22), after=Pt(11))
-        _v2_run(p, "EXECUTIVE SUMMARY", size=Pt(10), bold=True, color=_CHARCOAL)
-        _v2_pborder(p, "bottom", 8, _CYAN_HEX, space=4)
+        _eyebrow(doc, "EXECUTIVE SUMMARY")
         _render_exec_blocks(doc, exec_blocks)
 
     sections = list(getattr(briefing, "sections", None) or [])
     if sections:
-        p = doc.add_paragraph(); _v2_spacing(p, before=Pt(22), after=Pt(11))
-        _v2_run(p, "AGENDA ITEM SUMMARIES", size=Pt(10), bold=True, color=_CHARCOAL)
-        _v2_pborder(p, "bottom", 8, _CYAN_HEX, space=4)
+        _eyebrow(doc, "AGENDA ITEM SUMMARIES")
 
     for item in sections:
         depth = getattr(item, "depth", 0)
         number = getattr(item, "item_id", "") or ""
         title = getattr(item, "title", "") or ""
         if depth == 0:
-            # Top-level agenda item — larger, rule-underlined group header.
-            p = doc.add_paragraph(); _v2_spacing(p, before=Pt(24), after=Pt(8))
-            _v2_run(p, number, size=Pt(14), bold=True, color=_CYAN)
-            _v2_run(p, "  " + title, size=Pt(14), bold=True, color=_CHARCOAL)
-            _v2_pborder(p, "bottom", 6, _GRAY_MID_HEX, space=3)
+            # Top-level agenda item — small-caps, rule-underlined group header.
+            p = doc.add_paragraph(); _v2_spacing(p, before=Pt(22), after=Pt(7))
+            p.paragraph_format.keep_with_next = True
+            p.paragraph_format.keep_together = True
+            _v2_run(p, number, size=brand.SZ_GROUP, bold=True, color=_CYAN)
+            tr = _v2_run(p, "  " + title, size=brand.SZ_GROUP, bold=True, color=_INK)
+            if brand.SMALL_CAPS_GROUPS:
+                _smallcaps(tr)
+            _v2_pborder(p, "bottom", 8, _GRAY_MID_HEX, space=3)
         else:
-            p = doc.add_paragraph(); _v2_spacing(p, before=Pt(16), after=Pt(7))
-            _v2_run(p, number, size=Pt(11), bold=True, color=_CYAN)
-            _v2_run(p, "  " + title, size=Pt(11), bold=True, color=_CHARCOAL)
+            p = doc.add_paragraph(); _v2_spacing(p, before=Pt(16), after=Pt(6))
+            p.paragraph_format.keep_with_next = True
+            p.paragraph_format.keep_together = True
+            p.paragraph_format.left_indent = Pt(14)
+            _v2_run(p, number, size=brand.SZ_SUBITEM, bold=True, color=_CYAN)
+            _v2_run(p, "  " + title, size=brand.SZ_SUBITEM, bold=True, color=_INK)
 
         _render_section_docs(doc, getattr(item, "docs", None))
         _render_body_blocks(doc, getattr(item, "body", None))
@@ -767,14 +961,16 @@ def render_briefing_docx(
             doc.add_paragraph()
             p = doc.add_paragraph()
             _v2_pshading(p, _GRAY_BG)
-            _v2_pborder(p, "top", 10, _GRAY_MID_HEX, space=6)
-            _v2_pborder(p, "bottom", 10, _GRAY_MID_HEX, space=6)
-            _v2_spacing(p, before=Pt(0), after=Pt(0), line=Pt(12.1))
-            _v2_run(p, "NEXT STEPS", size=Pt(8.5), bold=True, color=_CYAN)
+            _v2_pborder(p, "top", 8, _GRAY_MID_HEX, space=6)
+            _v2_pborder(p, "bottom", 8, _GRAY_MID_HEX, space=6)
+            _v2_pindent(p, left=140, right=120)
+            _v2_spacing(p, before=Pt(0), after=Pt(0), line=brand.LINE_SPACING)
+            p.paragraph_format.keep_together = True
+            _v2_run(p, "NEXT STEPS", size=brand.SZ_LABEL, bold=True, color=_GRAY_TEXT, font=_LABEL)
             for step in next_steps:
                 p.add_run("\n")
-                _v2_run(p, "\u2013  ", size=Pt(10), color=_CHARCOAL)
-                _v2_bold_runs(p, step, size=Pt(10), color=_CHARCOAL)
+                _v2_run(p, "\u2192  ", size=brand.SZ_BODY_SM, bold=True, color=_CYAN, font=_LABEL)
+                _inline_runs(p, step, size=brand.SZ_BODY_SM, color=_INK)
 
     buf = io.BytesIO()
     doc.save(buf)

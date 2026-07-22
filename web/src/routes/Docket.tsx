@@ -372,25 +372,18 @@ export function Docket() {
                   key={s.id}
                   className={`toc-sub${active === s.id ? " on" : ""}`}
                 >
-                  <button onClick={() => jump(s.id)}>
-                    <span className="toc-num" />
-                    <span>{s.title}</span>
-                  </button>
+                  <button onClick={() => jump(s.id)}>{s.title}</button>
                 </li>
               ))}
               {d.intervenors.length > 0 && (
                 <li className={active === "intervenors" ? "on" : ""}>
                   <button onClick={() => jump("intervenors")}>
-                    <span className="toc-num" />
-                    <span>Intervenors</span>
+                    Intervenors
                   </button>
                 </li>
               )}
               <li className={active === "filings" ? "on" : ""}>
-                <button onClick={() => jump("filings")}>
-                  <span className="toc-num" />
-                  <span>Filings</span>
-                </button>
+                <button onClick={() => jump("filings")}>Filings</button>
               </li>
               {substantive.map((f, i) => (
                 <li

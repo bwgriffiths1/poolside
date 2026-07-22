@@ -35,6 +35,46 @@ function authorLine(f: DocketFiling): string {
   return authors.join("; ");
 }
 
+/** Split the state-of-play markdown at its `## ` headings so each section
+ *  can carry a scroll-spy ref and a rail entry. Returns the pre-heading
+ *  preamble (usually empty) plus one {id, title, md} per section. */
+function splitByH2(md: string | null | undefined): {
+  preamble: string;
+  sections: { id: string; title: string; md: string }[];
+} {
+  if (!md) return { preamble: "", sections: [] };
+  const lines = md.split("\n");
+  const sections: { id: string; title: string; md: string }[] = [];
+  const preamble: string[] = [];
+  let cur: { id: string; title: string; buf: string[] } | null = null;
+  const seen = new Map<string, number>();
+  for (const line of lines) {
+    const m = /^##\s+(.+?)\s*$/.exec(line);
+    if (m) {
+      if (cur) {
+        sections.push({ id: cur.id, title: cur.title, md: cur.buf.join("\n") });
+      }
+      const title = m[1].trim();
+      let slug =
+        "s-" +
+        (title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") ||
+          "section");
+      const n = (seen.get(slug) ?? 0) + 1;
+      seen.set(slug, n);
+      if (n > 1) slug += `-${n}`;
+      cur = { id: slug, title, buf: [line] };
+    } else if (cur) {
+      cur.buf.push(line);
+    } else {
+      preamble.push(line);
+    }
+  }
+  if (cur) {
+    sections.push({ id: cur.id, title: cur.title, md: cur.buf.join("\n") });
+  }
+  return { preamble: preamble.join("\n").trim(), sections };
+}
+
 /** Compact class chip label — the full taxonomy strings are long. */
 function classLabel(f: DocketFiling): string {
   const c = f.document_class || "?";
@@ -242,16 +282,20 @@ export function Docket() {
     [d?.intervenors],
   );
 
+  // State-of-play sections, split at `## ` so each is a jump target.
+  const sop = useMemo(() => splitByH2(d?.brief?.detailed), [d?.brief?.detailed]);
+
   // "On this page" rail — briefing-page mechanics (useScrollSpy over .main).
   const refs = useRef<Record<string, HTMLElement | null>>({});
   const sectionIds = useMemo(
     () => [
       "top",
+      ...sop.sections.map((s) => s.id),
       ...(d?.intervenors.length ? ["intervenors"] : []),
       "filings",
       ...substantive.map((f) => `f${f.id}`),
     ],
-    [d?.intervenors.length, substantive],
+    [sop.sections, d?.intervenors.length, substantive],
   );
   const active = useScrollSpy(sectionIds, refs, "top");
   const jump = (target: string) => {
@@ -323,6 +367,17 @@ export function Docket() {
               <li className={active === "top" ? "on" : ""}>
                 <button onClick={() => jump("top")}>State of Play</button>
               </li>
+              {sop.sections.map((s) => (
+                <li
+                  key={s.id}
+                  className={`toc-sub${active === s.id ? " on" : ""}`}
+                >
+                  <button onClick={() => jump(s.id)}>
+                    <span className="toc-num" />
+                    <span>{s.title}</span>
+                  </button>
+                </li>
+              ))}
               {d.intervenors.length > 0 && (
                 <li className={active === "intervenors" ? "on" : ""}>
                   <button onClick={() => jump("intervenors")}>
@@ -460,7 +515,20 @@ export function Docket() {
 
           {brief?.detailed ? (
             <article className="ru-body">
-              <Markdown source={brief.detailed} preserveH2 />
+              {sop.preamble && <Markdown source={sop.preamble} preserveH2 />}
+              {sop.sections.map((s) => (
+                <div
+                  key={s.id}
+                  ref={(el) => {
+                    refs.current[s.id] = el;
+                  }}
+                >
+                  <Markdown source={s.md} preserveH2 />
+                </div>
+              ))}
+              {sop.sections.length === 0 && (
+                <Markdown source={brief.detailed} preserveH2 />
+              )}
             </article>
           ) : (
             <div className="empty">

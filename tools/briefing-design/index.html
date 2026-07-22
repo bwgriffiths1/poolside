@@ -1,0 +1,585 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Briefing .docx — editorial design tuner</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400;1,6..72,500&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  /* ------------------------------------------------------------------ *
+   * Briefing .docx design tuner
+   * Tweak the controls on the right; the page on the left updates live.
+   * Every control maps to a CSS var whose name matches a brand.py constant,
+   * so "Copy brand.py tokens" gives you a block that transfers 1:1 to the
+   * python-docx generator (pipeline/briefing.py). Fonts/sizes/colours here
+   * are the proposed EDITORIAL preset that mirrors the web reader
+   * (web/src/styles/tokens.css + screens/briefing.css).
+   * ------------------------------------------------------------------ */
+
+  :root {
+    /* editorial preset — the shared design tokens */
+    --accent:        #C4633A;
+    --accent-tint:   #F4E4D8;
+    --ink:           #1A1815;
+    --ink-soft:      #4A4640;
+    --muted:         #8A847A;
+    --border:        #E3DDD1;
+    --border-soft:   #ECE6DA;
+    --success:       #4D7C4E;
+    --danger:        #A44A3C;
+    --paper:         #FFFFFF;
+    --elev:          #FBF9F4;
+
+    --body-font:     Baskerville, 'Libre Baskerville', Georgia, serif;
+    --label-font:    Consolas, 'SFMono-Regular', Menlo, monospace;
+
+    --body-size:     13pt;
+    --line-height:   1.2;
+    --para-space:    8pt;
+    --margin:        1.15in;
+
+    --masthead-size: 26pt;
+    --headline-size: 16pt;
+    --group-size:    16pt;
+    --sub-size:      15pt;
+    --eyebrow-size:  9pt;
+
+    --zoom:          1;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: #eceae4;
+    color: #2c2a27;
+    display: grid;
+    grid-template-columns: minmax(0,1fr) 340px;
+    height: 100vh;
+    overflow: hidden;
+  }
+
+  /* ---- stage (left) ------------------------------------------------- */
+  .stage {
+    overflow: auto;
+    padding: 32px 24px 120px;
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+  }
+  .sheet-wrap { transform: scale(var(--zoom)); transform-origin: top center; }
+
+  .sheet {
+    width: 8.5in;
+    min-height: 11in;
+    background: var(--paper);
+    padding: 1in var(--margin);
+    box-shadow: 0 2px 6px rgba(0,0,0,.10), 0 12px 40px rgba(0,0,0,.10);
+    color: var(--ink-soft);
+    font-family: var(--body-font);
+    font-size: var(--body-size);
+    line-height: var(--line-height);
+  }
+
+  /* ---- masthead ----------------------------------------------------- */
+  .rule-top { border-top: 3pt solid var(--accent); padding-top: 10pt; }
+  .brand-eyebrow {
+    font-family: var(--label-font);
+    font-size: var(--eyebrow-size); font-weight: 700; letter-spacing: .28em;
+    color: var(--accent); text-transform: uppercase;
+  }
+  .masthead-title {
+    font-family: var(--body-font);
+    font-size: var(--masthead-size); font-weight: 700;
+    color: var(--ink); line-height: 1.05; margin: 4pt 0 0;
+    letter-spacing: -0.01em;
+  }
+  .dek {
+    display: flex; justify-content: space-between; align-items: baseline;
+    margin-top: 6pt; padding-bottom: 8pt;
+    border-bottom: 1pt solid var(--border);
+  }
+  .dek .lead { font-family: var(--body-font); font-style: italic; font-size: var(--headline-size); color: var(--accent); }
+  .dek .date { font-family: var(--body-font); font-size: var(--headline-size); color: var(--muted); }
+  .venue-links {
+    margin-top: 9pt; font-family: var(--body-font); font-size: 9pt; color: var(--muted);
+  }
+  .venue-links a { color: var(--accent); text-decoration: none; border-bottom: .5pt solid var(--accent-tint); }
+  .venue-links .sep { color: var(--border); margin: 0 10pt; }
+
+  /* ---- section eyebrow labels -------------------------------------- */
+  .eyebrow {
+    font-family: var(--label-font);
+    font-size: var(--eyebrow-size); font-weight: 700; letter-spacing: .16em;
+    color: var(--accent); text-transform: uppercase;
+    margin: 26pt 0 10pt; padding-bottom: 5pt;
+    border-bottom: 1.2pt solid var(--accent);
+  }
+
+  /* ---- key takeaways ----------------------------------------------- */
+  .tldr { list-style: none; margin: 0; padding: 0; }
+  .tldr li {
+    display: grid; grid-template-columns: 26pt 1fr; gap: 10pt;
+    padding: 7pt 0; border-top: .75pt solid var(--border-soft);
+    align-items: baseline;
+  }
+  .tldr li:first-child { border-top: 0; }
+  .tldr .n { font-family: var(--label-font); font-weight: 700; color: var(--accent); font-size: var(--body-size); }
+  .tldr .t { color: var(--ink); }
+
+  /* ---- executive summary ------------------------------------------- */
+  .exec { }
+  .exec[data-treat="band"] {
+    border-left: 3pt solid var(--accent);
+    padding: 2pt 0 2pt 16pt;
+  }
+  .exec[data-treat="tint"] {
+    background: var(--accent-tint);
+    border-top: 3pt solid var(--accent);
+    padding: 12pt 14pt;
+  }
+  .exec p { margin: 0 0 var(--para-space); }
+  .exec p.lead { color: var(--ink); }
+  .exec h4 {
+    font-family: var(--body-font); font-weight: 700; color: var(--ink);
+    font-size: var(--body-size); margin: 12pt 0 5pt; letter-spacing: .01em;
+  }
+  .bullets { list-style: none; margin: 0 0 var(--para-space); padding: 0; }
+  .bullets li { position: relative; padding-left: 16pt; margin: 0 0 4pt; }
+  .bullets li::before { content: "–"; position: absolute; left: 0; top: 0; color: var(--accent); font-weight: 700; }
+
+  /* ---- agenda group header (depth 0) ------------------------------- */
+  .group-head {
+    margin: 22pt 0 8pt; padding-bottom: 4pt;
+    border-bottom: 1.5pt solid var(--border);
+    font-family: var(--body-font); font-weight: 700; color: var(--ink);
+    font-size: var(--group-size); line-height: 1.15;
+  }
+  .sheet[data-smallcaps="on"] .group-head { font-variant-caps: small-caps; letter-spacing: .02em; }
+  .group-head .gn { color: var(--accent); }
+
+  .materials-box {
+    margin: 0 0 12pt; padding: 2pt 0 3pt 12pt;
+    border-left: 2pt solid #B5AFA3;   /* grey bar, like the exec accent bar */
+  }
+  .materials-label {
+    font-family: var(--label-font); font-size: var(--eyebrow-size); font-weight: 700;
+    letter-spacing: .12em; text-transform: uppercase; color: var(--muted);
+    margin-bottom: 4pt;
+  }
+  .doc-row { padding: 1pt 0; }
+  .doc-name {
+    font-family: var(--body-font); font-size: 9pt; color: var(--accent);
+    text-decoration: none; overflow-wrap: anywhere;
+  }
+  .doc-name:hover { text-decoration: underline; }
+
+  .body p { margin: 0 0 var(--para-space); }
+  .body strong { color: var(--ink); }
+
+  /* ---- figure ------------------------------------------------------- */
+  .figure { margin: 14pt 0; text-align: center; }
+  .figure .frame {
+    height: 150pt; display: flex; align-items: center; justify-content: center;
+    color: var(--muted); font-family: var(--label-font); font-size: 9pt; letter-spacing: .1em;
+    background: repeating-linear-gradient(135deg, #faf8f3, #faf8f3 10px, #f4f1ea 10px, #f4f1ea 20px);
+  }
+  .sheet[data-figframe="on"] .figure .frame { border: .5pt solid var(--border); }
+  .figure figcaption {
+    font-family: var(--label-font); font-size: var(--eyebrow-size); letter-spacing: .06em;
+    color: var(--muted); text-transform: uppercase; text-align: center;
+    padding-top: 6pt; margin-top: 6pt; border-top: .5pt solid var(--border-soft);
+  }
+
+  /* ---- data table --------------------------------------------------- */
+  table.data { width: 100%; border-collapse: collapse; margin: 14pt 0; }
+  table.data th {
+    font-family: var(--label-font); font-size: var(--eyebrow-size); font-weight: 700; letter-spacing: .08em;
+    text-transform: uppercase; color: var(--muted); text-align: left;
+    padding: 6pt 8pt; border-bottom: 1.2pt solid var(--accent);
+  }
+  table.data td {
+    font-family: var(--body-font); font-size: 12pt; color: var(--ink);
+    padding: 6pt 8pt; border-bottom: .75pt solid var(--border-soft);
+  }
+  table.data td.num, table.data th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  table.data td:first-child { color: var(--ink); }
+  table.data .pos { color: var(--success); font-weight: 600; }
+  table.data .neg { color: var(--danger);  font-weight: 600; }
+  /* header fill toggle */
+  .sheet[data-headerfill="on"] table.data th { background: var(--elev); }
+  /* zebra toggle */
+  .sheet[data-zebra="on"] table.data tbody tr:nth-child(even) td { background: #faf8f3; }
+  /* ruled toggle — add vertical separators + full grid */
+  .sheet[data-tablestyle="ruled"] table.data th,
+  .sheet[data-tablestyle="ruled"] table.data td { border: .75pt solid var(--border); }
+
+  /* ---- callout ------------------------------------------------------ */
+  .callout {
+    display: grid; grid-template-columns: 74pt 1fr; gap: 12pt; align-items: baseline;
+    margin: 14pt 0; padding: 10pt 12pt;
+    background: var(--accent-tint); border-left: 3pt solid var(--accent);
+  }
+  .callout .lbl { font-family: var(--label-font); font-size: var(--eyebrow-size); font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--accent); }
+  .callout .txt { font-family: var(--body-font); font-style: italic; color: var(--ink); font-size: 12pt; }
+
+  /* ---- next steps --------------------------------------------------- */
+  .next { margin: 12pt 0; padding: 9pt 12pt; background: var(--elev); border: 1pt solid var(--border); }
+  .next .lbl { font-family: var(--label-font); font-size: var(--eyebrow-size); font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); margin-bottom: 6pt; }
+  .next ul { list-style: none; margin: 0; padding: 0; }
+  .next li { position: relative; padding: 3pt 0 3pt 16pt; font-family: var(--body-font); font-size: 12pt; color: var(--ink); }
+  .next li::before { content: "→"; position: absolute; left: 0; top: 3pt; color: var(--accent); font-family: var(--label-font); }
+
+  /* ---- running footer preview -------------------------------------- */
+  .footer-preview {
+    margin-top: 20pt; padding-top: 6pt; border-top: .75pt solid var(--accent);
+    display: flex; justify-content: space-between;
+    font-family: var(--label-font); font-size: 8pt; color: var(--muted);
+  }
+
+  /* ================= control panel (right) ========================== */
+  .panel {
+    background: #f7f6f2; border-left: 1px solid #dcdad3;
+    overflow-y: auto; padding: 0 0 60px;
+    font-size: 13px;
+  }
+  .panel-head {
+    position: sticky; top: 0; z-index: 5; background: #f7f6f2;
+    padding: 14px 16px 10px; border-bottom: 1px solid #e2e0d9;
+  }
+  .panel-head h1 { font-size: 13px; margin: 0 0 2px; color: #201e1b; }
+  .panel-head p { font-size: 11px; color: #7c766c; margin: 0; line-height: 1.4; }
+  .btn-row { display: flex; gap: 6px; margin-top: 10px; flex-wrap: wrap; }
+  .btn {
+    font: inherit; font-size: 11.5px; padding: 6px 10px; cursor: pointer;
+    border: 1px solid #cfccc3; background: #fff; color: #33302b; border-radius: 5px;
+  }
+  .btn:hover { border-color: #C4633A; color: #C4633A; }
+  .btn.primary { background: #C4633A; color: #fff; border-color: #C4633A; }
+  .btn.primary:hover { background: #ad5531; color:#fff; }
+
+  .group { padding: 12px 16px; border-bottom: 1px solid #e9e7e0; }
+  .group h2 { font-size: 10.5px; text-transform: uppercase; letter-spacing: .08em; color: #9a938700; color:#96908400; }
+  .group > .gh { font-size: 10px; text-transform: uppercase; letter-spacing: .1em; color: #a09a8e; margin: 0 0 10px; }
+  .ctl { margin-bottom: 12px; }
+  .ctl:last-child { margin-bottom: 0; }
+  .ctl label { display: flex; justify-content: space-between; align-items: baseline; font-size: 11.5px; color: #4a4640; margin-bottom: 4px; }
+  .ctl label .val { font-family: ui-monospace, Menlo, monospace; font-size: 10.5px; color: #8a847a; }
+  .ctl input[type=range] { width: 100%; accent-color: #C4633A; }
+  .ctl select { width: 100%; font: inherit; font-size: 12px; padding: 4px 6px; border: 1px solid #cfccc3; border-radius: 4px; background: #fff; }
+  .ctl.color { display: grid; grid-template-columns: 1fr 30px; gap: 8px; align-items: center; }
+  .ctl.color input[type=color] { width: 30px; height: 24px; padding: 0; border: 1px solid #cfccc3; border-radius: 4px; background: #fff; }
+  .ctl.color .hex { font-family: ui-monospace, Menlo, monospace; font-size: 10.5px; color: #8a847a; text-transform: uppercase; }
+  .toggle-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+  .toggle-row span { font-size: 11.5px; color: #4a4640; }
+  .toggle-row:last-child { margin-bottom: 0; }
+  .hint { font-size: 10.5px; color: #a09a8e; line-height: 1.45; margin: 8px 0 0; }
+
+  #toast {
+    position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%) translateY(20px);
+    background: #201e1b; color: #fff; font-size: 12px; padding: 8px 14px; border-radius: 6px;
+    opacity: 0; pointer-events: none; transition: all .2s ease; z-index: 50;
+  }
+  #toast.on { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+  @media print {
+    body { display: block; height: auto; overflow: visible; background: #fff; }
+    .panel, #toast { display: none !important; }
+    .stage { overflow: visible; padding: 0; }
+    .sheet-wrap { transform: none; }
+    .sheet { box-shadow: none; }
+  }
+</style>
+</head>
+<body>
+
+<div class="stage">
+  <div class="sheet-wrap">
+    <div class="sheet" id="sheet" data-smallcaps="on" data-figframe="on" data-tablestyle="borderless" data-headerfill="off" data-zebra="off">
+
+      <!-- masthead -->
+      <div class="rule-top">
+        <div class="brand-eyebrow">N E P O O L</div>
+        <div class="masthead-title">Markets Committee</div>
+        <div class="dek">
+          <span class="lead">Meeting Briefing</span>
+          <span class="date">July 21, 2026</span>
+        </div>
+        <div class="venue-links">
+          Meeting materials: <a href="#">View on iso-ne.com</a>
+          <span class="sep">•</span>
+          Join virtually: <a href="#">ISO-NE Webex</a>
+        </div>
+      </div>
+
+      <!-- key takeaways -->
+      <div class="eyebrow">Key Takeaways</div>
+      <ol class="tldr">
+        <li><span class="n">1</span><span class="t">IMM quarterly report finds winter 2025/6 costs hit <strong>$6.53B (+45% YoY)</strong>, the highest since 2014, with 45% of seasonal costs concentrated in a 19-day cold snap. DA A/S adding an estimated $574M (10.1%) in incremental costs.</span></li>
+        <li><span class="n">2</span><span class="t">CAR-SA: tariff redlines now in process. Proposes to sunset the entire Claimed Capability Audit regime on August 31, 2027, replacing it with rolling 36-month Global/Seasonal Maximum Capability constructs.</span></li>
+        <li><span class="n">3</span><span class="t">A new complete forced outage across a Capacity Commitment Period now zeroes out a resource's Seasonal MRI Capacity Value in cases of late-date catastrophic outages.</span></li>
+        <li><span class="n">4</span><span class="t">ISO backtracks and proposes to maintain the Balancing Ratio cap at 1, consistent with FERC's Jan 2026 NEPGA order.</span></li>
+        <li><span class="n">5</span><span class="t">Import qualification conformed with a 16-hour fuel delivery demonstration (down from 24) and a winter firm gas contract requirement.</span></li>
+      </ol>
+
+      <!-- executive summary -->
+      <div class="eyebrow">Executive Summary</div>
+      <div class="exec" id="exec" data-treat="band">
+        <p class="lead">The July 21, 2026 Markets Committee meeting delivered both a striking Winter 2026 market retrospective and the next major step in the CAR-SA seasonal accreditation package — advancing tariff redlines for auditing and qualification, and resolving a substantial set of stakeholder follow-up questions ahead of the targeted Q4 2026 Technical Committee and PC votes.</p>
+        <h4>Key Developments</h4>
+        <ul class="bullets">
+          <li><strong>CAR-SA moves from concept to codified tariff language.</strong> ISO has put initial redlines out for the two central rulebooks, with a hard sunset date (August 31, 2027) for all existing audit types.</li>
+          <li><strong>A new zero-value provision for full-CCP forced outages</strong> creates a material settlement exposure with no current-tariff analog.</li>
+          <li><strong>Winter 2026 was a stress test of the redesigned energy market.</strong> Total wholesale cost hit $6.53B (+45% YoY, highest since 2014); the IMM attributes ~$574M (10.1%) of incremental cost to the DA A/S design.</li>
+        </ul>
+        <h4>Near-Term Deadlines &amp; Process Milestones</h4>
+        <ul class="bullets">
+          <li><strong>July 27, 2026</strong> — Stakeholder questions on CAR-SA redlines due to ISO-NE.</li>
+          <li><strong>Q4 2026</strong> — CAR-SA Technical Committee and PC votes; FERC filing to follow; audit sunset August 31, 2027.</li>
+        </ul>
+      </div>
+
+      <!-- agenda item summaries -->
+      <div class="eyebrow">Agenda Item Summaries</div>
+      <div class="group-head"><span class="gn">2</span>&nbsp;&nbsp;Winter Quarterly Markets Report</div>
+      <div class="materials-box">
+        <div class="materials-label">Materials</div>
+        <div class="doc-row"><a href="#" class="doc-name">a03k_2026_07_07-09_mc_auditing_revisions_section_iii.1.5_iii.1.7_iii.15.7.1.5.3-5_iii.f_redlines.docx</a></div>
+        <div class="doc-row"><a href="#" class="doc-name">a03k_2026_07_07-09_mc_qualification_revisions_section_iii.15.2_redlines.docx</a></div>
+        <div class="doc-row"><a href="#" class="doc-name">a03k_2026_07_07-09_mc_sectioniii.15.2_qualification_presentation.pdf</a></div>
+        <div class="doc-row"><a href="#" class="doc-name">a03k_2026_07_07-09_mc_sectioniii.1.5-7_auditing_presentation.pdf</a></div>
+      </div>
+
+      <div class="body">
+        <p>The IMM's Winter 2026 QMR documents the most consequential winter market outcome since 2014. Total wholesale cost reached <strong>$6.53 billion ($196/MWh)</strong>, up 45% YoY, of which energy was <strong>$6.08 billion (93%)</strong> and capacity <strong>$266 million (4%)</strong>. All-in day-ahead price including FERP averaged <strong>$165.49/MWh — the highest since Standard Market Design began</strong>.</p>
+
+        <figure class="figure">
+          <div class="frame">CHART — Daily E&amp;AS costs and energy prices</div>
+          <figcaption>Figure 1 — Daily E&amp;AS costs and energy prices</figcaption>
+        </figure>
+
+        <table class="data">
+          <thead>
+            <tr><th>Metric</th><th class="num">Winter 2026</th><th class="num">YoY</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Total wholesale cost</td><td class="num">$6.53B</td><td class="num"><span class="pos">+45%</span></td></tr>
+            <tr><td>Energy (incl. FER credits)</td><td class="num">$6.08B</td><td class="num"><span class="pos">+48%</span></td></tr>
+            <tr><td>Capacity</td><td class="num">$266M</td><td class="num"><span class="neg">−3%</span></td></tr>
+            <tr><td>Day-ahead Hub LMP</td><td class="num">$147.99</td><td class="num"><span class="pos">+27%</span></td></tr>
+            <tr><td>All-in DA price (w/ FERP)</td><td class="num">$165.49</td><td class="num"><span class="pos">+29%</span></td></tr>
+          </tbody>
+        </table>
+
+        <p><strong>The season's severity was driven by weather.</strong> Average temperature 26°F (-6.8°F vs. normal), a 19-day cold snap from January 23, and January HDDs of 1,274 (highest since 2015). Peak load hit 20,221 MW on January 25 — highest since 2019.</p>
+
+        <div class="callout">
+          <div class="lbl">Key Figure</div>
+          <div class="txt">The IMM's simulation attributes <strong>$574M (10.1%)</strong> of incremental cost to the DA A/S design vs. an energy-only market, with January 25–29 accounting for two-thirds of that increment.</div>
+        </div>
+
+        <p>Oil supplied <strong>6% of energy — highest since at least 2015</strong> — and averaged ~4,000 MW/hour from Jan 24 through Feb 9. Stored-fuel opportunity-costs activated on 53 days across 88 assets, with day-ahead OCs reaching $460/MWh.</p>
+
+        <div class="next">
+          <div class="lbl">Next Steps</div>
+          <ul>
+            <li>Stakeholder questions on the QMR due to the IMM by July 27, 2026.</li>
+            <li>August MC — continued discussion of RAM and tariff redlines.</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="footer-preview">
+        <span>Meeting Briefing</span>
+        <span>Page 1</span>
+        <span>July 21, 2026 • Markets Committee</span>
+      </div>
+
+    </div><!-- /sheet -->
+  </div>
+</div>
+
+<!-- ================= control panel ================= -->
+<aside class="panel">
+  <div class="panel-head">
+    <h1>Briefing .docx — design tuner</h1>
+    <p>Editorial preset mirroring the web reader. Tweak, then copy the tokens into <code>pipeline/brand.py</code>.</p>
+    <div class="btn-row">
+      <button class="btn primary" id="copyBtn">Copy brand.py tokens</button>
+      <button class="btn" id="resetBtn">Reset</button>
+      <button class="btn" id="printBtn">Save PDF</button>
+    </div>
+  </div>
+
+  <div class="group">
+    <p class="gh">Fonts</p>
+    <div class="ctl">
+      <label for="bodyFont">Body / titles (serif)</label>
+      <select id="bodyFont" data-var="--body-font">
+        <option value="Baskerville, 'Libre Baskerville', Georgia, serif">Baskerville</option>
+        <option value="Georgia, 'Iowan Old Style', serif">Georgia</option>
+        <option value="Cambria, Georgia, serif">Cambria</option>
+        <option value="'Newsreader', Georgia, serif">Newsreader (web parity)</option>
+        <option value="'Times New Roman', Times, serif">Times New Roman</option>
+        <option value="Calibri, 'Segoe UI', sans-serif">Calibri (sans)</option>
+      </select>
+    </div>
+    <div class="ctl">
+      <label for="labelFont">Labels / eyebrows (mono)</label>
+      <select id="labelFont" data-var="--label-font">
+        <option value="Consolas, 'SFMono-Regular', Menlo, monospace">Consolas</option>
+        <option value="'JetBrains Mono', Consolas, monospace">JetBrains Mono (web parity)</option>
+        <option value="'Courier New', monospace">Courier New</option>
+        <option value="Calibri, 'Segoe UI', sans-serif">Calibri caps (sans)</option>
+      </select>
+    </div>
+  </div>
+
+  <div class="group">
+    <p class="gh">Body &amp; layout</p>
+    <div class="ctl"><label for="bodySize">Body size <span class="val" id="bodySize_v"></span></label><input type="range" id="bodySize" data-var="--body-size" data-unit="pt" min="9" max="16" step="0.5" value="13"></div>
+    <div class="ctl"><label for="lineHeight">Line height <span class="val" id="lineHeight_v"></span></label><input type="range" id="lineHeight" data-var="--line-height" data-unit="" min="1.1" max="1.6" step="0.05" value="1.2"></div>
+    <div class="ctl"><label for="paraSpace">Paragraph spacing <span class="val" id="paraSpace_v"></span></label><input type="range" id="paraSpace" data-var="--para-space" data-unit="pt" min="0" max="14" step="1" value="8"></div>
+    <div class="ctl"><label for="margin">Side margins <span class="val" id="margin_v"></span></label><input type="range" id="margin" data-var="--margin" data-unit="in" min="0.8" max="1.4" step="0.05" value="1.15"></div>
+  </div>
+
+  <div class="group">
+    <p class="gh">Type scale</p>
+    <div class="ctl"><label for="mastheadSize">Masthead title <span class="val" id="mastheadSize_v"></span></label><input type="range" id="mastheadSize" data-var="--masthead-size" data-unit="pt" min="18" max="34" step="1" value="26"></div>
+    <div class="ctl"><label for="headlineSize">Headline / dek <span class="val" id="headlineSize_v"></span></label><input type="range" id="headlineSize" data-var="--headline-size" data-unit="pt" min="11" max="20" step="0.5" value="16"></div>
+    <div class="ctl"><label for="groupSize">Agenda group header <span class="val" id="groupSize_v"></span></label><input type="range" id="groupSize" data-var="--group-size" data-unit="pt" min="12" max="22" step="0.5" value="16"></div>
+    <div class="ctl"><label for="subSize">Sub-item header <span class="val" id="subSize_v"></span></label><input type="range" id="subSize" data-var="--sub-size" data-unit="pt" min="11" max="17" step="0.5" value="15"></div>
+    <div class="ctl"><label for="eyebrowSize">Eyebrow / caption <span class="val" id="eyebrowSize_v"></span></label><input type="range" id="eyebrowSize" data-var="--eyebrow-size" data-unit="pt" min="7" max="10.5" step="0.5" value="9"></div>
+  </div>
+
+  <div class="group">
+    <p class="gh">Colours</p>
+    <div class="ctl color"><div><label for="accent" style="margin:0">Accent <span class="hex" id="accent_h"></span></label></div><input type="color" id="accent" data-var="--accent" value="#C4633A"></div>
+    <div class="ctl color"><div><label for="ink" style="margin:0">Ink <span class="hex" id="ink_h"></span></label></div><input type="color" id="ink" data-var="--ink" value="#1A1815"></div>
+    <div class="ctl color"><div><label for="inkSoft" style="margin:0">Ink soft <span class="hex" id="inkSoft_h"></span></label></div><input type="color" id="inkSoft" data-var="--ink-soft" value="#4A4640"></div>
+    <div class="ctl color"><div><label for="muted" style="margin:0">Muted <span class="hex" id="muted_h"></span></label></div><input type="color" id="muted" data-var="--muted" value="#8A847A"></div>
+    <div class="ctl color"><div><label for="border" style="margin:0">Border <span class="hex" id="border_h"></span></label></div><input type="color" id="border" data-var="--border" value="#E3DDD1"></div>
+    <div class="ctl color"><div><label for="tint" style="margin:0">Accent tint <span class="hex" id="tint_h"></span></label></div><input type="color" id="tint" data-var="--accent-tint" value="#F4E4D8"></div>
+  </div>
+
+  <div class="group">
+    <p class="gh">Treatments</p>
+    <div class="ctl">
+      <label for="execTreat">Executive summary</label>
+      <select id="execTreat"><option value="band">Left accent rule (recommended)</option><option value="plain">Plain prose</option><option value="tint">Full tint band</option></select>
+    </div>
+    <div class="ctl">
+      <label for="tableStyle">Table style</label>
+      <select id="tableStyle"><option value="borderless">Borderless (recommended)</option><option value="ruled">Ruled grid</option></select>
+    </div>
+    <div class="toggle-row"><span>Small-caps group headers</span><input type="checkbox" id="smallcaps" checked></div>
+    <div class="toggle-row"><span>Table header fill</span><input type="checkbox" id="headerfill"></div>
+    <div class="toggle-row"><span>Table zebra rows</span><input type="checkbox" id="zebra"></div>
+    <div class="toggle-row"><span>Figure frame</span><input type="checkbox" id="figframe" checked></div>
+    <div class="ctl" style="margin-top:12px"><label for="zoom">Preview zoom <span class="val" id="zoom_v"></span></label><input type="range" id="zoom" data-var="--zoom" data-unit="" min="0.6" max="1.3" step="0.05" value="1"></div>
+    <p class="hint">The preview approximates Word. Georgia + Consolas render on any Office install; final sign-off is always a real Word / LibreOffice render of demo.docx.</p>
+  </div>
+</aside>
+
+<div id="toast"></div>
+
+<script>
+  const root  = document.documentElement;
+  const sheet = document.getElementById('sheet');
+  const exec  = document.getElementById('exec');
+
+  // ---- var-bound controls (ranges + selects + colours) -------------
+  const varInputs = [...document.querySelectorAll('[data-var]')];
+  function applyVar(el) {
+    const unit = el.dataset.unit ?? '';
+    const val  = el.value + unit;
+    root.style.setProperty(el.dataset.var, val);
+    const rv = document.getElementById(el.id + '_v'); if (rv) rv.textContent = val;
+    const hv = document.getElementById(el.id + '_h'); if (hv) hv.textContent = el.value.toUpperCase();
+  }
+  varInputs.forEach(el => { el.addEventListener('input', () => applyVar(el)); applyVar(el); });
+
+  // ---- toggles / data-attr treatments ------------------------------
+  const bind = (id, fn) => { const el = document.getElementById(id); el.addEventListener('input', () => fn(el)); fn(el); };
+  bind('execTreat',  el => exec.dataset.treat = el.value);
+  bind('tableStyle', el => sheet.dataset.tablestyle = el.value);
+  bind('smallcaps',  el => sheet.dataset.smallcaps = el.checked ? 'on' : 'off');
+  bind('headerfill', el => sheet.dataset.headerfill = el.checked ? 'on' : 'off');
+  bind('zebra',      el => sheet.dataset.zebra = el.checked ? 'on' : 'off');
+  bind('figframe',   el => sheet.dataset.figframe = el.checked ? 'on' : 'off');
+
+  // ---- buttons ------------------------------------------------------
+  document.getElementById('printBtn').onclick = () => window.print();
+  document.getElementById('resetBtn').onclick = () => {
+    varInputs.forEach(el => { if (el.dataset.reset !== undefined) el.value = el.dataset.reset; });
+    location.reload();
+  };
+
+  function hexRGB(hex) {
+    const h = hex.replace('#',''); return [0,2,4].map(i => parseInt(h.slice(i,i+2),16));
+  }
+  const ptOf = id => document.getElementById(id).value;
+  const colOf = id => document.getElementById(id).value.toUpperCase();
+  function pyColor(hex) { const [r,g,b] = hexRGB(hex); const H = s => '0x'+s.toString(16).toUpperCase().padStart(2,'0'); return `RGBColor(${H(r)}, ${H(g)}, ${H(b)})`; }
+
+  function fontName(id) {
+    // first family in the stack, stripped of quotes — what python-docx sets
+    return document.getElementById(id).value.split(',')[0].replace(/['"]/g,'').trim();
+  }
+
+  document.getElementById('copyBtn').onclick = () => {
+    const py =
+`# pipeline/brand.py — editorial design tokens (mirror of web/src/styles/tokens.css)
+# Generated from the design tuner (tools/briefing-design/index.html).
+from docx.shared import Pt, Inches, RGBColor
+
+# ---- fonts ----
+BODY_FONT  = "${fontName('bodyFont')}"     # serif body + titles
+LABEL_FONT = "${fontName('labelFont')}"    # mono eyebrows / table headers / captions
+
+# ---- colours ----
+INK         = ${pyColor(colOf('ink'))}
+INK_SOFT    = ${pyColor(colOf('inkSoft'))}
+MUTED       = ${pyColor(colOf('muted'))}
+ACCENT      = ${pyColor(colOf('accent'))}
+ACCENT_TINT = "${colOf('tint').replace('#','')}"   # shading fill (hex, no #)
+BORDER      = "${colOf('border').replace('#','')}"
+SUCCESS     = RGBColor(0x4D, 0x7C, 0x4E)
+DANGER      = RGBColor(0xA4, 0x4A, 0x3C)
+
+# ---- type scale (pt) ----
+SZ_MASTHEAD = Pt(${ptOf('mastheadSize')})
+SZ_HEADLINE = Pt(${ptOf('headlineSize')})
+SZ_GROUP    = Pt(${ptOf('groupSize')})
+SZ_SUBITEM  = Pt(${ptOf('subSize')})
+SZ_BODY     = Pt(${ptOf('bodySize')})
+SZ_EYEBROW  = Pt(${ptOf('eyebrowSize')})
+
+# ---- spacing / layout ----
+LINE_SPACING = ${ptOf('lineHeight')}
+SPACE_AFTER  = Pt(${ptOf('paraSpace')})
+MARGIN_SIDE  = Inches(${ptOf('margin')})
+
+# ---- treatments ----
+EXEC_TREATMENT = "${document.getElementById('execTreat').value}"   # band | plain | tint
+TABLE_STYLE    = "${document.getElementById('tableStyle').value}"  # borderless | ruled
+SMALL_CAPS_GROUPS = ${document.getElementById('smallcaps').checked ? 'True' : 'False'}
+`;
+    navigator.clipboard.writeText(py).then(showToast, () => {
+      // clipboard blocked (file://) — dump to a prompt fallback
+      window.prompt('Copy the brand.py tokens:', py);
+    });
+  };
+
+  let toastT;
+  function showToast() {
+    const t = document.getElementById('toast');
+    t.textContent = 'brand.py tokens copied to clipboard';
+    t.classList.add('on'); clearTimeout(toastT);
+    toastT = setTimeout(() => t.classList.remove('on'), 1800);
+  }
+</script>
+</body>
+</html>

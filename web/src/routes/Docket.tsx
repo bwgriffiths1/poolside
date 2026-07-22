@@ -10,6 +10,7 @@ import { qk } from "../lib/queries";
 import { Markdown, inlineMd } from "../lib/markdown";
 import { useDocketJob } from "../hooks/useDocketJob";
 import { useScrollSpy } from "../hooks/useScrollSpy";
+import { toast } from "../lib/toast";
 
 function fmtDate(iso: string | null | undefined): string {
   if (!iso) return "—";
@@ -366,6 +367,21 @@ export function Docket() {
               <Icon name="refresh" size={12} />
               {jobs.isStartingSync ? "Starting…" : "Sync"}
             </button>
+            {brief?.detailed && (
+              <button
+                className="btn btn-ghost btn-sm"
+                title="Word export: state of play + one page per filing with eLibrary links"
+                onClick={() =>
+                  api
+                    .downloadDocketDocx(did)
+                    .catch((e: Error) =>
+                      toast.error(`Download failed: ${e.message}`),
+                    )
+                }
+              >
+                <Icon name="download" size={12} /> Word
+              </button>
+            )}
             <button
               className="btn btn-ghost btn-sm"
               disabled={del.isPending || !!jobActive}

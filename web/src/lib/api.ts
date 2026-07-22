@@ -854,6 +854,26 @@ export const api = {
     jobId: number
   ): Promise<{ job_id: number; status: string; changed: boolean }> =>
     postJson(`/docket-jobs/${jobId}/cancel`, {}),
+
+  downloadDocketDocx: async (docket_id: number): Promise<void> => {
+    const res = await fetch(`${BASE}/dockets/${docket_id}/docx`, {
+      credentials: "include",
+    });
+    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+    let filename = `Docket_${docket_id}.docx`;
+    const cd = res.headers.get("Content-Disposition") || "";
+    const m = cd.match(/filename\*=UTF-8''([^;]+)|filename="?([^";]+)"?/i);
+    if (m) filename = decodeURIComponent(m[1] || m[2]);
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  },
 };
 
 export interface MaterialResult {

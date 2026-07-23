@@ -21,6 +21,8 @@ from __future__ import annotations
 import logging
 import re
 import tempfile
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, datetime
 from pathlib import Path
 
@@ -29,6 +31,8 @@ from pipeline.ferc_client import FercClient
 from pipeline.summarizer import (
     HAIKU,
     SONNET,
+    _usage_local,
+    attach_usage_log,
     call_llm,
     clean_output,
     extract_text,
@@ -140,6 +144,86 @@ def load_ferc_config() -> dict:
         cfg = {}
     tmap = {**DEFAULT_TREATMENT_MAP, **(cfg.get("treatment_map") or {})}
     return {**cfg, "treatment_map": tmap}
+
+
+def _worker_count(cfg: dict) -> int:
+    """ferc.parallel_workers, clamped 1..8 (summarization.parallel_workers'
+    convention). Each worker paces its own FERC client, so the aggregate
+    request rate stays bounded at workers/pace."""
+    raw = cfg.get("parallel_workers")
+    if raw is None:
+        return 4
+    try:
+        return max(1, min(8, int(raw)))
+    except (TypeError, ValueError):
+        return 4
+
+
+# Each pool worker keeps its own FercClient: requests.Session is not
+# thread-safe, and per-client pacing is what bounds the request rate.
+_thread_state = threading.local()
+
+
+def _thread_ferc() -> FercClient:
+    client = getattr(_thread_state, "ferc", None)
+    if client is None:
+        client = FercClient()
+        _thread_state.ferc = client
+    return client
+
+
+def _docket_pool(items: list, worker_fn, workers: int, label_fn,
+                 stage: str, progress) -> list[tuple[str, object, Exception | None]]:
+    """Bounded thread pool over docket work items — the mirror of
+    summarizer._run_item_pool, labeled by accession instead of agenda item.
+
+    Returns [(label, result, exc)] in completion order; worker exceptions
+    are captured per item. The caller's capture_usage bucket is re-attached
+    inside every worker so token/cost accounting stays exact. Progress and
+    cancellation stay on the CALLING thread: `progress` runs once per
+    completion, and when it raises (the job runner's cooperative cancel)
+    pending items are dropped while in-flight calls finish."""
+    if not items:
+        return []
+    bucket = getattr(_usage_local, "log", None)
+
+    def _run_one(it):
+        with attach_usage_log(bucket):
+            return worker_fn(it)
+
+    if workers <= 1 or len(items) == 1:
+        results: list[tuple[str, object, Exception | None]] = []
+        for it in items:
+            try:
+                results.append((label_fn(it), worker_fn(it), None))
+            except Exception as e:
+                results.append((label_fn(it), None, e))
+            progress(f"{stage}: {len(results)}/{len(items)} — {label_fn(it)}")
+        return results
+
+    results = []
+    total = len(items)
+    progress(f"{stage}: running {total} item(s) on {workers} worker(s)…")
+    with ThreadPoolExecutor(max_workers=workers,
+                            thread_name_prefix="docket-worker") as pool:
+        futures = {pool.submit(_run_one, it): it for it in items}
+        try:
+            for fut in as_completed(futures):
+                label = label_fn(futures[fut])
+                exc: Exception | None = None
+                res = None
+                try:
+                    res = fut.result()
+                except Exception as e:
+                    exc = e
+                results.append((label, res, exc))
+                suffix = " FAILED" if exc is not None else ""
+                progress(f"{stage}: {len(results)}/{total} — {label}{suffix}")
+        except BaseException:
+            for f in futures:
+                f.cancel()
+            raise
+    return results
 
 
 def normalize_docket_number(raw: str) -> str:
@@ -259,92 +343,128 @@ def _ferc_cite(docinfo: dict | None) -> str | None:
 # Crawl + enrich
 # ---------------------------------------------------------------------------
 
-def ingest_new_filings(docket: dict, ferc: FercClient, cfg: dict,
+def _fetch_meta(hit: dict, ferc: FercClient | None) -> tuple[dict | None, list[dict], list[str]]:
+    """The two per-accession enrichment calls, with per-call error capture.
+    Doc-less filings skip the API entirely — the search hit already carries
+    the party via affiliations. `ferc=None` → this thread's own client."""
+    if is_docless(hit):
+        return None, [], []
+    acc = hit["acesssionNumber"]
+    client = ferc or _thread_ferc()
+    docinfo = None
+    files: list[dict] = []
+    errs: list[str] = []
+    try:
+        docinfo = client.get_doc_info(acc)
+    except Exception as exc:
+        errs.append(f"{acc}: docinfo failed: {exc}")
+    try:
+        files = client.get_file_list(acc)
+    except Exception as exc:
+        errs.append(f"{acc}: filelist failed: {exc}")
+    return docinfo, files, errs
+
+
+def _store_filing(docket_id: int, hit: dict, docinfo: dict | None,
+                  files: list[dict], cfg: dict) -> dict:
+    """Upsert one filing + its file rows from crawl + enrichment data."""
+    acc = hit["acesssionNumber"]
+    docless = is_docless(hit)
+    doc_class, doc_type = _first_class_type(hit)
+    treatment = classify_treatment(doc_class, cfg,
+                                   description=hit.get("description"),
+                                   is_docless=docless)
+    di = docinfo or {}
+    filing = db.upsert_docket_filing(
+        docket_id, acc,
+        category=hit.get("category"),
+        document_class=doc_class,
+        document_type=doc_type,
+        description=hit.get("description"),
+        sub_docket=_sub_docket(hit),
+        filed_date=_parse_date(hit.get("filedDate")),
+        issued_date=_parse_date(hit.get("issuedDate")),
+        posted_date=_parse_date(hit.get("postedDate")),
+        comments_due_date=_parse_date(di.get("Comments_Due_Date")),
+        response_due_date=_parse_date(di.get("Response_Due_Date")),
+        ferc_cite=_ferc_cite(docinfo),
+        fed_reg_num=di.get("Fed_Reg_Num"),
+        filing_parties=extract_parties(docinfo, hit),
+        treatment=treatment,
+        is_docless=docless,
+        raw_hit=hit,
+        raw_docinfo=docinfo,
+    )
+    # File rows: prefer the filelist (orig names, page counts, order);
+    # fall back to the search hit's transmittals when it failed.
+    if files:
+        for f in files:
+            ext = _ext_from_name(f.get("Orig_File_Name")) or \
+                _mime_ext(f.get("MimeType"))
+            db.upsert_docket_filing_file(
+                filing["id"], f.get("ID"),
+                file_desc=f.get("FileDescription"),
+                orig_file_name=f.get("Orig_File_Name"),
+                file_type=ext,
+                file_size=f.get("File_Size_Num"),
+                page_count=f.get("Page_Count"),
+                file_list_order=f.get("File_List_Order"),
+                included=file_included(f.get("FileDescription")),
+            )
+    else:
+        for order, t in enumerate(hit.get("transmittals") or [], start=1):
+            db.upsert_docket_filing_file(
+                filing["id"], t.get("fileId"),
+                file_desc=t.get("fileDesc"),
+                orig_file_name=t.get("fileName"),
+                file_type=(t.get("fileType") or "").lower() or None,
+                file_size=t.get("fileSize"),
+                file_list_order=order,
+                included=file_included(t.get("fileDesc")),
+            )
+    return filing
+
+
+def ingest_new_filings(docket: dict, ferc: FercClient | None, cfg: dict,
                        progress=logger.info) -> tuple[list[dict], list[str]]:
     """Crawl the docket, store every accession we haven't seen, enriched
-    with docinfo + filelist. Returns (new_filing_rows, errors)."""
+    with docinfo + filelist. Returns (new_filing_rows, errors).
+
+    Enrichment (2 slow API calls per doc-ful filing) fans out across
+    ferc.parallel_workers threads; DB writes stay on the calling thread.
+    Pass `ferc` only to inject a client (tests) — None gives each worker
+    its own paced session."""
     number = docket["docket_number"]
     progress(f"Searching eLibrary for {number}…")
-    hits = ferc.search_docket(number)
+    search_client = ferc or _thread_ferc()
+    hits = search_client.search_docket(number)
     known = db.get_docket_accessions(docket["id"])
     new_hits = [h for h in hits
                 if (h.get("acesssionNumber") or "").strip()
                 and h["acesssionNumber"] not in known]
     progress(f"{len(hits)} filings on the docket; {len(new_hits)} new")
 
+    meta = _docket_pool(
+        new_hits,
+        lambda hit: _fetch_meta(hit, ferc),
+        _worker_count(cfg),
+        lambda hit: hit["acesssionNumber"],
+        "Fetching metadata",
+        progress,
+    )
+
     new_rows: list[dict] = []
     errors: list[str] = []
-    for i, hit in enumerate(new_hits, start=1):
-        acc = hit["acesssionNumber"]
-        progress(f"Fetching metadata {i}/{len(new_hits)}: {acc}")
-        docless = is_docless(hit)
-        docinfo = None
-        files: list[dict] = []
-        # Doc-less filings have nothing worth two extra 15-60s API calls;
-        # the search hit already carries the party via affiliations.
-        if not docless:
-            try:
-                docinfo = ferc.get_doc_info(acc)
-            except Exception as exc:
-                errors.append(f"{acc}: docinfo failed: {exc}")
-            try:
-                files = ferc.get_file_list(acc)
-            except Exception as exc:
-                errors.append(f"{acc}: filelist failed: {exc}")
-
-        doc_class, doc_type = _first_class_type(hit)
-        treatment = classify_treatment(doc_class, cfg,
-                                       description=hit.get("description"),
-                                       is_docless=docless)
-        di = docinfo or {}
-        filing = db.upsert_docket_filing(
-            docket["id"], acc,
-            category=hit.get("category"),
-            document_class=doc_class,
-            document_type=doc_type,
-            description=hit.get("description"),
-            sub_docket=_sub_docket(hit),
-            filed_date=_parse_date(hit.get("filedDate")),
-            issued_date=_parse_date(hit.get("issuedDate")),
-            posted_date=_parse_date(hit.get("postedDate")),
-            comments_due_date=_parse_date(di.get("Comments_Due_Date")),
-            response_due_date=_parse_date(di.get("Response_Due_Date")),
-            ferc_cite=_ferc_cite(docinfo),
-            fed_reg_num=di.get("Fed_Reg_Num"),
-            filing_parties=extract_parties(docinfo, hit),
-            treatment=treatment,
-            is_docless=docless,
-            raw_hit=hit,
-            raw_docinfo=docinfo,
-        )
-        # File rows: prefer the filelist (orig names, page counts, order);
-        # fall back to the search hit's transmittals when it failed.
-        if files:
-            for f in files:
-                ext = _ext_from_name(f.get("Orig_File_Name")) or \
-                    _mime_ext(f.get("MimeType"))
-                db.upsert_docket_filing_file(
-                    filing["id"], f.get("ID"),
-                    file_desc=f.get("FileDescription"),
-                    orig_file_name=f.get("Orig_File_Name"),
-                    file_type=ext,
-                    file_size=f.get("File_Size_Num"),
-                    page_count=f.get("Page_Count"),
-                    file_list_order=f.get("File_List_Order"),
-                    included=file_included(f.get("FileDescription")),
-                )
+    by_acc = {h["acesssionNumber"]: h for h in new_hits}
+    for label, res, exc in meta:
+        hit = by_acc[label]
+        if exc is not None:
+            docinfo, files = None, []
+            errors.append(f"{label}: metadata failed: {exc}")
         else:
-            for order, t in enumerate(hit.get("transmittals") or [], start=1):
-                db.upsert_docket_filing_file(
-                    filing["id"], t.get("fileId"),
-                    file_desc=t.get("fileDesc"),
-                    orig_file_name=t.get("fileName"),
-                    file_type=(t.get("fileType") or "").lower() or None,
-                    file_size=t.get("fileSize"),
-                    file_list_order=order,
-                    included=file_included(t.get("fileDesc")),
-                )
-        new_rows.append(filing)
+            docinfo, files, errs = res
+            errors.extend(errs)
+        new_rows.append(_store_filing(docket["id"], hit, docinfo, files, cfg))
     return new_rows, errors
 
 
@@ -522,7 +642,8 @@ def sync_docket(docket_id: int, progress=logger.info,
     if not docket:
         raise ValueError(f"Docket {docket_id} not found")
     cfg = load_ferc_config()
-    ferc = ferc or FercClient()
+    # ferc stays None unless a caller injected one (tests): pool workers
+    # then use their own per-thread paced clients.
 
     new_rows, errors = ingest_new_filings(docket, ferc, cfg, progress=progress)
 
@@ -541,24 +662,33 @@ def sync_docket(docket_id: int, progress=logger.info,
                    if f["treatment"] != "skip"
                    and f.get("summary_status") in (None, "stub")]
         if pending:
-            progress(f"Summarizing {len(pending)} filing(s)…")
             if client is None:
                 client = make_client()
             model_cfg = load_model_config()
-            # Oldest first so the timeline fills chronologically.
-            for filing in sorted(
-                    pending,
-                    key=lambda f: str(f.get("filed_date")
-                                      or f.get("issued_date") or "")):
-                try:
-                    if summarize_filing(filing, ferc, client, cfg,
-                                        model_cfg=model_cfg,
-                                        progress=progress):
-                        summarized += 1
-                except Exception as exc:
-                    logger.exception("Filing %s failed",
-                                     filing["accession_number"])
-                    errors.append(f"{filing['accession_number']}: {exc}")
+            # Oldest first so the timeline fills chronologically as
+            # completions land (order of submission, not a guarantee).
+            pending.sort(key=lambda f: str(f.get("filed_date")
+                                           or f.get("issued_date") or ""))
+
+            def _summarize_one(filing: dict) -> bool:
+                return summarize_filing(filing, ferc or _thread_ferc(),
+                                        client, cfg, model_cfg=model_cfg,
+                                        progress=logger.info)
+
+            results = _docket_pool(
+                pending,
+                _summarize_one,
+                _worker_count(cfg),
+                lambda f: f["accession_number"],
+                "Summarizing",
+                progress,
+            )
+            for label, res, exc in results:
+                if exc is not None:
+                    logger.error("Filing %s failed: %s", label, exc)
+                    errors.append(f"{label}: {exc}")
+                elif res:
+                    summarized += 1
 
     db.touch_docket_crawled(docket_id)
     # Title fallback: the root filing's description, once we have one.

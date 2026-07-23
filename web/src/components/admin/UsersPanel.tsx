@@ -3,7 +3,6 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Icon } from "../Icon";
 import {
   api,
-  type AppUser,
   type UserTokenCreated,
   type UserTokenRow,
 } from "../../lib/api";

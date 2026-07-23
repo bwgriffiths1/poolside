@@ -75,8 +75,12 @@ function splitByH2(md: string | null | undefined): {
   return { preamble: preamble.join("\n").trim(), sections };
 }
 
-/** Compact class chip label — the full taxonomy strings are long. */
+/** Compact class chip label — the full taxonomy strings are long. The two
+ *  anchor roles override: the initial filing and FERC's orders are the
+ *  documents the docket pivots on. */
 function classLabel(f: DocketFiling): string {
+  if (f.role === "initial") return "Initial Filing";
+  if (f.role === "order") return "Order";
   const c = f.document_class || "?";
   const map: Record<string, string> = {
     "Application/Petition/Request": "Filing",
@@ -158,7 +162,11 @@ function FilingRow({ f }: { f: DocketFiling }) {
         <div className="el-filing-date mono">{fmtDate(date)}</div>
         <div className="el-filing-main">
           <div className="el-filing-toprow">
-            <Tag>{classLabel(f)}</Tag>
+            {f.role ? (
+              <span className="el-chip-anchor">{classLabel(f)}</span>
+            ) : (
+              <Tag>{classLabel(f)}</Tag>
+            )}
             {f.ferc_cite && <span className="el-cite mono">{f.ferc_cite}</span>}
             {f.comments_due_date && (
               <span className="el-due">

@@ -7,7 +7,11 @@
   "meeting_max_tokens": 32768,
   "ferc_filing_model": "claude-sonnet-4-6",
   "ferc_brief_model": "claude-haiku-4-5-20251001",
+  "ferc_initial_model": "claude-opus-4-7",
+  "ferc_order_model": "claude-opus-4-7",
   "ferc_state_of_play_model": "claude-opus-4-7",
   "ferc_filing_max_tokens": 16384,
+  "ferc_initial_max_tokens": 24576,
+  "ferc_order_max_tokens": 20480,
   "ferc_state_of_play_max_tokens": 16384
 }

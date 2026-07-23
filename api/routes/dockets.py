@@ -67,6 +67,7 @@ def _filing_row(f: dict, files: list[dict]) -> dict[str, Any]:
         "filing_parties": f.get("filing_parties") or [],
         "treatment": f.get("treatment"),
         "is_docless": f.get("is_docless"),
+        "role": f.get("role"),
         "summary_one_line": f.get("summary_one_line"),
         "summary_detailed": f.get("summary_detailed"),
         "summary_status": f.get("summary_status"),

@@ -2199,7 +2199,7 @@ def upsert_docket_filing(docket_id: int, accession_number: str,
                "sub_docket", "filed_date", "issued_date", "posted_date",
                "comments_due_date", "response_due_date", "ferc_cite",
                "fed_reg_num", "filing_parties", "treatment", "is_docless",
-               "raw_hit", "raw_docinfo"}
+               "role", "raw_hit", "raw_docinfo"}
     cols = {k: v for k, v in fields.items() if k in allowed}
     import json as _json
     for jsonb_col in ("filing_parties", "raw_hit", "raw_docinfo"):
@@ -2344,6 +2344,30 @@ def update_filing_treatment(filing_id: int, treatment: str) -> None:
             cur.execute(
                 "UPDATE docket_filings SET treatment = %s WHERE id = %s",
                 (treatment, filing_id))
+
+
+def set_filing_role(filing_id: int, role: str | None) -> None:
+    with _conn() as conn:
+        with _cursor(conn) as cur:
+            cur.execute(
+                "UPDATE docket_filings SET role = %s WHERE id = %s",
+                (role, filing_id))
+
+
+def supersede_auto_summaries(entity_type: str, entity_id: int) -> int:
+    """Mark an entity's non-manual, non-approved summary versions as
+    superseded so the next summarize pass regenerates. Manual edits and
+    approved versions are never touched. Returns rows affected."""
+    with _conn() as conn:
+        with _cursor(conn) as cur:
+            cur.execute(
+                """UPDATE summary_versions
+                      SET status = 'superseded'
+                    WHERE entity_type = %s AND entity_id = %s
+                      AND is_manual = false
+                      AND status IN ('draft', 'stub')""",
+                (entity_type, entity_id))
+            return cur.rowcount
 
 
 def get_docket_filing_file(file_row_id: int) -> dict | None:

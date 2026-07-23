@@ -962,6 +962,7 @@ export interface DocketFiling {
   filing_parties: DocketFilingParty[];
   treatment: "full" | "brief" | "skip";
   is_docless: boolean;
+  role: "initial" | "order" | null;
   summary_one_line: string | null;
   summary_detailed: string | null;
   summary_status: string | null;

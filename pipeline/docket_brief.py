@@ -41,16 +41,26 @@ logger = logging.getLogger(__name__)
 PROMPT_SLUG = "ferc_state_of_play_prompt"
 
 # Per-filing ceiling keeps a 100-filing docket inside a sane context window;
-# the tail of a long detailed summary is the least load-bearing part.
+# the tail of a long detailed summary is the least load-bearing part. The
+# two anchor documents (initial filing, orders) get double the room — their
+# summaries are deliberately deeper and carry the docket's spine.
 _MAX_FILING_CHARS = 6000
+_MAX_ANCHOR_CHARS = 12000
 # The prior state-of-play is context, not source material — excerpt it.
 _MAX_PRIOR_CHARS = 20_000
 
 
 def _fmt_filing_header(i: int, total: int, f: dict) -> str:
     who = "; ".join(author_orgs(f.get("filing_parties"))) or "?"
-    bits = [
-        f"=== FILING {i} of {total}",
+    bits = [f"=== FILING {i} of {total}"]
+    # Flag the two anchor documents so the synthesis leans on them: the
+    # initial filing is the proposal everything reacts to; orders are how
+    # FERC decides. The rest is responsive.
+    if f.get("role") == "initial":
+        bits.append("★ THE INITIAL FILING — the proposal this docket is about")
+    elif f.get("role") == "order":
+        bits.append("★ FERC ORDER — a Commission decision")
+    bits += [
         f"{f.get('filed_date') or f.get('issued_date') or '?'}",
         f"{f.get('document_class') or '?'} / {f.get('document_type') or '?'}",
         f"by {who}",
@@ -65,8 +75,10 @@ def _filing_body(f: dict) -> str:
     body = (f.get("summary_detailed") or f.get("summary_one_line") or "").strip()
     if not body:
         return "(No summary available for this filing.)"
-    if len(body) > _MAX_FILING_CHARS:
-        body = body[:_MAX_FILING_CHARS].rsplit("\n", 1)[0].rstrip() + "\n\n…(truncated)"
+    cap = (_MAX_ANCHOR_CHARS if f.get("role") in ("initial", "order")
+           else _MAX_FILING_CHARS)
+    if len(body) > cap:
+        body = body[:cap].rsplit("\n", 1)[0].rstrip() + "\n\n…(truncated)"
     return body
 
 

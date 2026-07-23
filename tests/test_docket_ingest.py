@@ -15,6 +15,7 @@ from pipeline.docket_ingest import (
     _worker_count,
     author_orgs,
     classify_treatment,
+    compute_roles,
     extract_parties,
     file_included,
     is_docless,
@@ -211,6 +212,50 @@ def test_split_tldr_absent():
     one, rest = _split_tldr("## Straight into the summary\nbody")
     assert one is None
     assert rest.startswith("## Straight")
+
+
+# ── anchor-document roles ───────────────────────────────────────────────
+
+def _f(id, cls, filed=None, issued=None):
+    return {"id": id, "document_class": cls,
+            "filed_date": filed, "issued_date": issued}
+
+
+def test_roles_initial_is_earliest_application():
+    filings = [
+        _f(1, "Application/Petition/Request", filed="2026-02-01"),  # amendment
+        _f(2, "Application/Petition/Request", filed="2025-12-30"),  # the opener
+        _f(3, "Comments/Protest", filed="2026-01-20"),
+        _f(4, "Order/Opinion", issued="2026-03-30"),
+        _f(5, "ALJ Issuance", issued="2026-04-02"),
+        _f(6, "Intervention", filed="2026-01-07"),
+    ]
+    roles = compute_roles(filings)
+    assert roles[2] == "initial"
+    assert roles[1] is None          # later application is NOT the anchor
+    assert roles[4] == "order"
+    assert roles[5] == "order"       # ALJ issuances are decisions too
+    assert roles[3] is None and roles[6] is None
+
+
+def test_roles_without_any_application():
+    roles = compute_roles([_f(1, "Comments/Protest", filed="2026-01-01"),
+                           _f(2, "Order/Opinion", issued="2026-02-01")])
+    assert roles[1] is None
+    assert roles[2] == "order"
+
+
+def test_roles_date_tie_breaks_by_id():
+    roles = compute_roles([
+        _f(9, "Application/Petition/Request", filed="2026-01-01"),
+        _f(4, "Application/Petition/Request", filed="2026-01-01"),
+    ])
+    assert roles[4] == "initial"
+    assert roles[9] is None
+
+
+def test_roles_empty():
+    assert compute_roles([]) == {}
 
 
 # ── sync fan-out pool ───────────────────────────────────────────────────

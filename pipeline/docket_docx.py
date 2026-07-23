@@ -59,6 +59,8 @@ _CLASS_LABEL = {
 
 
 def _class_label(f: dict) -> str:
+    if f.get("role") == "initial":
+        return "Initial Filing"
     return _CLASS_LABEL.get(f.get("document_class") or "", f.get("document_class") or "Filing")
 
 
@@ -367,8 +369,13 @@ def generate_docket_docx_bytes(docket_id: int) -> tuple[bytes, str]:
         label = _class_label(f)
         who = "; ".join(author_orgs(f.get("filing_parties"))) or "Unknown party"
 
+        eyebrow = f"FILING {i} OF {total}"
+        if f.get("role") == "initial":
+            eyebrow += "  —  THE INITIAL FILING"
+        elif f.get("role") == "order":
+            eyebrow += "  —  FERC ORDER"
         p = doc.add_paragraph(); _v2_spacing(p, before=Pt(0), after=Pt(2))
-        _v2_run(p, f"FILING {i} OF {total}", size=brand.SZ_EYEBROW, bold=True,
+        _v2_run(p, eyebrow, size=brand.SZ_EYEBROW, bold=True,
                 color=_CYAN, font=_LABEL)
         p = doc.add_paragraph(); _v2_spacing(p, before=Pt(0), after=Pt(4))
         p.paragraph_format.keep_with_next = True

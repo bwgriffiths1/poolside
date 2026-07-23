@@ -30,6 +30,7 @@ import pipeline.db as db
 from pipeline.ferc_client import FercClient
 from pipeline.summarizer import (
     HAIKU,
+    OPUS,
     SONNET,
     _usage_local,
     attach_usage_log,
@@ -94,7 +95,10 @@ DEFAULT_TREATMENT_MAP: dict[str, list[str]] = {
 }
 
 # Which prompt a filing gets, by documentClass (fallback: ferc_motion_prompt,
-# the generic brief-summary template).
+# the generic brief-summary template). The two ANCHOR roles override this:
+# role='initial' → ferc_initial_filing_prompt (the proposal everything
+# reacts to), role='order' → ferc_order_prompt (how FERC decides) — both
+# deeper treatments than the responsive middle.
 _PROMPT_BY_CLASS = {
     "Application/Petition/Request": "ferc_filing_prompt",
     "Order/Opinion": "ferc_order_prompt",
@@ -107,6 +111,9 @@ _PROMPT_BY_CLASS = {
     "Intervention": "ferc_comment_prompt",
 }
 _FALLBACK_PROMPT = "ferc_motion_prompt"
+
+# documentClasses that carry the 'order' role.
+_ORDER_CLASSES = {"Order/Opinion", "ALJ Issuance"}
 
 # Files never worth LLM tokens: tariff sheets and their redlines, plus the
 # auto-generated tariff record. Matched against FileDescription.
@@ -482,6 +489,50 @@ def _mime_ext(mime: str | None) -> str | None:
     }.get((mime or "").lower())
 
 
+def compute_roles(filings: list[dict]) -> dict[int, str | None]:
+    """The anchor-document map for a docket: filing id → role.
+
+    'order'   — every Order/Opinion + ALJ Issuance (how FERC decides)
+    'initial' — the earliest-filed Application/Petition/Request (the
+                proposal the whole docket reacts to)
+    None      — everything else (the responsive middle)
+    """
+    roles: dict[int, str | None] = {f["id"]: None for f in filings}
+    for f in filings:
+        if f.get("document_class") in _ORDER_CLASSES:
+            roles[f["id"]] = "order"
+    applications = [f for f in filings
+                    if f.get("document_class") == "Application/Petition/Request"]
+    if applications:
+        first = min(applications,
+                    key=lambda f: (str(f.get("filed_date")
+                                       or f.get("issued_date") or "9999"),
+                                   f["id"]))
+        roles[first["id"]] = "initial"
+    return roles
+
+
+def _assign_roles(docket_id: int) -> None:
+    """Deterministic role pass, run every sync (mirrors the reclassify
+    pass). When a role LANDS on a filing whose summary is a plain auto
+    draft, that summary is superseded so this sync's summarize pass redoes
+    it with the deeper anchor prompt — manual edits and approved versions
+    are never touched."""
+    filings = db.list_docket_filings(docket_id)
+    roles = compute_roles(filings)
+    for f in filings:
+        want = roles[f["id"]]
+        if want == f.get("role"):
+            continue
+        db.set_filing_role(f["id"], want)
+        if want in ("initial", "order") and f.get("summary_status"):
+            redone = db.supersede_auto_summaries("docket_filing", f["id"])
+            if redone:
+                logger.info("Filing %s gained role=%s — superseded %d auto "
+                            "summary version(s) for re-run with the anchor "
+                            "prompt", f["accession_number"], want, redone)
+
+
 # ---------------------------------------------------------------------------
 # Level 1 — per-filing summaries
 # ---------------------------------------------------------------------------
@@ -582,8 +633,12 @@ def summarize_filing(filing: dict, ferc: FercClient, client, cfg: dict,
                        filing["accession_number"])
         return False
 
-    slug = _PROMPT_BY_CLASS.get(filing.get("document_class") or "",
-                                _FALLBACK_PROMPT)
+    role = filing.get("role")
+    if role == "initial":
+        slug = "ferc_initial_filing_prompt"
+    else:
+        slug = _PROMPT_BY_CLASS.get(filing.get("document_class") or "",
+                                    _FALLBACK_PROMPT)
     template = load_prompt(slug) or load_prompt(_FALLBACK_PROMPT)
     if not template:
         raise ValueError(f"Prompt template '{slug}' not found")
@@ -598,11 +653,20 @@ def summarize_filing(filing: dict, ferc: FercClient, client, cfg: dict,
         prompt = ctx + "\n\n" + prompt
 
     mc = model_cfg or load_model_config()
-    if filing.get("treatment") == "full":
+    # The two anchor documents get the top-tier model and a bigger output
+    # budget; the responsive middle stays on the cheaper tiers.
+    if role == "initial":
+        model = mc.get("ferc_initial_model") or mc.get("meeting_model", OPUS)
+        max_tokens = int(mc.get("ferc_initial_max_tokens") or 24576)
+    elif role == "order":
+        model = mc.get("ferc_order_model") or mc.get("meeting_model", OPUS)
+        max_tokens = int(mc.get("ferc_order_max_tokens") or 20480)
+    elif filing.get("treatment") == "full":
         model = mc.get("ferc_filing_model") or mc.get("document_model", SONNET)
+        max_tokens = int(mc.get("ferc_filing_max_tokens") or 16384)
     else:
         model = mc.get("ferc_brief_model") or mc.get("item_model", HAIKU)
-    max_tokens = int(mc.get("ferc_filing_max_tokens") or 16384)
+        max_tokens = int(mc.get("ferc_filing_max_tokens") or 16384)
 
     progress(f"Summarizing {filing['accession_number']} "
              f"({filing.get('document_class')}) with {model}…")
@@ -655,6 +719,8 @@ def sync_docket(docket_id: int, progress=logger.info,
                                   is_docless=bool(f["is_docless"]))
         if want != f["treatment"]:
             db.update_filing_treatment(f["id"], want)
+
+    _assign_roles(docket_id)
 
     summarized = 0
     if summarize:

@@ -10,6 +10,7 @@ import { qk, useCan } from "../lib/queries";
 import { Markdown, inlineMd } from "../lib/markdown";
 import { useDocketJob } from "../hooks/useDocketJob";
 import { useScrollSpy } from "../hooks/useScrollSpy";
+import { useTrackView } from "../hooks/useTrackView";
 
 function fmtDate(iso: string | null | undefined): string {
   if (!iso) return "—";
@@ -238,6 +239,7 @@ function FilingRow({ f }: { f: DocketFiling }) {
 export function Docket() {
   const { id } = useParams();
   const did = Number(id);
+  useTrackView("docket", did);
   const navigate = useNavigate();
   const qc = useQueryClient();
   const { canEdit } = useCan();

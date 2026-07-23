@@ -2504,3 +2504,103 @@ def list_audit(limit: int = 50, before_id: int | None = None,
                 params,
             )
             return [dict(r) for r in cur.fetchall()]
+
+
+# ---------------------------------------------------------------------------
+# Page views  — read analytics (written by /api/track/view, read by Admin)
+# ---------------------------------------------------------------------------
+
+def record_page_view(user_id: int, user_email: str, entity_type: str,
+                     entity_id: int, dedupe_minutes: int = 30) -> bool:
+    """One row per (user, entity) per dedupe window, enforced at write time
+    in a single statement — refetches and StrictMode double-mounts collapse
+    into one view. Returns True when a row was actually inserted."""
+    with _conn() as conn:
+        with _cursor(conn) as cur:
+            cur.execute(
+                """INSERT INTO page_views (user_id, user_email, entity_type, entity_id)
+                   SELECT %s, %s, %s, %s
+                    WHERE NOT EXISTS (
+                          SELECT 1 FROM page_views
+                           WHERE user_id = %s AND entity_type = %s AND entity_id = %s
+                             AND viewed_at > NOW() - make_interval(mins => %s))
+                RETURNING id""",
+                (user_id, user_email, entity_type, entity_id,
+                 user_id, entity_type, entity_id, dedupe_minutes),
+            )
+            return cur.fetchone() is not None
+
+
+def page_view_summary(days: int = 30) -> list[dict]:
+    """Per-entity totals in the window: views, unique readers, last read."""
+    with _conn() as conn:
+        with _cursor(conn) as cur:
+            cur.execute(
+                """SELECT entity_type, entity_id,
+                          COUNT(*)                 AS views,
+                          COUNT(DISTINCT user_id)  AS unique_viewers,
+                          MAX(viewed_at)           AS last_viewed_at
+                     FROM page_views
+                    WHERE viewed_at >= NOW() - make_interval(days => %s)
+                 GROUP BY entity_type, entity_id
+                 ORDER BY views DESC, MAX(viewed_at) DESC
+                    LIMIT 200""",
+                (days,),
+            )
+            return [dict(r) for r in cur.fetchall()]
+
+
+def recent_page_views(limit: int = 50) -> list[dict]:
+    with _conn() as conn:
+        with _cursor(conn) as cur:
+            cur.execute(
+                """SELECT user_email, entity_type, entity_id, viewed_at
+                     FROM page_views
+                 ORDER BY id DESC
+                    LIMIT %s""",
+                (limit,),
+            )
+            return [dict(r) for r in cur.fetchall()]
+
+
+def entity_titles(entity_type: str, ids: list[int]) -> dict[int, str]:
+    """Batched display titles for readership rows. Deleted entities simply
+    don't come back — callers render 'deleted {type} #{id}'."""
+    if not ids:
+        return {}
+    with _conn() as conn:
+        with _cursor(conn) as cur:
+            if entity_type in ("meeting", "briefing"):
+                cur.execute(
+                    """SELECT m.id,
+                              COALESCE(NULLIF(m.title, ''), mt.name) || ' · ' ||
+                              mt.short_name || ' ' || m.meeting_date AS label
+                         FROM meetings m
+                         JOIN meeting_types mt ON mt.id = m.meeting_type_id
+                        WHERE m.id = ANY(%s)""",
+                    (ids,),
+                )
+            elif entity_type == "docket":
+                cur.execute(
+                    """SELECT id, docket_number ||
+                              COALESCE(' · ' || NULLIF(title, ''), '') AS label
+                         FROM dockets WHERE id = ANY(%s)""",
+                    (ids,),
+                )
+            elif entity_type == "roundup":
+                cur.execute(
+                    """SELECT r.id, v.short_name || ' roundup · ' ||
+                              TO_CHAR(r.month, 'Mon YYYY') AS label
+                         FROM monthly_roundups r
+                         JOIN venues v ON v.id = r.venue_id
+                        WHERE r.id = ANY(%s)""",
+                    (ids,),
+                )
+            elif entity_type == "deep_dive":
+                cur.execute(
+                    "SELECT id, title AS label FROM deep_dive_reports WHERE id = ANY(%s)",
+                    (ids,),
+                )
+            else:
+                return {}
+            return {r["id"]: r["label"] for r in cur.fetchall()}

@@ -61,6 +61,7 @@ from .routes import (
     search,
     share,
     summaries,
+    track,
     user_tokens,
     watches,
 )
@@ -231,6 +232,7 @@ app.include_router(me.router, dependencies=_ANY)
 app.include_router(notifications.router, dependencies=_ANY)
 app.include_router(watches.router, dependencies=_ANY)
 app.include_router(ask.router, dependencies=_ANY)
+app.include_router(track.router, dependencies=_ANY)
 
 app.include_router(meetings.router, dependencies=_EDIT)
 app.include_router(briefings.router, dependencies=_EDIT)

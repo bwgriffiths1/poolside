@@ -21,6 +21,7 @@ import { api } from "../lib/api";
 import { qk, useBriefing, useCan, useMeeting } from "../lib/queries";
 import { toast } from "../lib/toast";
 import { fmtDateRange } from "../lib/format";
+import { useTrackView } from "../hooks/useTrackView";
 
 export function Meeting() {
   const { id } = useParams<{ id: string }>();
@@ -29,6 +30,7 @@ export function Meeting() {
   const { canEdit, isAdmin } = useCan();
 
   const meetingId = Number(id);
+  useTrackView("meeting", meetingId);
 
   const { data: detail, isLoading: detailLoading } = useMeeting(meetingId);
   const { data: briefing } = useBriefing(meetingId);

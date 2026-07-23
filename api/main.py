@@ -24,6 +24,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+from .audit import AuditMiddleware
 from .auth import (
     current_user,
     require_admin,
@@ -33,6 +34,7 @@ from .auth import (
 from .migrate import run_migrations
 from .routes import (
     admin,
+    admin_activity,
     admin_dashboard,
     admin_users,
     agenda_items,
@@ -200,6 +202,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Audit trail: every authenticated non-GET /api action (see api/audit.py).
+app.add_middleware(AuditMiddleware)
+
 # ── Public surface (no session required) ──────────────────────────────
 # auth: login/logout. share + user_tokens: mixed routers whose management
 # endpoints each carry their own Depends(current_user); their /api/public/*
@@ -255,6 +260,7 @@ app.include_router(admin_dashboard.router, dependencies=_ADMIN)
 app.include_router(prompts.router, dependencies=_ADMIN)
 app.include_router(prompts.config_router, dependencies=_ADMIN)
 app.include_router(admin_users.router, dependencies=_ADMIN)
+app.include_router(admin_activity.router, dependencies=_ADMIN)
 
 
 @app.get("/api/health")

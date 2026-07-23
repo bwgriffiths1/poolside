@@ -2458,3 +2458,49 @@ def count_active_admins(exclude_user_id: int | None = None) -> int:
                     (exclude_user_id,),
                 )
             return int(cur.fetchone()["n"])
+
+
+# ---------------------------------------------------------------------------
+# Audit log  — written by api/audit.py middleware, read by Admin → Activity
+# ---------------------------------------------------------------------------
+
+def record_audit(entry: dict) -> None:
+    import json as _json
+    with _conn() as conn:
+        with _cursor(conn) as cur:
+            cur.execute(
+                """INSERT INTO audit_log
+                       (user_id, user_email, method, path, route,
+                        path_params, query, status, duration_ms)
+                   VALUES (%s, %s, %s, %s, %s, %s::jsonb, %s, %s, %s)""",
+                (entry.get("user_id"), entry.get("user_email") or "",
+                 entry.get("method"), entry.get("path"), entry.get("route"),
+                 _json.dumps(entry.get("path_params") or {}),
+                 entry.get("query"), entry.get("status"),
+                 entry.get("duration_ms")),
+            )
+
+
+def list_audit(limit: int = 50, before_id: int | None = None,
+               user_email: str | None = None) -> list[dict]:
+    """Newest-first keyset pagination: pass the last row's id as before_id
+    to get the next page."""
+    where, params = [], []
+    if before_id is not None:
+        where.append("id < %s")
+        params.append(before_id)
+    if user_email:
+        where.append("user_email = %s")
+        params.append(user_email)
+    clause = f"WHERE {' AND '.join(where)}" if where else ""
+    params.append(limit)
+    with _conn() as conn:
+        with _cursor(conn) as cur:
+            cur.execute(
+                f"""SELECT * FROM audit_log
+                    {clause}
+                 ORDER BY id DESC
+                    LIMIT %s""",
+                params,
+            )
+            return [dict(r) for r in cur.fetchall()]

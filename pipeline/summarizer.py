@@ -1433,14 +1433,28 @@ def _collect_leaf_summaries(
 
     If `item` itself has no children, returns [(item, summary)] if a summary
     exists. Leaves without a summary are skipped (defensive).
+
+    Own-summary fallback: when a subtree yields no leaf summaries but the
+    branching node itself has one, that node's own summary is used. This
+    covers materials filed directly on a parent whose sub-items carry no
+    documents of their own — Level 2 stores the summary on the parent (see
+    _l2_worker's own-docs path), and without this fallback the walk recurses
+    past it into the empty leaves and collects nothing, producing an empty
+    briefing. The fallback only fires when the branch is otherwise dry, so it
+    never double-counts a parent that already contributes through its leaves.
     """
     leaves: list[tuple[dict, dict]] = []
 
     def _walk(node: dict) -> None:
         kids = children_of.get(node["id"]) or []
         if kids:
+            before = len(leaves)
             for kid in kids:
                 _walk(kid)
+            if len(leaves) == before:
+                summ = db.get_current_summary("agenda_item", node["id"])
+                if summ and summ.get("detailed"):
+                    leaves.append((node, summ))
         else:
             summ = db.get_current_summary("agenda_item", node["id"])
             if summ and summ.get("detailed"):
@@ -2001,6 +2015,16 @@ def run_meeting_summarization(
         )
     except Exception as exc:
         msg = f"Level 3 error: {exc}"
+        logger.error(msg)
+        errors.append(msg)
+
+    # A briefing that collected nothing while item summaries DO exist is a
+    # failure, not a legitimate no-op (which is a meeting with no summarised
+    # content at all). Surface it so the job's error field is non-null instead
+    # of the meeting being marked complete with a silent "Done" and no briefing.
+    if not l3_ok and (l1_count + l2_count) > 0:
+        msg = (f"Level 3 produced no briefing despite {l1_count + l2_count} "
+               f"item summary(ies) — no content was collected for the meeting briefing")
         logger.error(msg)
         errors.append(msg)
 

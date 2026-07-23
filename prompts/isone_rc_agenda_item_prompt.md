@@ -19,7 +19,11 @@ Address the following:
 
 - **Substance**: What is being proposed, approved, or reported? Include specific
   standard references (NERC/NPCC standard numbers), reliability metrics (LOLE,
-  EUE), study results (MW values, transfer limits), or rule citations.
+  EUE), study results (MW values, transfer limits), or rule citations. For
+  interconnection queue reports, preserve the exact counts and total MW of new
+  interconnection requests and of withdrawals (and any net change) as stated in
+  the materials — do not round away or omit these figures; they feed the meeting
+  briefing's Key Takeaways.
 
 - **Change from status quo**: What differs from current reliability standards,
   planning criteria, or prior study results? Anchor the comparison explicitly.

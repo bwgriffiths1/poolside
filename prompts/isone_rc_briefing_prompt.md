@@ -44,10 +44,12 @@ Produce the briefing in this exact structure:
 
 ## Key Takeaways
 
-At most 5 bullets — use fewer if fewer things mattered. Rank them from highest
-to lowest impact: the first bullet is the single most consequential thing that
-happened at this meeting, and each bullet after it is less consequential than
-the one before. Do NOT order by agenda sequence.
+At most 5 impact-ranked bullets — use fewer if fewer things mattered — plus the
+dedicated interconnection-queue bullet described below when the materials warrant
+it. Rank the impact bullets from highest to lowest impact: the first bullet is
+the single most consequential thing that happened at this meeting, and each
+bullet after it is less consequential than the one before. Do NOT order by
+agenda sequence.
 
 Each bullet is ONE sentence of at most 25 words stating a market consequence or
 decision — what changed and why it matters to a portfolio — not background, not
@@ -56,6 +58,16 @@ venue: "Non-firm gas capacity revenue falls ~17% under the base case…", not
 "The ISO presented an impact analysis showing…". A reader must grasp the
 meeting's significance from these bullets alone. Do not repeat these bullets
 verbatim elsewhere in the briefing.
+
+**Interconnection queue activity — include a dedicated bullet whenever the
+materials report it.** Quantify generator interconnection queue movement in one
+bullet: the number and total MW of new interconnection requests, and the number
+and total MW of withdrawals — e.g. "Six new interconnection requests (2,310 MW)
+entered the queue; three projects (940 MW) withdrew." This bullet is in addition
+to the impact-ranked bullets above and need not compete with them on impact. Use
+only counts and MW figures stated in the source materials — never estimate or
+infer them. Omit it only when the meeting contains no interconnection queue
+update.
 
 ---
 

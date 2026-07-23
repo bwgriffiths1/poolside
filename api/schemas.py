@@ -14,9 +14,11 @@ LifecycleStatus = Literal[
 
 
 class CurrentUser(BaseModel):
+    id: int
     name: str
     email: str
     initials: str
+    role: Literal["admin", "editor", "viewer"] = "viewer"
 
 
 class MeetingListItem(BaseModel):

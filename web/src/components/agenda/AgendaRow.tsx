@@ -5,7 +5,7 @@ import { Icon } from "../Icon";
 import { VersionHistory } from "../VersionHistory";
 import { Markdown } from "../../lib/markdown";
 import { api } from "../../lib/api";
-import { qk } from "../../lib/queries";
+import { qk, useCan } from "../../lib/queries";
 import { toast } from "../../lib/toast";
 import { formatRel } from "../../lib/format";
 import { DocRow } from "./DocRow";
@@ -63,6 +63,7 @@ export function AgendaRow({
 }: AgendaRowProps) {
   const navigate = useNavigate();
   const qc = useQueryClient();
+  const { canEdit } = useCan();
 
   const resummarize = useMutation({
     mutationFn: () => api.resummarizeAgendaItem(item.id),
@@ -243,25 +244,29 @@ export function AgendaRow({
                     </span>
                     <SummaryMeta item={item} />
                     <span style={{ flex: 1 }} />
-                    <button className="btn btn-sm" onClick={onEdit}>
-                      <Icon name="edit" size={12} /> Quick edit
-                    </button>
-                    <a
-                      href={`#/edit/agenda_item/${item.id}`}
-                      className="btn btn-sm btn-accent"
-                      style={{ textDecoration: "none" }}
-                    >
-                      <Icon name="external" size={12} /> Open in full editor
-                    </a>
-                    <button
-                      className="btn btn-sm btn-ghost"
-                      title="Re-run AI summarization for this item (uses current doc summaries + child item summaries, current model, current prompt)"
-                      disabled={resummarize.isPending}
-                      onClick={() => resummarize.mutate()}
-                    >
-                      <Icon name="refresh" size={12} />{" "}
-                      {resummarize.isPending ? "Re-running…" : "Re-run"}
-                    </button>
+                    {canEdit && (
+                      <>
+                        <button className="btn btn-sm" onClick={onEdit}>
+                          <Icon name="edit" size={12} /> Quick edit
+                        </button>
+                        <a
+                          href={`#/edit/agenda_item/${item.id}`}
+                          className="btn btn-sm btn-accent"
+                          style={{ textDecoration: "none" }}
+                        >
+                          <Icon name="external" size={12} /> Open in full editor
+                        </a>
+                        <button
+                          className="btn btn-sm btn-ghost"
+                          title="Re-run AI summarization for this item (uses current doc summaries + child item summaries, current model, current prompt)"
+                          disabled={resummarize.isPending}
+                          onClick={() => resummarize.mutate()}
+                        >
+                          <Icon name="refresh" size={12} />{" "}
+                          {resummarize.isPending ? "Re-running…" : "Re-run"}
+                        </button>
+                      </>
+                    )}
                     <button
                       className={`btn btn-sm btn-ghost ${showVersions ? "is-active" : ""}`}
                       title="Show every saved version of this summary"
@@ -309,15 +314,17 @@ export function AgendaRow({
                   <span className="muted text-sm" style={{ flex: 1 }}>
                     No summary yet for this item.
                   </span>
-                  <button
-                    className="btn btn-sm btn-accent"
-                    onClick={() => resummarize.mutate()}
-                    disabled={resummarize.isPending}
-                    title="Generate an AI summary for this item using its assigned documents and any child-item summaries."
-                  >
-                    <Icon name="spark" size={12} />{" "}
-                    {resummarize.isPending ? "Summarizing…" : "Summarize this item"}
-                  </button>
+                  {canEdit && (
+                    <button
+                      className="btn btn-sm btn-accent"
+                      onClick={() => resummarize.mutate()}
+                      disabled={resummarize.isPending}
+                      title="Generate an AI summary for this item using its assigned documents and any child-item summaries."
+                    >
+                      <Icon name="spark" size={12} />{" "}
+                      {resummarize.isPending ? "Summarizing…" : "Summarize this item"}
+                    </button>
+                  )}
                 </div>
               )}
             </div>

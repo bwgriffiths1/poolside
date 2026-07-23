@@ -4,7 +4,7 @@ import { Topbar } from "../components/Topbar";
 import { Icon } from "../components/Icon";
 import { TypeTag } from "../components/Tag";
 import { api, type DeepDive as DeepDiveData } from "../lib/api";
-import { qk } from "../lib/queries";
+import { qk, useCan } from "../lib/queries";
 import { Markdown } from "../lib/markdown";
 
 function metaLine(d: DeepDiveData): string {
@@ -38,6 +38,7 @@ export function DeepDive() {
   const rid = Number(id);
   const navigate = useNavigate();
   const qc = useQueryClient();
+  const { canEdit } = useCan();
 
   const {
     data: d,
@@ -122,24 +123,26 @@ export function DeepDive() {
           { label: d.title },
         ]}
         actions={
-          <>
-            <button
-              className="btn btn-ghost btn-sm"
-              disabled={generating}
-              onClick={onRerun}
-            >
-              <Icon name="refresh" size={12} />
-              {d.status === "complete" ? "Regenerate" : "Generate"}
-            </button>
-            <button
-              className="btn btn-ghost btn-sm"
-              disabled={generating || del.isPending}
-              onClick={onDelete}
-            >
-              <Icon name="trash" size={12} />
-              Delete
-            </button>
-          </>
+          canEdit && (
+            <>
+              <button
+                className="btn btn-ghost btn-sm"
+                disabled={generating}
+                onClick={onRerun}
+              >
+                <Icon name="refresh" size={12} />
+                {d.status === "complete" ? "Regenerate" : "Generate"}
+              </button>
+              <button
+                className="btn btn-ghost btn-sm"
+                disabled={generating || del.isPending}
+                onClick={onDelete}
+              >
+                <Icon name="trash" size={12} />
+                Delete
+              </button>
+            </>
+          )
         }
       />
 
@@ -196,13 +199,15 @@ export function DeepDive() {
             <div className="ru-error-detail">
               {d.error_message || "Unknown error."}
             </div>
-            <button
-              className="btn btn-sm"
-              disabled={rerun.isPending}
-              onClick={() => rerun.mutate()}
-            >
-              <Icon name="refresh" size={12} /> Retry
-            </button>
+            {canEdit && (
+              <button
+                className="btn btn-sm"
+                disabled={rerun.isPending}
+                onClick={() => rerun.mutate()}
+              >
+                <Icon name="refresh" size={12} /> Retry
+              </button>
+            )}
           </div>
         ) : d.report_md ? (
           <article className="ru-body">
@@ -211,15 +216,17 @@ export function DeepDive() {
         ) : (
           <div className="empty">
             Not generated yet.
-            <div style={{ marginTop: 12 }}>
-              <button
-                className="btn btn-sm"
-                disabled={rerun.isPending}
-                onClick={() => rerun.mutate()}
-              >
-                <Icon name="spark" size={12} /> Generate report
-              </button>
-            </div>
+            {canEdit && (
+              <div style={{ marginTop: 12 }}>
+                <button
+                  className="btn btn-sm"
+                  disabled={rerun.isPending}
+                  onClick={() => rerun.mutate()}
+                >
+                  <Icon name="spark" size={12} /> Generate report
+                </button>
+              </div>
+            )}
           </div>
         )}
 

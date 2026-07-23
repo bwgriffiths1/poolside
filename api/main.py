@@ -24,11 +24,17 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from .auth import current_user, require_secret
+from .auth import (
+    current_user,
+    require_admin,
+    require_editor_for_writes,
+    require_secret,
+)
 from .migrate import run_migrations
 from .routes import (
     admin,
     admin_dashboard,
+    admin_users,
     agenda_items,
     ask,
     attachments,
@@ -85,7 +91,8 @@ async def lifespan(app: FastAPI):
         if admin_email and admin_password:
             from pipeline.auth import create_user, get_user_by_email
             if get_user_by_email(admin_email) is None:
-                create_user(email=admin_email, name="Admin", password=admin_password)
+                create_user(email=admin_email, name="Admin",
+                            password=admin_password, role="admin")
                 log.info("seeded admin user %s", admin_email)
     except Exception as e:
         log.warning("admin seed failed: %s", e)
@@ -202,35 +209,52 @@ app.include_router(share.router)
 app.include_router(user_tokens.router)
 
 # ── Everything else requires a valid session cookie ────────────────────
-# Router-level dependency; FastAPI's per-request dependency cache means
-# endpoints that also declare current_user (for the user dict) don't pay twice.
-_AUTH = [Depends(current_user)]
-app.include_router(me.router, dependencies=_AUTH)
-app.include_router(meetings.router, dependencies=_AUTH)
-app.include_router(briefings.router, dependencies=_AUTH)
-app.include_router(roundups.router, dependencies=_AUTH)
-app.include_router(deep_dives.router, dependencies=_AUTH)
-app.include_router(dockets.router, dependencies=_AUTH)
-app.include_router(ask.router, dependencies=_AUTH)
-app.include_router(documents.router, dependencies=_AUTH)
-app.include_router(attachments.router, dependencies=_AUTH)
-app.include_router(item_materials.router, dependencies=_AUTH)
-app.include_router(agenda_items.router, dependencies=_AUTH)
-app.include_router(prompts.router, dependencies=_AUTH)
-app.include_router(prompts.config_router, dependencies=_AUTH)
-app.include_router(summaries.router, dependencies=_AUTH)
-app.include_router(editor_images.router, dependencies=_AUTH)
-app.include_router(images.router, dependencies=_AUTH)
-app.include_router(ingest.router, dependencies=_AUTH)
-app.include_router(admin.router, dependencies=_AUTH)
-app.include_router(admin_dashboard.router, dependencies=_AUTH)
-app.include_router(config_route.router, dependencies=_AUTH)
-app.include_router(manual_ingest.router, dependencies=_AUTH)
-app.include_router(jobs.router, dependencies=_AUTH)
-app.include_router(search.router, dependencies=_AUTH)
-app.include_router(initiatives.router, dependencies=_AUTH)
-app.include_router(notifications.router, dependencies=_AUTH)
-app.include_router(watches.router, dependencies=_AUTH)
+# Router-level dependencies; FastAPI's per-request dependency cache means
+# endpoints that also declare current_user (for the user dict) don't pay
+# twice. The three mount groups ARE the permission policy:
+#   _ANY   — viewer-permitted routers (self-service state + Ask; GETs and
+#            writes alike). These routers contain ONLY viewer-safe endpoints.
+#   _EDIT  — GETs open to every role; writes require editor or admin.
+#   _ADMIN — every method requires admin.
+# tests/test_route_protection.py walks app.routes and enforces this
+# partition, so a future router mounted without a gate fails CI.
+_ANY = [Depends(current_user)]
+_EDIT = [Depends(current_user), Depends(require_editor_for_writes)]
+_ADMIN = [Depends(current_user), Depends(require_admin)]
+
+app.include_router(me.router, dependencies=_ANY)
+app.include_router(notifications.router, dependencies=_ANY)
+app.include_router(watches.router, dependencies=_ANY)
+app.include_router(ask.router, dependencies=_ANY)
+
+app.include_router(meetings.router, dependencies=_EDIT)
+app.include_router(briefings.router, dependencies=_EDIT)
+app.include_router(roundups.router, dependencies=_EDIT)
+app.include_router(deep_dives.router, dependencies=_EDIT)
+app.include_router(dockets.router, dependencies=_EDIT)
+app.include_router(documents.router, dependencies=_EDIT)
+app.include_router(attachments.router, dependencies=_EDIT)
+app.include_router(item_materials.router, dependencies=_EDIT)
+app.include_router(agenda_items.router, dependencies=_EDIT)
+app.include_router(summaries.router, dependencies=_EDIT)
+app.include_router(editor_images.router, dependencies=_EDIT)
+app.include_router(images.router, dependencies=_EDIT)
+app.include_router(ingest.router, dependencies=_EDIT)
+# admin.py is mixed: its GETs (scheduler, venues) feed Overview/Add for all
+# roles and refresh-materials is part of the editor summarize workflow, so
+# it mounts _EDIT; the six true admin ops carry require_admin per-endpoint.
+app.include_router(admin.router, dependencies=_EDIT)
+# config GET feeds Settings/Add for all roles; the PUT carries require_admin.
+app.include_router(config_route.router, dependencies=_EDIT)
+app.include_router(manual_ingest.router, dependencies=_EDIT)
+app.include_router(jobs.router, dependencies=_EDIT)
+app.include_router(search.router, dependencies=_EDIT)
+app.include_router(initiatives.router, dependencies=_EDIT)
+
+app.include_router(admin_dashboard.router, dependencies=_ADMIN)
+app.include_router(prompts.router, dependencies=_ADMIN)
+app.include_router(prompts.config_router, dependencies=_ADMIN)
+app.include_router(admin_users.router, dependencies=_ADMIN)
 
 
 @app.get("/api/health")

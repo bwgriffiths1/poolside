@@ -27,6 +27,12 @@ function is401(err: unknown): boolean {
   return err instanceof Error && err.message.startsWith("401");
 }
 
+// The generic mutate() helper throws statusText ("403 Forbidden"), not the
+// server's detail string — so key on the prefix.
+function is403(err: unknown): boolean {
+  return err instanceof Error && err.message.startsWith("403");
+}
+
 const queryClient: QueryClient = new QueryClient({
   defaultOptions: {
     queries: {
@@ -52,7 +58,13 @@ const queryClient: QueryClient = new QueryClient({
         queryClient.invalidateQueries({ queryKey: qk.me });
       }
       if (!mutation.options.onError) {
-        toast.error(error instanceof Error ? error.message : String(error));
+        if (is403(error)) {
+          // Role gate said no. Controls are hidden per-role, so this only
+          // fires on stale UI or hand-crafted requests — keep it friendly.
+          toast.error("You don't have permission to do that.");
+        } else {
+          toast.error(error instanceof Error ? error.message : String(error));
+        }
       }
     },
   }),

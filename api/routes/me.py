@@ -29,9 +29,11 @@ def _initials(name: str) -> str:
 def me(user: dict = Depends(current_user)) -> schemas.CurrentUser:
     name = (user.get("name") or user.get("email") or "User").strip()
     return schemas.CurrentUser(
+        id=user["id"],
         name=name,
         email=user.get("email", ""),
         initials=_initials(name),
+        role=user.get("role") or "viewer",
     )
 
 

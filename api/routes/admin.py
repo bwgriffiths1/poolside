@@ -3,6 +3,11 @@
 These same functions are what APScheduler will call on its cron tick.
 Surface them as POST endpoints so analysts can also kick them off manually
 from the UI (or via curl) for testing / on-demand refresh.
+
+Role gating is deliberately mixed here (router mounts _EDIT in main.py):
+the GETs (scheduler, venues) feed Overview/Add for every role, and
+refresh-materials is part of the editor summarize workflow — but the
+scraper-wide / destructive ops below each carry require_admin.
 """
 from __future__ import annotations
 
@@ -17,7 +22,7 @@ from pipeline.ingest import cleanup_zip_expansion
 
 from .. import lifecycle, orchestrator
 from ..services import discovery
-from ..auth import current_user
+from ..auth import require_admin
 from fastapi import Depends
 
 log = logging.getLogger("poolside.admin")
@@ -37,7 +42,7 @@ def _load_config() -> dict:
 
 
 @router.post("/discover")
-def discover_all_venues() -> dict[str, Any]:
+def discover_all_venues(_: dict = Depends(require_admin)) -> dict[str, Any]:
     """Scrape configured committee calendars; create stub meeting rows.
     Thin wrapper — logic lives in api/services/discovery.py (shared with
     the scheduler crons)."""
@@ -45,7 +50,7 @@ def discover_all_venues() -> dict[str, Any]:
 
 
 @router.post("/images/prune")
-def prune_images(user: dict = Depends(current_user)) -> dict[str, Any]:
+def prune_images(user: dict = Depends(require_admin)) -> dict[str, Any]:
     """On-demand run of the weekly image prune: delete extracted images no
     stored markdown references (>30 days old, source_url-backed — a
     regenerable cache), then VACUUM FULL so the disk actually shrinks.
@@ -71,7 +76,7 @@ def prune_images(user: dict = Depends(current_user)) -> dict[str, Any]:
 
 
 @router.post("/refresh")
-def refresh_upcoming_meetings() -> dict[str, Any]:
+def refresh_upcoming_meetings(_: dict = Depends(require_admin)) -> dict[str, Any]:
     """Refresh docs + assignment for meetings in the upcoming window.
     Thin wrapper — logic lives in api/services/discovery.py."""
     return discovery.refresh_upcoming_meetings()
@@ -95,7 +100,7 @@ def refresh_one(meeting_id: int) -> dict[str, Any]:
 
 
 @router.post("/parse-agenda/{meeting_id}")
-def parse_agenda(meeting_id: int) -> dict[str, Any]:
+def parse_agenda(meeting_id: int, _: dict = Depends(require_admin)) -> dict[str, Any]:
     """Parse the agenda doc for a single meeting, then run assignment over
     docs that were sitting unassigned. Idempotent — refuses if agenda items
     already exist (returns reason)."""
@@ -117,7 +122,7 @@ def parse_agenda(meeting_id: int) -> dict[str, Any]:
 
 
 @router.post("/bump-lifecycle/{meeting_id}")
-def bump(meeting_id: int) -> dict[str, str]:
+def bump(meeting_id: int, _: dict = Depends(require_admin)) -> dict[str, str]:
     """Recompute lifecycle_status for a meeting (analyst convenience)."""
     if db.get_meeting(meeting_id) is None:
         raise HTTPException(status_code=404, detail="Meeting not found")
@@ -128,7 +133,7 @@ def bump(meeting_id: int) -> dict[str, str]:
 @router.post("/cleanup-zip-expansion/{meeting_id}")
 def cleanup_zips(
     meeting_id: int,
-    _: dict = Depends(current_user),
+    _: dict = Depends(require_admin),
 ) -> dict[str, Any]:
     """Undo a prior zip pre-expansion for this meeting.
 

@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Topbar } from "../components/Topbar";
 import { Icon } from "../components/Icon";
 import { api, type DocketListItem } from "../lib/api";
-import { qk } from "../lib/queries";
+import { qk, useCan } from "../lib/queries";
 
 function fmtDate(iso: string | null | undefined): string {
   if (!iso) return "—";
@@ -35,6 +35,7 @@ function BriefStatus({ d }: { d: DocketListItem }) {
 export function ELibrary() {
   const navigate = useNavigate();
   const qc = useQueryClient();
+  const { canEdit } = useCan();
   const [number, setNumber] = useState("");
   const [title, setTitle] = useState("");
   const [addError, setAddError] = useState<string | null>(null);
@@ -77,40 +78,44 @@ export function ELibrary() {
           </p>
         </div>
 
-        <form
-          className="el-add"
-          onSubmit={(e) => {
-            e.preventDefault();
-            if (canAdd) add.mutate();
-          }}
-        >
-          <input
-            className="input el-add-number"
-            placeholder="Docket number, e.g. ER26-925"
-            value={number}
-            onChange={(e) => setNumber(e.target.value)}
-            spellCheck={false}
-          />
-          <input
-            className="input el-add-title"
-            placeholder="Label (optional)"
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-          />
-          <button className="btn btn-accent" type="submit" disabled={!canAdd}>
-            <Icon name="plus" size={12} />
-            {add.isPending ? "Adding…" : "Track docket"}
-          </button>
-        </form>
-        <p className="el-add-hint">
-          Adding a docket starts the first crawl + summarization in the
-          background — the initial sync on a busy docket can take a while.
-        </p>
+        {canEdit && (
+          <>
+            <form
+              className="el-add"
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (canAdd) add.mutate();
+              }}
+            >
+              <input
+                className="input el-add-number"
+                placeholder="Docket number, e.g. ER26-925"
+                value={number}
+                onChange={(e) => setNumber(e.target.value)}
+                spellCheck={false}
+              />
+              <input
+                className="input el-add-title"
+                placeholder="Label (optional)"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+              />
+              <button className="btn btn-accent" type="submit" disabled={!canAdd}>
+                <Icon name="plus" size={12} />
+                {add.isPending ? "Adding…" : "Track docket"}
+              </button>
+            </form>
+            <p className="el-add-hint">
+              Adding a docket starts the first crawl + summarization in the
+              background — the initial sync on a busy docket can take a while.
+            </p>
 
-        {addError && (
-          <div className="ru-error-banner">
-            <Icon name="x" size={12} /> {addError}
-          </div>
+            {addError && (
+              <div className="ru-error-banner">
+                <Icon name="x" size={12} /> {addError}
+              </div>
+            )}
+          </>
         )}
 
         {isLoading ? (

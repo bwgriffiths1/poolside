@@ -2,7 +2,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Icon } from "../Icon";
 import { PerItemDocControls } from "../MaterialAssignment";
 import { api } from "../../lib/api";
-import { qk } from "../../lib/queries";
+import { qk, useCan } from "../../lib/queries";
 import { toast } from "../../lib/toast";
 import { extFromFilename } from "../../lib/format";
 import type { AgendaItem, DocumentRef } from "../../types";
@@ -19,6 +19,7 @@ export function DocRow({
   agenda: AgendaItem[];
 }) {
   const qc = useQueryClient();
+  const { canEdit } = useCan();
   const remove = useMutation({
     mutationFn: () => api.deleteDocument(doc.id),
     onSuccess: () => {
@@ -84,7 +85,7 @@ export function DocRow({
             </button>
           )
         )}
-        {doc.manual && (
+        {canEdit && doc.manual && (
           <button
             className="btn btn-sm btn-ghost"
             title="Remove this material"

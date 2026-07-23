@@ -11,6 +11,7 @@ import type {
   IngestJob,
   MeetingDetail,
   MeetingListItem,
+  Role,
   Roundup,
   RoundupMonth,
 } from "../types";
@@ -433,6 +434,27 @@ export const api = {
     return res.json();
   },
 
+  // ── User administration ──────────────────────────────────────────────
+  listUsers: () => get<AppUser[]>(`/admin/users`, () => []),
+  updateUser: async (
+    id: number,
+    patch: { role?: Role; is_active?: boolean },
+  ): Promise<AppUser> => {
+    const res = await fetch(`${BASE}/admin/users/${id}`, {
+      method: "PATCH",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(patch),
+    });
+    if (!res.ok) {
+      // Surface the server detail — the guard rails ("no active admins
+      // left", "can't change your own role") are the interesting errors.
+      const data = await res.json().catch(() => null);
+      throw new Error(data?.detail || `${res.status} ${res.statusText}`);
+    }
+    return res.json();
+  },
+
   // ── Invites + password resets ────────────────────────────────────────
   listUserTokens: (purpose?: "invite" | "password_reset") =>
     get<UserTokenRow[]>(
@@ -442,8 +464,9 @@ export const api = {
   createInvite: async (body: {
     email: string;
     name: string;
+    role?: Role;
     expires_days?: number | null;
-  }): Promise<UserTokenRow> => {
+  }): Promise<UserTokenCreated> => {
     const res = await fetch(`${BASE}/admin/invites`, {
       method: "POST",
       credentials: "include",
@@ -459,7 +482,7 @@ export const api = {
   createPasswordReset: async (
     email: string,
     expires_days?: number | null,
-  ): Promise<UserTokenRow> => {
+  ): Promise<UserTokenCreated> => {
     const res = await fetch(`${BASE}/admin/password-resets`, {
       method: "POST",
       credentials: "include",
@@ -1213,6 +1236,7 @@ export interface UserTokenRow {
   purpose: "invite" | "password_reset";
   email: string;
   name: string | null;
+  role: Role | null;
   created_by: number | null;
   created_at: string;
   expires_at: string | null;
@@ -1220,11 +1244,30 @@ export interface UserTokenRow {
   status?: "active" | "expired" | "used";
 }
 
+/** Create responses add the always-copyable URL and whether an email was
+ *  queued (queued, not delivered — sends are best-effort, off-thread). */
+export type UserTokenCreated = UserTokenRow & {
+  emailed: boolean;
+  accept_url: string;
+};
+
 export interface PublicTokenPreview {
   purpose: "invite" | "password_reset";
   email: string;
   name: string | null;
+  role: Role | null;
   expires_at: string | null;
+}
+
+export interface AppUser {
+  id: number;
+  email: string;
+  name: string;
+  role: Role;
+  is_active: boolean;
+  auth_provider: string;
+  created_at: string | null;
+  last_login: string | null;
 }
 
 export interface InitiativeSummary {

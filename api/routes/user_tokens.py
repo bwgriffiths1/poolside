@@ -1,15 +1,19 @@
 """Invite + password-reset tokens.
 
 Both flows share one table (user_tokens, purpose='invite' | 'password_reset').
-Email infra isn't wired yet, so the admin generates the token, copies the
-URL the route returns, and forwards it to the user out-of-band.
+Invites carry the role the admin chose; the accepting user is created with
+it. When the mailer is configured the token URL is emailed to the target
+(best-effort, off-thread); either way the response includes accept_url so
+the admin can always copy it and forward it out-of-band.
 
-Admin endpoints are auth-gated; the accept endpoint is public so the user
-can hit it without first logging in.
+Admin endpoints require the admin role; the accept endpoint is public so
+the user can hit it without first logging in.
 """
 from __future__ import annotations
 
+import logging
 import secrets
+import threading
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -21,7 +25,10 @@ from pipeline.auth import (
     get_user_by_email,
     set_user_password,
 )
-from ..auth import current_user
+from ..auth import VALID_ROLES, require_admin
+from ..services import mailer
+
+log = logging.getLogger("poolside.user_tokens")
 
 router = APIRouter(prefix="/api", tags=["user-tokens"])
 
@@ -32,6 +39,28 @@ _MIN_PASSWORD_LEN = 6
 
 def _make_token() -> str:
     return secrets.token_urlsafe(24)
+
+
+def _accept_url(token: str) -> str:
+    return f"{mailer._base_url()}/#/accept/{token}"
+
+
+def _send_token_email(kind: str, to: str, payload: dict[str, Any]) -> None:
+    """Best-effort send, off the request thread (mirrors the approve-flow
+    fan-out in briefings.py) — a slow mail API can't drag out the response,
+    and a failure only logs; the copy-URL in the response is the fallback."""
+    def _send() -> None:
+        try:
+            if kind == "invite":
+                subject, html_body = mailer.invite_email(payload)
+            else:
+                subject, html_body = mailer.password_reset_email(payload)
+            mailer.send_email(to, subject, html_body)
+        except Exception:  # never let email break token creation
+            log.exception("%s email to %s failed", kind, to)
+
+    threading.Thread(target=_send, daemon=True,
+                     name=f"user-token-mail-{kind}").start()
 
 
 def _serialize(row: dict) -> dict[str, Any]:
@@ -58,10 +87,10 @@ def _status(row: dict) -> str:
 @router.post("/admin/invites")
 def create_invite(
     body: dict[str, Any] = Body(...),
-    user: dict = Depends(current_user),
+    user: dict = Depends(require_admin),
 ) -> dict[str, Any]:
     """Generate an invite token for a new user. Body: {"email": str,
-    "name": str, "expires_days": int?}.
+    "name": str, "role": str?, "expires_days": int?}.
 
     Idempotent: re-inviting the same email rotates the token if there's
     an outstanding (active, unused) one for that email.
@@ -70,6 +99,12 @@ def create_invite(
     name = (body.get("name") or "").strip()
     if not email or not name:
         raise HTTPException(status_code=400, detail="email and name are required")
+    role = (body.get("role") or "viewer").strip().lower()
+    if role not in VALID_ROLES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"role must be one of: {', '.join(VALID_ROLES)}",
+        )
     if get_user_by_email(email):
         raise HTTPException(
             status_code=409,
@@ -87,19 +122,32 @@ def create_invite(
         with db._cursor(conn) as cur:
             cur.execute(
                 """INSERT INTO user_tokens
-                       (token, purpose, email, name, created_by, expires_at)
-                   VALUES (%s, 'invite', %s, %s, %s, %s)
+                       (token, purpose, email, name, role, created_by, expires_at)
+                   VALUES (%s, 'invite', %s, %s, %s, %s, %s)
                    RETURNING *""",
-                (token, email, name, user["id"], expires_at),
+                (token, email, name, role, user["id"], expires_at),
             )
             row = dict(cur.fetchone())
-    return _serialize(row)
+
+    emailed = mailer.mail_enabled()
+    if emailed:
+        _send_token_email("invite", email, {
+            "name": name,
+            "email": email,
+            "role": role,
+            "accept_url": _accept_url(token),
+            "expires_days": days if days > 0 else None,
+            "invited_by": user.get("name") or user.get("email") or "",
+        })
+    # emailed means "queued" — the send is off-thread and best-effort; the
+    # accept_url is always present so the admin can copy it either way.
+    return {**_serialize(row), "emailed": emailed, "accept_url": _accept_url(token)}
 
 
 @router.post("/admin/password-resets")
 def create_password_reset(
     body: dict[str, Any] = Body(...),
-    user: dict = Depends(current_user),
+    user: dict = Depends(require_admin),
 ) -> dict[str, Any]:
     """Generate a password-reset token for an existing user. Body:
     {"email": str, "expires_days": int?}."""
@@ -127,12 +175,21 @@ def create_password_reset(
                 (token, email, target.get("name"), user["id"], expires_at),
             )
             row = dict(cur.fetchone())
-    return _serialize(row)
+
+    emailed = mailer.mail_enabled()
+    if emailed:
+        _send_token_email("password_reset", email, {
+            "name": target.get("name") or email,
+            "email": email,
+            "accept_url": _accept_url(token),
+            "expires_days": days if days > 0 else None,
+        })
+    return {**_serialize(row), "emailed": emailed, "accept_url": _accept_url(token)}
 
 
 @router.get("/admin/user-tokens")
 def list_user_tokens(
-    _: dict = Depends(current_user),
+    _: dict = Depends(require_admin),
     purpose: str | None = None,
 ) -> list[dict[str, Any]]:
     """List recent invite + reset tokens. Filter with ?purpose=invite or
@@ -169,7 +226,7 @@ def list_user_tokens(
 @router.delete("/admin/user-tokens/{token_id}")
 def revoke_token(
     token_id: int,
-    _: dict = Depends(current_user),
+    _: dict = Depends(require_admin),
 ) -> dict[str, bool]:
     """Hard-delete a token (revoke). The token's URL stops working
     immediately."""
@@ -203,6 +260,7 @@ def public_token_preview(token: str) -> dict[str, Any]:
         "purpose": row["purpose"],
         "email": row["email"],
         "name": row.get("name"),
+        "role": row.get("role") if row["purpose"] == "invite" else None,
         "expires_at": row["expires_at"].isoformat()
             if row.get("expires_at") is not None else None,
     }
@@ -249,6 +307,8 @@ def public_token_accept(
                     email=email,
                     name=row.get("name") or email,
                     password=password,
+                    # Invites minted before migration 016 carry 'viewer'.
+                    role=row.get("role") or "viewer",
                 )
             elif purpose == "password_reset":
                 target = get_user_by_email(email)

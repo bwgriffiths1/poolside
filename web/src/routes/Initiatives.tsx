@@ -5,7 +5,7 @@ import { Topbar } from "../components/Topbar";
 import { Icon } from "../components/Icon";
 import { VenueTag, TypeTag } from "../components/Tag";
 import { api, type InitiativeBrief } from "../lib/api";
-import { qk } from "../lib/queries";
+import { qk, useCan } from "../lib/queries";
 import { Markdown } from "../lib/markdown";
 import { toast } from "../lib/toast";
 
@@ -164,6 +164,7 @@ function BriefSection({
   itemCount: number;
 }) {
   const qc = useQueryClient();
+  const { canEdit } = useCan();
   const generate = useMutation({
     mutationFn: () => api.generateInitiativeBrief(code),
     onSuccess: () => {
@@ -197,13 +198,15 @@ function BriefSection({
             into one "story so far" narrative.
           </div>
         </div>
-        <button
-          className="btn btn-sm btn-primary"
-          disabled={generating || itemCount === 0}
-          onClick={() => generate.mutate()}
-        >
-          <Icon name="spark" size={12} /> Generate brief
-        </button>
+        {canEdit && (
+          <button
+            className="btn btn-sm btn-primary"
+            disabled={generating || itemCount === 0}
+            onClick={() => generate.mutate()}
+          >
+            <Icon name="spark" size={12} /> Generate brief
+          </button>
+        )}
       </div>
     );
   }
@@ -228,13 +231,15 @@ function BriefSection({
       <div className="ib-error">
         <div className="ib-error-title">Brief generation failed</div>
         <div className="muted text-sm">{brief.error_message || "Unknown error."}</div>
-        <button
-          className="btn btn-sm"
-          disabled={generate.isPending}
-          onClick={() => generate.mutate()}
-        >
-          <Icon name="refresh" size={12} /> Retry
-        </button>
+        {canEdit && (
+          <button
+            className="btn btn-sm"
+            disabled={generate.isPending}
+            onClick={() => generate.mutate()}
+          >
+            <Icon name="refresh" size={12} /> Retry
+          </button>
+        )}
       </div>
     );
   }
@@ -259,13 +264,15 @@ function BriefSection({
         </div>
         <div className="row" style={{ gap: 8 }}>
           <span className="muted text-xs">{briefMetaLine(brief)}</span>
-          <button
-            className="btn btn-ghost btn-sm"
-            disabled={generating}
-            onClick={onRegenerate}
-          >
-            <Icon name="refresh" size={12} /> Regenerate
-          </button>
+          {canEdit && (
+            <button
+              className="btn btn-ghost btn-sm"
+              disabled={generating}
+              onClick={onRegenerate}
+            >
+              <Icon name="refresh" size={12} /> Regenerate
+            </button>
+          )}
         </div>
       </div>
       <article className="ib-brief-body">

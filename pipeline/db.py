@@ -2382,3 +2382,79 @@ def get_docket_filing_file(file_row_id: int) -> dict | None:
             """, (file_row_id,))
             row = cur.fetchone()
             return dict(row) if row else None
+
+
+# ---------------------------------------------------------------------------
+# User administration  — the Admin → Users panel
+# ---------------------------------------------------------------------------
+
+def list_app_users() -> list[dict]:
+    """All accounts for the admin user table. Excludes password_hash by
+    construction — never let it near a serializer."""
+    with _conn() as conn:
+        with _cursor(conn) as cur:
+            cur.execute(
+                """SELECT id, email, name, role, is_active, auth_provider,
+                          created_at, last_login
+                     FROM app_users
+                 ORDER BY created_at ASC, id ASC"""
+            )
+            return [dict(r) for r in cur.fetchall()]
+
+
+def get_app_user(user_id: int) -> dict | None:
+    with _conn() as conn:
+        with _cursor(conn) as cur:
+            cur.execute(
+                """SELECT id, email, name, role, is_active, auth_provider,
+                          created_at, last_login
+                     FROM app_users WHERE id = %s""",
+                (user_id,),
+            )
+            row = cur.fetchone()
+            return dict(row) if row else None
+
+
+def update_app_user(user_id: int, *, role: str | None = None,
+                    is_active: bool | None = None) -> dict | None:
+    """Patch role and/or is_active. Caller validates values and guard rails
+    (self-demotion, last-admin) — this helper just writes."""
+    sets, params = [], []
+    if role is not None:
+        sets.append("role = %s")
+        params.append(role)
+    if is_active is not None:
+        sets.append("is_active = %s")
+        params.append(is_active)
+    if not sets:
+        return get_app_user(user_id)
+    params.append(user_id)
+    with _conn() as conn:
+        with _cursor(conn) as cur:
+            cur.execute(
+                f"""UPDATE app_users SET {', '.join(sets)}
+                     WHERE id = %s
+                 RETURNING id, email, name, role, is_active, auth_provider,
+                           created_at, last_login""",
+                params,
+            )
+            row = cur.fetchone()
+            return dict(row) if row else None
+
+
+def count_active_admins(exclude_user_id: int | None = None) -> int:
+    """Active admins, optionally ignoring one user — the last-admin guard
+    asks 'how many admins would remain besides this one?'."""
+    with _conn() as conn:
+        with _cursor(conn) as cur:
+            if exclude_user_id is None:
+                cur.execute(
+                    "SELECT COUNT(*) AS n FROM app_users WHERE role = 'admin' AND is_active"
+                )
+            else:
+                cur.execute(
+                    """SELECT COUNT(*) AS n FROM app_users
+                        WHERE role = 'admin' AND is_active AND id != %s""",
+                    (exclude_user_id,),
+                )
+            return int(cur.fetchone()["n"])

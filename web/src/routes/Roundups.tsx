@@ -5,7 +5,7 @@ import { Topbar } from "../components/Topbar";
 import { Icon } from "../components/Icon";
 import { Tag } from "../components/Tag";
 import { api } from "../lib/api";
-import { qk } from "../lib/queries";
+import { qk, useCan } from "../lib/queries";
 import type { RoundupMonth } from "../types";
 
 function StatusCell({
@@ -17,6 +17,7 @@ function StatusCell({
   onGenerate: () => void;
   busy: boolean;
 }) {
+  const { canEdit } = useCan();
   const r = m.roundup;
   if (r?.status === "generating") {
     return (
@@ -39,6 +40,9 @@ function StatusCell({
   }
   if (m.briefing_count === 0) {
     return <span className="text-xs muted">No briefings</span>;
+  }
+  if (!canEdit) {
+    return <span className="text-xs muted">Not generated</span>;
   }
   return (
     <button

@@ -107,7 +107,9 @@ export function Accept() {
 
         <p className="muted text-sm" style={{ margin: "8px 0 16px" }}>
           {preview.data.purpose === "invite"
-            ? "You've been invited to Poolside. Choose a password to finish setting up your account."
+            ? `You've been invited to Poolside${
+                preview.data.role ? ` as ${preview.data.role === "admin" ? "an" : preview.data.role === "editor" ? "an" : "a"} ${preview.data.role}` : ""
+              }. Choose a password to finish setting up your account.`
             : "Pick a new password to regain access to your account."}
         </p>
 

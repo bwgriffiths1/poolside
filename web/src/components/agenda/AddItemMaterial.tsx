@@ -3,7 +3,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Icon } from "../Icon";
 import { Segmented } from "../Segmented";
 import { api } from "../../lib/api";
-import { qk } from "../../lib/queries";
+import { qk, useCan } from "../../lib/queries";
 
 export function AddItemMaterial({
   itemId,
@@ -15,6 +15,7 @@ export function AddItemMaterial({
   onAdded: () => void;
 }) {
   const qc = useQueryClient();
+  const { canEdit } = useCan();
   const inputRef = useRef<HTMLInputElement>(null);
   const [open, setOpen] = useState(false);
   const [mode, setMode] = useState<"link" | "upload">("link");
@@ -72,6 +73,10 @@ export function AddItemMaterial({
       setBusy(false);
     }
   }
+
+  // Render-level gate: this component calls the api directly (no mutations),
+  // so hiding it is the whole story for read-only roles.
+  if (!canEdit) return null;
 
   if (!open) {
     return (

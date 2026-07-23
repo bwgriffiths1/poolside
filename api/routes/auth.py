@@ -57,10 +57,14 @@ def _to_current_user(user: dict) -> schemas.CurrentUser:
         if len(parts) >= 2
         else (parts[0][:2].upper() if parts else "U")
     )
+    # Must mirror me.py exactly — Login.tsx primes the qk.me cache with this
+    # response, so a missing field here breaks role gating until refetch.
     return schemas.CurrentUser(
+        id=user["id"],
         name=name,
         email=user.get("email", ""),
         initials=initials,
+        role=user.get("role") or "viewer",
     )
 
 

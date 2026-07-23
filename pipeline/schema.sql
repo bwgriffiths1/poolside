@@ -211,6 +211,7 @@ CREATE TABLE IF NOT EXISTS app_users (
     name          TEXT NOT NULL,
     password_hash TEXT,                          -- NULL for Google-only users
     auth_provider TEXT NOT NULL DEFAULT 'local', -- 'local' | 'google'
+    role          TEXT NOT NULL DEFAULT 'viewer', -- 'admin'|'editor'|'viewer' — see migration 016
     is_active     BOOLEAN NOT NULL DEFAULT true,
     email_prefs   JSONB NOT NULL DEFAULT '{}',   -- see migration 013
     created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),

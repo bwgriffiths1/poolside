@@ -5,7 +5,7 @@ import { Topbar } from "../components/Topbar";
 import { Icon } from "../components/Icon";
 import { TypeTag } from "../components/Tag";
 import { api, type DeepDive, type DeepDiveSource } from "../lib/api";
-import { qk } from "../lib/queries";
+import { qk, useCan } from "../lib/queries";
 import { toast } from "../lib/toast";
 import type { MeetingListItem } from "../types";
 
@@ -278,6 +278,7 @@ function Builder({ onClose }: { onClose: () => void }) {
 
 export function DeepDives() {
   const navigate = useNavigate();
+  const { canEdit } = useCan();
   const [building, setBuilding] = useState(false);
 
   const { data: reports = [], isLoading } = useQuery({
@@ -293,7 +294,7 @@ export function DeepDives() {
       <Topbar
         crumbs={[{ label: "Deep Dives" }]}
         actions={
-          !building && (
+          canEdit && !building && (
             <button
               className="btn btn-sm btn-primary"
               onClick={() => setBuilding(true)}
@@ -314,18 +315,20 @@ export function DeepDives() {
           </p>
         </div>
 
-        {building && <Builder onClose={() => setBuilding(false)} />}
+        {canEdit && building && <Builder onClose={() => setBuilding(false)} />}
 
         {isLoading ? (
           <div className="empty">Loading…</div>
         ) : reports.length === 0 && !building ? (
           <div className="empty">
             No deep dives yet.
-            <div style={{ marginTop: 12 }}>
-              <button className="btn btn-sm" onClick={() => setBuilding(true)}>
-                <Icon name="spark" size={12} /> Build your first
-              </button>
-            </div>
+            {canEdit && (
+              <div style={{ marginTop: 12 }}>
+                <button className="btn btn-sm" onClick={() => setBuilding(true)}>
+                  <Icon name="spark" size={12} /> Build your first
+                </button>
+              </div>
+            )}
           </div>
         ) : (
           <div className="ru-list" style={{ marginTop: building ? 24 : 0 }}>

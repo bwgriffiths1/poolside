@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Icon } from "./Icon";
 import { api, type DocAssignment } from "../lib/api";
-import { qk } from "../lib/queries";
+import { qk, useCan } from "../lib/queries";
 import { extFromFilename } from "../lib/format";
 import type { AgendaItem } from "../types";
 
@@ -19,6 +19,7 @@ interface ItemOption {
 
 export function MaterialAssignment({ meetingId, agenda }: Props) {
   const qc = useQueryClient();
+  const { canEdit } = useCan();
   const { data: docs, isLoading } = useQuery({
     queryKey: qk.meetingDocs(meetingId),
     queryFn: () => api.meetingDocuments(meetingId),
@@ -47,6 +48,10 @@ export function MaterialAssignment({ meetingId, agenda }: Props) {
       item_id: i.item_id || "—",
       title: i.title,
     }));
+
+  // Pure triage surface (assign / ignore / restore) — nothing here is
+  // read-useful without the controls, so read-only roles get nothing.
+  if (!canEdit) return null;
 
   if (isLoading || !docs) {
     return null;
@@ -223,6 +228,7 @@ export function PerItemDocControls({
   agenda: AgendaItem[];
 }) {
   const qc = useQueryClient();
+  const { canEdit } = useCan();
   const invalidate = () => {
     qc.invalidateQueries({ queryKey: qk.meetingDocs(meetingId) });
     qc.invalidateQueries({ queryKey: qk.meeting(meetingId) });
@@ -244,6 +250,10 @@ export function PerItemDocControls({
       item_id: i.item_id || "—",
       title: i.title,
     }));
+
+  // Move/unassign are writes — read-only roles keep the doc row itself
+  // (filename + download live in DocRow) but get none of these controls.
+  if (!canEdit) return null;
 
   return (
     <div className="row" style={{ gap: 4 }}>

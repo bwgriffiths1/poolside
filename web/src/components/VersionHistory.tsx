@@ -7,7 +7,7 @@ import {
   type SummaryEntityType,
   type SummaryVersionMeta,
 } from "../lib/api";
-import { qk } from "../lib/queries";
+import { qk, useCan } from "../lib/queries";
 import { toast } from "../lib/toast";
 
 interface VersionHistoryProps {
@@ -29,6 +29,7 @@ export function VersionHistory({
   onRestored,
 }: VersionHistoryProps) {
   const qc = useQueryClient();
+  const { canEdit } = useCan();
   const { data: versions = [], isLoading } = useQuery({
     queryKey: qk.summaryVersions(entityType, entityId),
     queryFn: () => api.listSummaryVersions(entityType, entityId),
@@ -122,7 +123,7 @@ export function VersionHistory({
                 <Icon name={expanded ? "chev-d" : "chev-r"} size={11} />{" "}
                 {expanded ? "Hide" : "View"}
               </button>
-              {!isCurrent && isActive && (
+              {canEdit && !isCurrent && isActive && (
                 <button
                   className="btn btn-sm"
                   disabled={restore.isPending}

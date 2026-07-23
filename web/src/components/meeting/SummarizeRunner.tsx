@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Icon } from "../Icon";
 import { Segmented } from "../Segmented";
 import { api, type SummarizeMode } from "../../lib/api";
-import { qk } from "../../lib/queries";
+import { qk, useCan } from "../../lib/queries";
 import { toast } from "../../lib/toast";
 import type { AgendaItem } from "../../types";
 
@@ -26,6 +26,7 @@ export function SummarizeRunner({
   isStarting: boolean;
 }) {
   const qc = useQueryClient();
+  const { canEdit } = useCan();
   const withSummary = agenda.filter((i) => i.has_summary).length;
 
   // Meetings with any existing summary work default to "missing" — the
@@ -50,6 +51,10 @@ export function SummarizeRunner({
     },
     onError: (e: Error) => toast.error(`Refresh failed: ${e.message}`),
   });
+
+  // Read-only roles get no run/refresh controls (job status lives in
+  // SummarizeJobBanner, rendered by Meeting.tsx, so viewers still see it).
+  if (!canEdit) return null;
 
   return (
     <div className="summary-runner">

@@ -20,7 +20,7 @@ from fastapi.responses import Response
 
 from pipeline import db
 from .. import adapters, briefing_parser
-from ..auth import current_user
+from ..auth import current_user, require_editor
 
 router = APIRouter(prefix="/api", tags=["share"])
 
@@ -43,7 +43,7 @@ def _serialize_token(row: dict) -> dict[str, Any]:
 def create_share_link(
     meeting_id: int,
     body: dict[str, Any] | None = None,
-    user: dict = Depends(current_user),
+    user: dict = Depends(require_editor),
 ) -> dict[str, Any]:
     """Mint a new share token for this meeting's briefing.
 
@@ -94,7 +94,7 @@ def list_share_links(
 @router.delete("/share-tokens/{token_id}")
 def revoke_share(
     token_id: int,
-    _: dict = Depends(current_user),
+    _: dict = Depends(require_editor),
 ) -> dict[str, bool]:
     with db._conn() as conn:
         with db._cursor(conn) as cur:

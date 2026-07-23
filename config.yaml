@@ -62,6 +62,10 @@ ferc:
   # Context guards for the per-filing LLM call:
   max_chars_per_file: 150000
   max_chars_per_filing: 400000
+  # Sync fan-out: how many filings enrich/summarize at once (clamped 1..8).
+  # Each worker paces its own eLibrary client, so the aggregate request
+  # rate stays ~workers/2s. FERC's own SPA fires concurrent calls.
+  parallel_workers: 4
 
 summarization:
   # When true, the refresh cron auto-runs an item-scoped re-summarize as new

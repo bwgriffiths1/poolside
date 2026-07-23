@@ -9,8 +9,10 @@ import pytest
 
 from pipeline.docket_ingest import (
     DEFAULT_TREATMENT_MAP,
+    _docket_pool,
     _parse_date,
     _split_tldr,
+    _worker_count,
     author_orgs,
     classify_treatment,
     extract_parties,
@@ -209,3 +211,54 @@ def test_split_tldr_absent():
     one, rest = _split_tldr("## Straight into the summary\nbody")
     assert one is None
     assert rest.startswith("## Straight")
+
+
+# ── sync fan-out pool ───────────────────────────────────────────────────
+
+@pytest.mark.parametrize("raw,expected", [
+    (None, 4), ("garbage", 4), (0, 1), (3, 3), (99, 8),
+])
+def test_worker_count_clamps(raw, expected):
+    assert _worker_count({"parallel_workers": raw}) == expected
+
+
+def test_pool_runs_all_items_and_captures_errors():
+    def work(n):
+        if n == 3:
+            raise RuntimeError("boom")
+        return n * 10
+
+    lines: list[str] = []
+    results = _docket_pool([1, 2, 3, 4], work, 4, str, "Stage", lines.append)
+    assert len(results) == 4
+    by_label = {lab: (res, exc) for lab, res, exc in results}
+    assert by_label["1"] == (10, None)
+    assert by_label["3"][0] is None
+    assert isinstance(by_label["3"][1], RuntimeError)
+    # one line per completion (+ the pool banner)
+    assert sum("Stage:" in ln for ln in lines) >= 4
+
+
+def test_pool_cancel_from_progress_drops_pending():
+    """The progress callback is the cancellation channel (job runner
+    raises after writing the row) — a raise must abort the batch."""
+    class Cancel(Exception):
+        pass
+
+    calls: list[int] = []
+
+    def progress(msg):
+        if "1/" in msg or "2/" in msg:
+            raise Cancel()
+
+    with pytest.raises(Cancel):
+        _docket_pool([1, 2, 3, 4, 5, 6, 7, 8], calls.append, 2, str,
+                     "Stage", progress)
+    # pending items were dropped — not everything ran
+    assert len(calls) < 8
+
+
+def test_pool_serial_path_matches():
+    results = _docket_pool([5, 6], lambda n: n + 1, 1, str, "S",
+                           lambda m: None)
+    assert [(lab, res) for lab, res, _ in results] == [("5", 6), ("6", 7)]

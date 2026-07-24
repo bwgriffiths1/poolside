@@ -34,6 +34,13 @@ export function Login() {
   return (
     <div className="login-shell">
       <form className="login-card" onSubmit={onSubmit}>
+        <img
+          src="/mascot.png"
+          alt=""
+          className="login-mascot"
+          width={480}
+          height={560}
+        />
         <div className="login-brand">
           Poolside<span className="mark-accent">.</span>
         </div>

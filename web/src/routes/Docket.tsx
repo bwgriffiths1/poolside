@@ -7,6 +7,7 @@ import { Tag } from "../components/Tag";
 import { VersionHistory } from "../components/VersionHistory";
 import { api, type DocketFiling } from "../lib/api";
 import { qk, useCan } from "../lib/queries";
+import { toast } from "../lib/toast";
 import { Markdown, inlineMd } from "../lib/markdown";
 import { useDocketJob } from "../hooks/useDocketJob";
 import { useScrollSpy } from "../hooks/useScrollSpy";
@@ -247,6 +248,8 @@ export function Docket() {
   const [showHistory, setShowHistory] = useState(false);
   const [showInterventions, setShowInterventions] = useState(false);
   const [showAdmin, setShowAdmin] = useState(false);
+  // Header tagline edit — null when not editing, else the draft text.
+  const [titleDraft, setTitleDraft] = useState<string | null>(null);
 
   const jobActive =
     jobs.job &&
@@ -270,6 +273,21 @@ export function Docket() {
       qc.invalidateQueries({ queryKey: qk.dockets });
       navigate("/elibrary");
     },
+  });
+
+  // The tagline starts life as FERC's root-filing description (truncated),
+  // which is rarely how you'd describe the proceeding — let editors rewrite
+  // it. Saving "" clears it for good; the crawler only auto-fills a NULL.
+  const saveTitle = useMutation({
+    mutationFn: (title: string) => api.updateDocket(did, { title }),
+    onSuccess: () => {
+      setTitleDraft(null);
+      qc.invalidateQueries({ queryKey: qk.docket(did) });
+      qc.invalidateQueries({ queryKey: qk.dockets });
+      toast.success("Tagline updated");
+    },
+    onError: (e) =>
+      toast.error(e instanceof Error ? e.message : "Couldn't save the tagline"),
   });
 
   const { substantive, administrative, interventions } = useMemo(() => {
@@ -478,7 +496,60 @@ export function Docket() {
         >
           <div className="page-eyebrow">FERC docket</div>
           <h1 className="page-title">{d.docket_number}</h1>
-          {d.title && <p className="page-subtitle">{d.title}</p>}
+
+          {titleDraft !== null ? (
+            <form
+              className="el-tagline-edit"
+              onSubmit={(e) => {
+                e.preventDefault();
+                saveTitle.mutate(titleDraft.trim());
+              }}
+            >
+              <input
+                className="input"
+                value={titleDraft}
+                autoFocus
+                placeholder="How you'd describe this proceeding"
+                onChange={(e) => setTitleDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Escape") setTitleDraft(null);
+                }}
+              />
+              <button
+                className="btn btn-sm btn-accent"
+                type="submit"
+                disabled={saveTitle.isPending}
+              >
+                {saveTitle.isPending ? "Saving…" : "Save"}
+              </button>
+              <button
+                className="btn btn-sm btn-ghost"
+                type="button"
+                disabled={saveTitle.isPending}
+                onClick={() => setTitleDraft(null)}
+              >
+                Cancel
+              </button>
+            </form>
+          ) : (
+            (d.title || canEdit) && (
+              <p className="page-subtitle el-tagline">
+                {d.title || (
+                  <span className="el-tagline-empty">No tagline</span>
+                )}
+                {canEdit && (
+                  <button
+                    className="el-tagline-btn"
+                    title="Edit the tagline shown under the docket number"
+                    onClick={() => setTitleDraft(d.title || "")}
+                  >
+                    <Icon name="edit" size={11} /> Edit
+                  </button>
+                )}
+              </p>
+            )
+          )}
+
           <p className="el-meta">
             {d.filings.length} filing{d.filings.length === 1 ? "" : "s"} ·{" "}
             {d.intervenors.length} intervenor

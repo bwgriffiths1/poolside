@@ -161,6 +161,33 @@ def test_missing_editor_image_degrades_quietly(monkeypatch):
     assert "And the discussion that followed." in xml
 
 
+def test_storage_backed_figure_embeds(monkeypatch, tmp_path):
+    """A row whose bytes moved to object storage (storage_key set, no
+    image_b64) must embed via the real FS driver — the docx path's
+    dual-read."""
+    from pipeline import storage as storage_mod
+
+    for var in ("POOLSIDE_STORAGE_BUCKET", "POOLSIDE_STORAGE_ACCESS_KEY",
+                "POOLSIDE_STORAGE_SECRET_KEY"):
+        monkeypatch.delenv(var, raising=False)
+    monkeypatch.setenv("POOLSIDE_STORAGE_DIR", str(tmp_path))
+    storage_mod._reset_for_tests()
+    try:
+        key = storage_mod.image_key(7, 3, 0)
+        storage_mod.put_image(key, _png(40, 30))
+        monkeypatch.setattr(
+            briefing_mod,
+            "_fetch_image_record",
+            lambda image_id: {"id": image_id, "storage_key": key,
+                              "description": "Offloaded figure"},
+        )
+        xml, zf = _render(BODY.format(ref="![figure 7](/api/images/7)"))
+        assert len(_media_files(zf)) == 1, "storage-backed figure not embedded"
+        assert "offloaded figure" in xml.lower()
+    finally:
+        storage_mod._reset_for_tests()
+
+
 def test_tall_screenshot_is_capped_to_page_height(fake_images, monkeypatch):
     """A very tall screenshot must not run off the page."""
     tall = _png(width=40, height=400)

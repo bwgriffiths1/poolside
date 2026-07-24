@@ -82,6 +82,11 @@ summarization:
     enabled: true
     min_size_px: 200
     max_per_item: 8
+    # Downscale extracted images so the long edge is at most this many
+    # pixels (0 = keep original size). Anthropic downscales >1568px
+    # server-side anyway; 2000px keeps .docx embeds crisp while cutting
+    # the multi-MB outliers ~10x.
+    max_edge_px: 2000
     extract_from:
     - .pdf
     - .pptx

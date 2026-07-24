@@ -57,19 +57,21 @@ def prune_images(user: dict = Depends(require_admin)) -> dict[str, Any]:
     Synchronous; the whole thing is a few seconds."""
     from datetime import datetime, timezone
 
-    from pipeline import appconfig
+    from pipeline import appconfig, storage
 
     result = db.prune_unreferenced_document_images(older_than_days=30)
+    objects_deleted = storage.delete_images(result.pop("storage_keys", []))
     if result["deleted"]:
         db.vacuum_document_images()
     stamp = {
         "at": datetime.now(timezone.utc).isoformat(),
         "deleted": result["deleted"],
         "freed_bytes": result["freed_bytes"],
+        "objects_deleted": objects_deleted,
         "by": (user.get("email") if isinstance(user, dict) else None) or "admin",
     }
     appconfig.set_config_key("image_prune_last", stamp, updated_by="admin")
-    return {**result, "stats": db.image_stats()}
+    return {**result, "objects_deleted": objects_deleted, "stats": db.image_stats()}
 
 
 # ─── Materials refresh ───────────────────────────────────────────────────────

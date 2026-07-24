@@ -102,7 +102,9 @@ CREATE TABLE IF NOT EXISTS document_images (
     width         INT,
     height        INT,
     file_path     TEXT,                    -- relative path from storage_root
-    image_b64     TEXT,                    -- base64-encoded PNG for LLM/UI use
+    image_b64     TEXT,                    -- legacy: base64 PNG in-DB (pre-object-storage rows)
+    storage_key   TEXT,                    -- object key in the storage bucket (pipeline/storage.py)
+    size_bytes    INT,                     -- raw PNG size when offloaded to storage
     description   TEXT,                    -- Claude-generated description
     created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     UNIQUE (document_id, page_or_slide, img_index)

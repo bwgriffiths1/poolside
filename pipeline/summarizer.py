@@ -31,6 +31,7 @@ from pptx import Presentation
 from pptx.enum.shapes import MSO_SHAPE_TYPE
 
 import pipeline.db as db
+import pipeline.storage as storage
 
 logger = logging.getLogger(__name__)
 
@@ -260,6 +261,7 @@ def _load_image_config() -> dict:
         "enabled": False,
         "min_size_px": 200,
         "max_per_item": 10,
+        "max_edge_px": 2000,
         "extract_from": [".pdf", ".pptx"],
     }
     try:
@@ -271,12 +273,25 @@ def _load_image_config() -> dict:
     return defaults
 
 
-def _img_to_png_b64(image_bytes: bytes) -> str:
-    """Convert raw image bytes to a base64-encoded PNG string."""
+def _img_to_png_bytes(image_bytes: bytes, max_edge_px: int = 0) -> tuple[bytes, int, int]:
+    """Re-encode raw image bytes as PNG, optionally downscaling so the long
+    edge is at most max_edge_px (0 = keep original size). Returns
+    (png_bytes, width, height) after any resize.
+
+    Anthropic downscales anything over ~1568px server-side, so oversized
+    originals only cost storage and upload time; ~2000px keeps .docx embeds
+    crisp (config: summarization.images.max_edge_px).
+    """
     img = Image.open(io.BytesIO(image_bytes))
+    if img.mode not in ("1", "L", "LA", "I", "P", "RGB", "RGBA"):
+        img = img.convert("RGB")  # e.g. CMYK from print-oriented PDFs can't save as PNG
+    if max_edge_px and max(img.size) > max_edge_px:
+        if img.mode == "P":
+            img = img.convert("RGBA")  # LANCZOS on a palette image posterizes
+        img.thumbnail((max_edge_px, max_edge_px), Image.LANCZOS)
     buf = io.BytesIO()
     img.save(buf, format="PNG")
-    return base64.b64encode(buf.getvalue()).decode("ascii")
+    return buf.getvalue(), img.width, img.height
 
 
 def extract_images_pptx(
@@ -461,19 +476,37 @@ def _extract_and_store_images(
         images_dir = meeting_folder / "_images"
         images_dir.mkdir(parents=True, exist_ok=True)
 
+    max_edge = int(img_cfg.get("max_edge_px", 0) or 0)
     stored = []
     for img in raw_images:
         slug = f"slide{img['page_or_slide']}" if file_type == ".pptx" else f"page{img['page_or_slide']}"
         fname = f"{doc_stem}_{slug}_img{img['img_index']}.png"
 
-        # Convert to PNG base64
-        b64 = _img_to_png_b64(img["image_bytes"])
+        png_bytes, width, height = _img_to_png_bytes(
+            img["image_bytes"], max_edge_px=max_edge,
+        )
+
+        # Bytes go to object storage when configured; a put failure degrades
+        # that one image to the legacy in-DB base64 rather than killing the
+        # summarize run. With storage unconfigured (no POOLSIDE_STORAGE_*),
+        # this is byte-for-byte the old behavior.
+        storage_key = size_bytes = None
+        b64 = None
+        if storage.storage_enabled():
+            key = storage.image_key(doc["id"], img["page_or_slide"], img["img_index"])
+            try:
+                storage.put_image(key, png_bytes)
+                storage_key, size_bytes = key, len(png_bytes)
+            except storage.StorageError as exc:
+                logger.warning("Object-storage put failed for %s — keeping bytes in DB: %s",
+                               key, exc)
+        if storage_key is None:
+            b64 = base64.b64encode(png_bytes).decode("ascii")
 
         # Save to disk
         rel_path = None
         if images_dir:
             out_path = images_dir / fname
-            png_bytes = base64.b64decode(b64)
             out_path.write_bytes(png_bytes)
             rel_path = str(out_path.relative_to(meeting_folder.parent.parent))
 
@@ -482,11 +515,16 @@ def _extract_and_store_images(
             filename=fname,
             page_or_slide=img["page_or_slide"],
             img_index=img["img_index"],
-            width=img["width"],
-            height=img["height"],
+            width=width,
+            height=height,
             file_path=rel_path,
             image_b64=b64,
+            storage_key=storage_key,
+            size_bytes=size_bytes,
         )
+        # Fresh rows feed the L1 multimodal call in this same run — carry the
+        # bytes in-memory so nothing re-fetches what we just wrote.
+        row["image_bytes"] = png_bytes
         stored.append(row)
 
     logger.info("Extracted %d image(s) from %s", len(stored), doc["filename"])
@@ -776,6 +814,23 @@ def _call_llm(client, model: str, prompt: str, max_tokens: int = 4096,
     )
 
 
+def _b64_for_llm(img: dict) -> str:
+    """Base64 payload for an image dict from any era: legacy rows carry
+    image_b64, fresh extractions carry in-memory image_bytes, offloaded rows
+    carry storage_key (fetched via pipeline/storage). Empty string = skip.
+
+    (Before this accessor existed, only image_b64 was checked — the
+    image_bytes dicts _fetch_images_for_refs builds were silently dropped,
+    so L2 rollup and L3 briefing calls sent no images at all.)
+    """
+    if img.get("image_b64"):
+        return img["image_b64"]
+    raw = storage.get_image_bytes(img)
+    if raw is None:
+        return ""
+    return base64.b64encode(raw).decode("ascii")
+
+
 def _call_llm_multimodal(
     client, model: str, text_prompt: str,
     images: list[dict],
@@ -803,7 +858,7 @@ def _call_llm_multimodal(
     # Build multimodal content blocks
     content: list[dict] = [{"type": "text", "text": text_prompt}]
     for img in sorted_imgs:
-        b64 = img.get("image_b64") or ""
+        b64 = _b64_for_llm(img)
         if not b64:
             continue
         media_type = img.get("media_type", "image/png")
@@ -1057,7 +1112,8 @@ def _collect_image_refs(text: str) -> list[int]:
 def _fetch_images_for_refs(image_ids: list[int]) -> list[dict]:
     """
     Fetch image records from DB for a list of image_ids.
-    Decodes base64 back to raw bytes for multimodal LLM calls.
+    Resolves bytes via storage.get_image_bytes (object storage or legacy
+    base64) for multimodal LLM calls.
     Returns list of dicts compatible with _call_llm_multimodal().
     """
     if not image_ids:
@@ -1065,9 +1121,9 @@ def _fetch_images_for_refs(image_ids: list[int]) -> list[dict]:
     rows = db.get_images_by_ids(image_ids)
     images = []
     for row in rows:
-        if not row.get("image_b64"):
+        raw_bytes = storage.get_image_bytes(row)
+        if raw_bytes is None:
             continue
-        raw_bytes = base64.b64decode(row["image_b64"])
         images.append({
             "id": row["id"],
             "image_bytes": raw_bytes,

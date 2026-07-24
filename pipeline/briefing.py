@@ -16,7 +16,6 @@ Inline images: <!-- image_id:N --> markers (and their web-resolved
 embedded from the separate editor_images table. Both kinds must be handled
 here or they render as literal markdown text in the exported document.
 """
-import base64
 import logging
 import re
 import tempfile
@@ -30,7 +29,7 @@ from docx.oxml import OxmlElement
 from docx.shared import Inches, Pt, Twips, RGBColor
 from docx.text.run import Run
 
-from pipeline import brand
+from pipeline import brand, storage
 
 logger = logging.getLogger(__name__)
 
@@ -137,14 +136,16 @@ def _embed_image_bytes(
 
 
 def _add_image_to_doc(doc: Document, image_id: int) -> None:
-    """Embed an extracted document figure (document_images) by DB id."""
+    """Embed an extracted document figure (document_images) by DB id.
+
+    Bytes resolve via storage.get_image_bytes (object storage or legacy
+    base64); a missing object degrades quietly, like a deleted row.
+    """
     record = _fetch_image_record(image_id)
-    if not record or not record.get("image_b64"):
+    if not record:
         return
-    try:
-        img_bytes = base64.b64decode(record["image_b64"])
-    except Exception as exc:
-        logger.warning("Bad base64 for image %d: %s", image_id, exc)
+    img_bytes = storage.get_image_bytes(record)
+    if img_bytes is None:
         return
     _embed_image_bytes(
         doc,

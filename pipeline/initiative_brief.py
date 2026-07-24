@@ -128,7 +128,7 @@ def run_initiative_brief(tag_id: int, client=None) -> bool:
         model = (cfg.get("initiative_brief_model")
                  or cfg.get("roundup_model")
                  or cfg.get("meeting_model", OPUS))
-        max_tokens = int(cfg.get("initiative_brief_max_tokens") or 16384)
+        max_tokens = int(cfg.get("initiative_brief_max_tokens") or 32768)
 
         if client is None:
             client = make_client()

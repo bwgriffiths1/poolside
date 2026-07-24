@@ -657,16 +657,16 @@ def summarize_filing(filing: dict, ferc: FercClient, client, cfg: dict,
     # budget; the responsive middle stays on the cheaper tiers.
     if role == "initial":
         model = mc.get("ferc_initial_model") or mc.get("meeting_model", OPUS)
-        max_tokens = int(mc.get("ferc_initial_max_tokens") or 24576)
+        max_tokens = int(mc.get("ferc_initial_max_tokens") or 32768)
     elif role == "order":
         model = mc.get("ferc_order_model") or mc.get("meeting_model", OPUS)
-        max_tokens = int(mc.get("ferc_order_max_tokens") or 20480)
+        max_tokens = int(mc.get("ferc_order_max_tokens") or 32768)
     elif filing.get("treatment") == "full":
         model = mc.get("ferc_filing_model") or mc.get("document_model", SONNET)
-        max_tokens = int(mc.get("ferc_filing_max_tokens") or 16384)
+        max_tokens = int(mc.get("ferc_filing_max_tokens") or 24576)
     else:
         model = mc.get("ferc_brief_model") or mc.get("item_model", HAIKU)
-        max_tokens = int(mc.get("ferc_filing_max_tokens") or 16384)
+        max_tokens = int(mc.get("ferc_filing_max_tokens") or 24576)
 
     progress(f"Summarizing {filing['accession_number']} "
              f"({filing.get('document_class')}) with {model}…")

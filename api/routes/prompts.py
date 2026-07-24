@@ -215,13 +215,14 @@ def delete_prompt(slug: str) -> dict[str, Any]:
 
 # ── Model config ────────────────────────────────────────────────────────────
 
+# Keep in sync with pipeline/summarizer.py _DEFAULT_MODELS/_DEFAULT_MAX_TOKENS.
 _DEFAULT_MODELS = {
-    "document_model": "claude-haiku-4-5-20251001",
-    "item_model": "claude-haiku-4-5-20251001",
-    "meeting_model": "claude-haiku-4-5-20251001",
-    "document_max_tokens": 32768,
-    "item_max_tokens": 32768,
-    "meeting_max_tokens": 32768,
+    "document_model": "claude-sonnet-5",
+    "item_model": "claude-sonnet-5",
+    "meeting_model": "claude-opus-5",
+    "document_max_tokens": 49152,
+    "item_max_tokens": 49152,
+    "meeting_max_tokens": 65536,
 }
 
 # Optional keys read by the roundup, initiative-brief, and ask features (each

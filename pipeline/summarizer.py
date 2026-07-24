@@ -43,20 +43,37 @@ _PROMPTS_DIR = _REPO_ROOT / "prompts"
 
 # Model IDs
 HAIKU  = "claude-haiku-4-5-20251001"
-SONNET = "claude-sonnet-4-6"
-OPUS   = "claude-opus-4-6"
+SONNET = "claude-sonnet-5"
+OPUS   = "claude-opus-5"
 
 _DEFAULT_MODELS = {
-    "document_model": HAIKU,
-    "item_model":     HAIKU,
-    "meeting_model":  HAIKU,
+    "document_model": SONNET,
+    "item_model":     SONNET,
+    "meeting_model":  OPUS,
 }
 
+# Thinking on the Claude 5 models is adaptive and on by default — `effort` is
+# the depth dial, and it also counts against max_tokens (thinking + response
+# share the budget). Budgets below leave headroom for that; a call that still
+# truncates doubles and retries, so headroom is cheaper than a second call.
 _DEFAULT_MAX_TOKENS = {
-    "document_max_tokens": 32768,
-    "item_max_tokens":     32768,
-    "meeting_max_tokens":  32768,
+    "document_max_tokens": 49152,
+    "item_max_tokens":     49152,
+    "meeting_max_tokens":  65536,
 }
+
+# Default reasoning effort by model family. The briefing-tier work (Opus) runs
+# at `max`; the per-document and per-item tiers (Sonnet) at `high`. Haiku 4.5
+# and Sonnet 4.5 reject output_config.effort with a 400, so they get nothing —
+# which is also why this is a lookup rather than a flat constant.
+_EFFORT_BY_FAMILY = (
+    ("claude-opus-",   "max"),
+    ("claude-sonnet-5", "high"),
+    ("claude-sonnet-4-6", "high"),
+    ("claude-fable-",  "high"),
+)
+
+_EFFORT_LEVELS = {"low", "medium", "high", "xhigh", "max"}
 
 
 # ---------------------------------------------------------------------------
@@ -758,6 +775,31 @@ def _model_output_cap(model: str) -> int:
     return 64000 if "haiku" in model else 128000
 
 
+def _default_effort(model: str) -> str | None:
+    """Reasoning effort for a model, or None when the model has no effort
+    parameter (Haiku 4.5, Sonnet 4.5 — sending one is a 400)."""
+    for prefix, effort in _EFFORT_BY_FAMILY:
+        if model.startswith(prefix):
+            return effort
+    return None
+
+
+def _effort_kwargs(model: str, effort: str | None) -> dict:
+    """`output_config` fragment for a request — empty dict when this model
+    takes no effort parameter, so it can be splatted unconditionally."""
+    level = effort if effort is not None else _default_effort(model)
+    if level is None:
+        return {}
+    if level not in _EFFORT_LEVELS:
+        logger.warning("Unknown effort %r for %s — omitting", level, model)
+        return {}
+    if _default_effort(model) is None:
+        logger.warning("Model %s takes no effort parameter — omitting %r",
+                       model, level)
+        return {}
+    return {"output_config": {"effort": level}}
+
+
 def _is_retryable(exc: Exception) -> bool:
     """Typed retry classification: rate limits, 5xx/overloaded, and network
     errors are retryable; other API errors (400s etc.) are not."""
@@ -768,10 +810,13 @@ def _is_retryable(exc: Exception) -> bool:
 
 
 def _call_llm(client, model: str, prompt: str, max_tokens: int = 4096,
-              max_retries: int = 3, label: str = "") -> str:
+              max_retries: int = 3, label: str = "",
+              effort: str | None = None) -> str:
     """Streaming LLM call with typed retry on rate-limit/5xx/network errors
-    and truncation handling."""
+    and truncation handling. `effort` defaults to the model's family tier
+    (see _EFFORT_BY_FAMILY); pass a level explicitly to override."""
     import time as _time
+    effort_kwargs = _effort_kwargs(model, effort)
     current_max = max_tokens
     for attempt in range(max_retries):
         try:
@@ -779,6 +824,7 @@ def _call_llm(client, model: str, prompt: str, max_tokens: int = 4096,
                 model=model,
                 max_tokens=current_max,
                 messages=[{"role": "user", "content": prompt}],
+                **effort_kwargs,
             ) as stream:
                 msg = stream.get_final_message()
             _record_usage(model, msg)
@@ -838,6 +884,7 @@ def _call_llm_multimodal(
     max_retries: int = 3,
     max_images: int = 10,
     label: str = "",
+    effort: str | None = None,
 ) -> str:
     """
     Multimodal LLM call with text + images.
@@ -846,7 +893,7 @@ def _call_llm_multimodal(
     """
     if not images:
         return _call_llm(client, model, text_prompt, max_tokens=max_tokens,
-                         max_retries=max_retries, label=label)
+                         max_retries=max_retries, label=label, effort=effort)
 
     # Sort by area descending — larger images are more likely substantive
     sorted_imgs = sorted(
@@ -882,6 +929,7 @@ def _call_llm_multimodal(
         })
 
     import time as _time
+    effort_kwargs = _effort_kwargs(model, effort)
     current_max = max_tokens
     for attempt in range(max_retries):
         try:
@@ -889,6 +937,7 @@ def _call_llm_multimodal(
                 model=model,
                 max_tokens=current_max,
                 messages=[{"role": "user", "content": content}],
+                **effort_kwargs,
             ) as stream:
                 msg = stream.get_final_message()
             _record_usage(model, msg)
@@ -1267,10 +1316,11 @@ def call_llm(
     max_tokens: int = 4096,
     max_retries: int = 3,
     label: str = "",
+    effort: str | None = None,
 ) -> str:
     """Public wrapper for _call_llm (text-only)."""
     return _call_llm(client, model, prompt, max_tokens=max_tokens,
-                     max_retries=max_retries, label=label)
+                     max_retries=max_retries, label=label, effort=effort)
 
 
 def call_llm_multimodal(
@@ -1280,12 +1330,13 @@ def call_llm_multimodal(
     max_retries: int = 3,
     max_images: int = 10,
     label: str = "",
+    effort: str | None = None,
 ) -> str:
     """Public wrapper for _call_llm_multimodal."""
     return _call_llm_multimodal(
         client, model, text_prompt, images,
         max_tokens=max_tokens, max_retries=max_retries,
-        max_images=max_images, label=label,
+        max_images=max_images, label=label, effort=effort,
     )
 
 

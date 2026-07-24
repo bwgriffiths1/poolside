@@ -166,12 +166,18 @@ def test_ask_happy_path_serializes_sources(monkeypatch):
     )
     monkeypatch.setattr(ask_mod, "load_model_config", lambda: {"ask_model": "m-ask"})
     monkeypatch.setattr(ask_mod, "make_client", lambda: object())
-    monkeypatch.setattr(
-        ask_mod, "call_llm",
-        lambda client, model, prompt, max_tokens=0, label="": f"Answer [1]. ({model})",
-    )
+    seen: dict = {}
+
+    def _fake_llm(client, model, prompt, max_tokens=0, label="", effort=None):
+        seen["effort"] = effort
+        return f"Answer [1]. ({model})"
+
+    monkeypatch.setattr(ask_mod, "call_llm", _fake_llm)
 
     out = ask_mod.ask(AskBody(question="where does CAR-SA stand?"), {})
+    # Ask opts out of the model family's default effort — it's interactive and
+    # reads already-summarized text.
+    assert seen["effort"] == "low"
     assert out["model_id"] == "m-ask"
     assert out["answer_md"].startswith("Answer [1].")
     assert [s["n"] for s in out["sources"]] == [1, 2]

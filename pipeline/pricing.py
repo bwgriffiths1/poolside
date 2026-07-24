@@ -36,6 +36,7 @@ def _p(in_: str, out: str) -> ModelPrice:
 # Exact-match table. Stripping the date suffix handled by _resolve below.
 MODEL_PRICES: dict[str, ModelPrice] = {
     # Claude 5 family
+    "claude-opus-5":     _p("5",  "25"),
     "claude-sonnet-5":   _p("3",  "15"),   # intro $2/$10 through 2026-08-31; table carries the standard rate
     # Claude 4.x family — Opus dropped to $5/$25 from Opus 4.5 onward
     # (the old $15/$75 rate ended with Opus 4.1)

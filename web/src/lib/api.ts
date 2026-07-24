@@ -455,6 +455,15 @@ export const api = {
     return res.json();
   },
 
+  listAudit: (params?: { limit?: number; before_id?: number; user?: string }) => {
+    const q = new URLSearchParams();
+    if (params?.limit) q.set("limit", String(params.limit));
+    if (params?.before_id) q.set("before_id", String(params.before_id));
+    if (params?.user) q.set("user", params.user);
+    const qs = q.toString();
+    return get<AuditPage>(`/admin/audit${qs ? `?${qs}` : ""}`);
+  },
+
   // ── Invites + password resets ────────────────────────────────────────
   listUserTokens: (purpose?: "invite" | "password_reset") =>
     get<UserTokenRow[]>(
@@ -1268,6 +1277,25 @@ export interface AppUser {
   auth_provider: string;
   created_at: string | null;
   last_login: string | null;
+}
+
+export interface AuditItem {
+  id: number;
+  label: string;
+  user_email: string;
+  method: string;
+  path: string;
+  route: string | null;
+  path_params: Record<string, string>;
+  query: string | null;
+  status: number;
+  duration_ms: number | null;
+  created_at: string;
+}
+
+export interface AuditPage {
+  items: AuditItem[];
+  next_before_id: number | null;
 }
 
 export interface InitiativeSummary {

@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Topbar } from "../components/Topbar";
 import { Icon } from "../components/Icon";
+import { ActivityPanel } from "../components/admin/ActivityPanel";
 import { UsersPanel } from "../components/admin/UsersPanel";
 import { api, type ImageStorageStats } from "../lib/api";
 import { qk } from "../lib/queries";
@@ -148,6 +149,10 @@ export function Admin() {
             account management. */}
         <section style={{ marginTop: 48 }}>
           <UsersPanel />
+        </section>
+
+        <section style={{ marginTop: 48 }}>
+          <ActivityPanel />
         </section>
 
         <div style={{ height: 64 }} />

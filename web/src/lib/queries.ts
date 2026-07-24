@@ -64,6 +64,7 @@ export const qk = {
   usageDashboard: ["usage-dashboard"] as const,
   userTokens: ["user-tokens"] as const,
   users: ["users"] as const,
+  audit: ["audit"] as const,
 
   promptIndex: ["prompt-index"] as const,
   prompt: (slug: string) => ["prompt", slug] as const,

@@ -757,8 +757,10 @@ def sync_docket(docket_id: int, progress=logger.info,
                     summarized += 1
 
     db.touch_docket_crawled(docket_id)
-    # Title fallback: the root filing's description, once we have one.
-    if not docket.get("title") and new_rows:
+    # Title fallback: the root filing's description, once we have one. Only
+    # when NULL — an editor who cleared the tagline to "" meant it, and a
+    # later sync must not resurrect FERC's boilerplate over that choice.
+    if docket.get("title") is None and new_rows:
         root = next((f for f in db.list_docket_filings(docket_id)
                      if f.get("document_class") == "Application/Petition/Request"),
                     None)

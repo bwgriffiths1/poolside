@@ -411,6 +411,8 @@
 .b-figure {
   margin: var(--pad-5) 0;
   padding: 0;
+  /* Wide tables scroll inside the figure instead of widening the column. */
+  overflow-x: auto;
 }
 .b-table {
   width: 100%;
@@ -426,6 +428,7 @@
   letter-spacing: 0.08em;
   color: var(--muted);
   padding: 8px 10px;
+  background: var(--bg-elev);
   border-bottom: 1px solid var(--border);
   font-weight: 500;
 }
@@ -434,6 +437,15 @@
   border-bottom: 1px solid var(--border-soft);
   color: var(--ink);
 }
+/* Zebra striping — a faint ink tint that adapts to light/dark automatically
+   (ink is near-black on light themes, near-white on the terminal theme). */
+.b-table tbody tr:nth-child(even) {
+  background: color-mix(in oklab, var(--ink) 3.5%, transparent);
+}
+.b-table tbody tr:hover {
+  background: color-mix(in oklab, var(--ink) 7%, transparent);
+}
+.b-table tbody tr:last-child td { border-bottom: 0; }
 .b-table td:first-child { font-weight: 500; }
 .b-table .num { text-align: right; }
 .b-table .delta-pos { color: var(--success); font-weight: 500; }
@@ -506,6 +518,9 @@
 .b-decisions td {
   padding: 12px;
   border-bottom: 1px solid var(--border-soft);
+}
+.b-decisions tbody tr:nth-child(even) td {
+  background: color-mix(in oklab, var(--ink) 3.5%, transparent);
 }
 .b-decisions tr:hover td { background: var(--bg-elev); }
 .delta-pos { color: var(--success); }

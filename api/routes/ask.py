@@ -153,13 +153,16 @@ def ask(
     cfg = load_model_config()
     model = (cfg.get("ask_model")
              or cfg.get("item_model", HAIKU))
-    max_tokens = int(cfg.get("ask_max_tokens") or 4096)
+    max_tokens = int(cfg.get("ask_max_tokens") or 8192)
 
     client = make_client()
     log.info("ask: %d source(s), model %s: %r", len(hits), model, question[:80])
     with capture_usage() as usage_log:
+        # Ask is interactive and answers from already-summarized text, so it
+        # opts out of the model family's default (max/high) effort — deep
+        # thinking here just adds latency and eats the shared token budget.
         answer = call_llm(client, model, prompt, max_tokens=max_tokens,
-                          label=f"ask: {question[:40]}")
+                          label=f"ask: {question[:40]}", effort="low")
     totals = totals_from_usage_log(usage_log)
 
     return {

@@ -203,7 +203,7 @@ def run_docket_brief(docket_id: int, client=None,
     cfg = load_model_config()
     model = (cfg.get("ferc_state_of_play_model")
              or cfg.get("meeting_model", OPUS))
-    max_tokens = int(cfg.get("ferc_state_of_play_max_tokens") or 16384)
+    max_tokens = int(cfg.get("ferc_state_of_play_max_tokens") or 32768)
 
     if client is None:
         client = make_client()

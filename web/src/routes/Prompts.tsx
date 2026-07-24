@@ -335,11 +335,15 @@ function PromptEditor({
 
 // ─── Models tab ────────────────────────────────────────────────────────────
 
+// Effort is not set here — it follows the model family in
+// pipeline/summarizer.py (_EFFORT_BY_FAMILY): Opus runs at max, Sonnet at
+// high, Haiku takes no effort parameter at all.
 const MODEL_OPTIONS = [
   { value: "claude-haiku-4-5-20251001", label: "Haiku 4.5 (fast, cheap)" },
-  { value: "claude-sonnet-4-6", label: "Sonnet 4.6 (balanced)" },
-  { value: "claude-opus-4-6", label: "Opus 4.6 (most capable)" },
-  { value: "claude-opus-4-7", label: "Opus 4.7 (latest)" },
+  { value: "claude-sonnet-4-6", label: "Sonnet 4.6 (previous gen)" },
+  { value: "claude-opus-4-7", label: "Opus 4.7 (previous gen)" },
+  { value: "claude-sonnet-5", label: "Sonnet 5 (balanced)" },
+  { value: "claude-opus-5", label: "Opus 5 (most capable)" },
 ];
 
 function ModelsTab() {
@@ -378,7 +382,8 @@ function ModelsTab() {
       </div>
       <p className="muted text-sm" style={{ marginTop: 0, marginBottom: 16, maxWidth: "65ch" }}>
         Choose which model runs at each level of the summarization pipeline.
-        Haiku is recommended while testing — it's the fastest and cheapest.
+        Opus 5 thinks at maximum effort and Sonnet 5 at high; Haiku 4.5 does no
+        extended thinking and is the cheapest option while testing.
       </p>
 
       <div className="row" style={{ gap: 16, flexWrap: "wrap", marginBottom: 16 }}>

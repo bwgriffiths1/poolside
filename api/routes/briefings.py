@@ -83,7 +83,6 @@ def export_briefing_docx(meeting_id: int) -> Response:
         materials_url=venue_links.materials_url(
             venue_short, meeting.get("external_id")
         ),
-        webex_url=venue_links.webex_url(venue_short),
     )
 
     ext_id = meeting.get("external_id") or meeting_id

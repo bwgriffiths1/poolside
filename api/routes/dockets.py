@@ -186,6 +186,7 @@ def get_docket(docket_id: int, _: dict = Depends(current_user)) -> dict[str, Any
 
 class UpdateDocketBody(BaseModel):
     title: str | None = None
+    party_label: str | None = None
     notes: str | None = None
     auto_refresh: bool | None = None
 

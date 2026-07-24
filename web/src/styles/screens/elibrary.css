@@ -146,17 +146,37 @@
   }
 }
 
-.el-tagline-edit {
+/* Two-field header editor (venue prefix + tagline): stacked so each input and
+   the action row get their own line rather than crowding into one flex row. */
+.el-header-edit {
   display: flex;
-  align-items: center;
-  gap: 8px;
+  flex-direction: column;
+  gap: 10px;
   margin-top: 10px;
   max-width: 65ch;
 }
 
-.el-tagline-edit .input {
-  flex: 1;
+.el-header-field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.el-header-field > span {
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.el-header-edit .input {
+  width: 100%;
   min-width: 0;
+}
+
+.el-header-actions {
+  display: flex;
+  gap: 8px;
 }
 
 .el-job {

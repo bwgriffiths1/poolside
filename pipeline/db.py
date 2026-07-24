@@ -2182,7 +2182,7 @@ def list_dockets() -> list[dict]:
 
 def update_docket(docket_id: int, **fields) -> None:
     """Update specified fields on a docket (whitelisted)."""
-    allowed = {"title", "notes", "auto_refresh", "last_crawled_at"}
+    allowed = {"title", "party_label", "notes", "auto_refresh", "last_crawled_at"}
     updates = {k: v for k, v in fields.items() if k in allowed}
     if not updates:
         return

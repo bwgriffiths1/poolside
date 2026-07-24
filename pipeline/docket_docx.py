@@ -307,8 +307,8 @@ def generate_docket_docx_bytes(docket_id: int) -> tuple[bytes, str]:
     p = doc.add_paragraph(); _v2_spacing(p, before=Pt(0), after=Pt(0))
     _v2_pborder(p, "top", 30, _CYAN_HEX)
     p = doc.add_paragraph(); _v2_spacing(p, before=Pt(10), after=Pt(2))
-    _v2_run(p, "P O O L S I D E", size=brand.SZ_LABEL, bold=True, color=_CYAN,
-            font=_LABEL)
+    _v2_run(p, "POOLSIDE REPORTING SERVICE", size=brand.SZ_LABEL, bold=True,
+            color=_CYAN, font=_LABEL, track=40)
     p = doc.add_paragraph(); _v2_spacing(p, before=Pt(0), after=Pt(6))
     p.paragraph_format.keep_with_next = True
     _v2_run(p, number, size=brand.SZ_MASTHEAD, bold=True, color=_INK)
@@ -318,9 +318,14 @@ def generate_docket_docx_bytes(docket_id: int) -> tuple[bytes, str]:
             italic=True)
     p.add_run("\t")
     _v2_run(p, today, size=brand.SZ_HEADLINE, color=_GRAY_TEXT)
-    if docket.get("title"):
+    # Editable venue/party prefix (pipeline/db.py dockets.party_label) reads as
+    # "ISO-NE: <title>"; blank prefix leaves the tagline alone.
+    party = (docket.get("party_label") or "").strip()
+    title = docket.get("title") or ""
+    subtitle = f"{party}: {title}" if party and title else (party or title)
+    if subtitle:
         p = doc.add_paragraph(); _v2_spacing(p, before=Pt(0), after=Pt(10))
-        _v2_run(p, docket["title"], size=Pt(11), color=_GRAY_TEXT, italic=True)
+        _v2_run(p, subtitle, size=Pt(11), color=_GRAY_TEXT, italic=True)
     p = doc.add_paragraph(); _v2_spacing(p, before=Pt(0), after=Pt(0))
     _v2_pborder(p, "bottom", 4, _GRAY_MID_HEX)
 

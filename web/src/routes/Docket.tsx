@@ -248,8 +248,11 @@ export function Docket() {
   const [showHistory, setShowHistory] = useState(false);
   const [showInterventions, setShowInterventions] = useState(false);
   const [showAdmin, setShowAdmin] = useState(false);
-  // Header tagline edit — null when not editing, else the draft text.
+  // Header edit — titleDraft is null when not editing, else the tagline draft.
+  // partyDraft rides alongside it (the venue/party prefix) so one editor and
+  // one Save cover both fields the cover subtitle is built from.
   const [titleDraft, setTitleDraft] = useState<string | null>(null);
+  const [partyDraft, setPartyDraft] = useState("");
 
   const jobActive =
     jobs.job &&
@@ -277,17 +280,20 @@ export function Docket() {
 
   // The tagline starts life as FERC's root-filing description (truncated),
   // which is rarely how you'd describe the proceeding — let editors rewrite
-  // it. Saving "" clears it for good; the crawler only auto-fills a NULL.
-  const saveTitle = useMutation({
-    mutationFn: (title: string) => api.updateDocket(did, { title }),
+  // it. The venue/party prefix is editor-set too (blank = just the tagline);
+  // together they render as "ISO-NE: <tagline>" on the cover. Saving "" clears
+  // either for good; the crawler only auto-fills a NULL title.
+  const saveHeader = useMutation({
+    mutationFn: (body: { title: string; party_label: string }) =>
+      api.updateDocket(did, body),
     onSuccess: () => {
       setTitleDraft(null);
       qc.invalidateQueries({ queryKey: qk.docket(did) });
       qc.invalidateQueries({ queryKey: qk.dockets });
-      toast.success("Tagline updated");
+      toast.success("Header updated");
     },
     onError: (e) =>
-      toast.error(e instanceof Error ? e.message : "Couldn't save the tagline"),
+      toast.error(e instanceof Error ? e.message : "Couldn't save the header"),
   });
 
   const { substantive, administrative, interventions } = useMemo(() => {
@@ -499,49 +505,77 @@ export function Docket() {
 
           {titleDraft !== null ? (
             <form
-              className="el-tagline-edit"
+              className="el-header-edit"
               onSubmit={(e) => {
                 e.preventDefault();
-                saveTitle.mutate(titleDraft.trim());
+                saveHeader.mutate({
+                  title: titleDraft.trim(),
+                  party_label: partyDraft.trim(),
+                });
               }}
             >
-              <input
-                className="input"
-                value={titleDraft}
-                autoFocus
-                placeholder="How you'd describe this proceeding"
-                onChange={(e) => setTitleDraft(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Escape") setTitleDraft(null);
-                }}
-              />
-              <button
-                className="btn btn-sm btn-accent"
-                type="submit"
-                disabled={saveTitle.isPending}
-              >
-                {saveTitle.isPending ? "Saving…" : "Save"}
-              </button>
-              <button
-                className="btn btn-sm btn-ghost"
-                type="button"
-                disabled={saveTitle.isPending}
-                onClick={() => setTitleDraft(null)}
-              >
-                Cancel
-              </button>
+              <label className="el-header-field">
+                <span>Venue prefix</span>
+                <input
+                  className="input"
+                  value={partyDraft}
+                  placeholder="e.g. ISO-NE — optional"
+                  onChange={(e) => setPartyDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Escape") setTitleDraft(null);
+                  }}
+                />
+              </label>
+              <label className="el-header-field">
+                <span>Tagline</span>
+                <input
+                  className="input"
+                  value={titleDraft}
+                  autoFocus
+                  placeholder="How you'd describe this proceeding"
+                  onChange={(e) => setTitleDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Escape") setTitleDraft(null);
+                  }}
+                />
+              </label>
+              <div className="el-header-actions">
+                <button
+                  className="btn btn-sm btn-accent"
+                  type="submit"
+                  disabled={saveHeader.isPending}
+                >
+                  {saveHeader.isPending ? "Saving…" : "Save"}
+                </button>
+                <button
+                  className="btn btn-sm btn-ghost"
+                  type="button"
+                  disabled={saveHeader.isPending}
+                  onClick={() => setTitleDraft(null)}
+                >
+                  Cancel
+                </button>
+              </div>
             </form>
           ) : (
-            (d.title || canEdit) && (
+            (d.title || d.party_label || canEdit) && (
               <p className="page-subtitle el-tagline">
-                {d.title || (
+                {d.title || d.party_label ? (
+                  <>
+                    {d.party_label && `${d.party_label}: `}
+                    {d.title}
+                  </>
+                ) : (
                   <span className="el-tagline-empty">No tagline</span>
                 )}
                 {canEdit && (
                   <button
                     className="el-tagline-btn"
-                    title="Edit the tagline shown under the docket number"
-                    onClick={() => setTitleDraft(d.title || "")}
+                    title="Edit the venue prefix and tagline under the docket number"
+                    onClick={() => {
+                      setPartyDraft(d.party_label || "");
+                      setTitleDraft(d.title || "");
+                    }}
                   >
                     <Icon name="edit" size={11} /> Edit
                   </button>

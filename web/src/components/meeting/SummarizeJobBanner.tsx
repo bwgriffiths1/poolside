@@ -7,7 +7,8 @@ export function SummarizeJobBanner({
   onDismiss,
 }: {
   job: SummarizeJob;
-  onCancel: () => void;
+  /** Omitted for read-only roles — the status banner shows without a Cancel control. */
+  onCancel?: () => void;
   cancelling: boolean;
   onDismiss: () => void;
 }) {
@@ -30,7 +31,7 @@ export function SummarizeJobBanner({
             : job.progress_text || "Working…"}
         </div>
       </div>
-      {(job.status === "queued" || job.status === "running") && (
+      {(job.status === "queued" || job.status === "running") && onCancel && (
         <button
           className="btn btn-sm btn-ghost"
           disabled={cancelling}

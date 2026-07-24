@@ -42,15 +42,15 @@ def get_user_by_email(email: str) -> dict | None:
 
 
 def create_user(email: str, name: str, password: str,
-                auth_provider: str = "local") -> dict:
+                auth_provider: str = "local", role: str = "viewer") -> dict:
     pw_hash = hash_password(password)
     with _conn() as conn:
         with _cursor(conn) as cur:
             cur.execute(
-                """INSERT INTO app_users (email, name, password_hash, auth_provider)
-                   VALUES (%s, %s, %s, %s)
+                """INSERT INTO app_users (email, name, password_hash, auth_provider, role)
+                   VALUES (%s, %s, %s, %s, %s)
                    RETURNING *""",
-                (email, name, pw_hash, auth_provider),
+                (email, name, pw_hash, auth_provider, role),
             )
             return cur.fetchone()
 

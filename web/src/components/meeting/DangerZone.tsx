@@ -2,12 +2,13 @@ import { useNavigate } from "react-router-dom";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Icon } from "../Icon";
 import { api } from "../../lib/api";
-import { qk } from "../../lib/queries";
+import { qk, useCan } from "../../lib/queries";
 import { toast } from "../../lib/toast";
 
 export function DangerZone({ meetingId, title }: { meetingId: number; title: string }) {
   const navigate = useNavigate();
   const qc = useQueryClient();
+  const { canEdit } = useCan();
 
   const wipeDocs = useMutation({
     mutationFn: () => api.deleteAllDocuments(meetingId),
@@ -56,6 +57,9 @@ export function DangerZone({ meetingId, title }: { meetingId: number; title: str
     }
     deleteMtg.mutate();
   };
+
+  // Belt-and-braces: Meeting.tsx already skips rendering for read-only roles.
+  if (!canEdit) return null;
 
   return (
     <div className="danger-zone">

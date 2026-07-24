@@ -6,7 +6,7 @@ import { Icon } from "../components/Icon";
 import { Tag } from "../components/Tag";
 import { VersionHistory } from "../components/VersionHistory";
 import { api, type DocketFiling } from "../lib/api";
-import { qk } from "../lib/queries";
+import { qk, useCan } from "../lib/queries";
 import { Markdown, inlineMd } from "../lib/markdown";
 import { useDocketJob } from "../hooks/useDocketJob";
 import { useScrollSpy } from "../hooks/useScrollSpy";
@@ -148,6 +148,7 @@ function FilingFiles({ f }: { f: DocketFiling }) {
 
 function FilingRow({ f }: { f: DocketFiling }) {
   const navigate = useNavigate();
+  const { canEdit } = useCan();
   const [open, setOpen] = useState(false);
   const expandable = !!(f.summary_detailed || f.files.length);
   const date = f.filed_date || f.issued_date;
@@ -219,7 +220,7 @@ function FilingRow({ f }: { f: DocketFiling }) {
             >
               <Icon name="list" size={12} /> File list
             </a>
-            {f.summary_detailed && (
+            {canEdit && f.summary_detailed && (
               <button
                 className="btn btn-ghost btn-sm"
                 onClick={() => navigate(`/edit/docket_filing/${f.id}`)}
@@ -239,6 +240,7 @@ export function Docket() {
   const did = Number(id);
   const navigate = useNavigate();
   const qc = useQueryClient();
+  const { canEdit } = useCan();
   const jobs = useDocketJob(did);
   const [showHistory, setShowHistory] = useState(false);
   const [showInterventions, setShowInterventions] = useState(false);
@@ -370,15 +372,17 @@ export function Docket() {
         ]}
         actions={
           <>
-            <button
-              className="btn btn-ghost btn-sm"
-              disabled={!!jobActive || jobs.isStartingSync}
-              onClick={jobs.startSync}
-              title="Crawl eLibrary for new filings, summarize them, refresh the state of play"
-            >
-              <Icon name="refresh" size={12} />
-              {jobs.isStartingSync ? "Starting…" : "Sync"}
-            </button>
+            {canEdit && (
+              <button
+                className="btn btn-ghost btn-sm"
+                disabled={!!jobActive || jobs.isStartingSync}
+                onClick={jobs.startSync}
+                title="Crawl eLibrary for new filings, summarize them, refresh the state of play"
+              >
+                <Icon name="refresh" size={12} />
+                {jobs.isStartingSync ? "Starting…" : "Sync"}
+              </button>
+            )}
             {brief?.detailed && (
               // Plain same-origin link: the browser downloads natively via
               // Content-Disposition. No fetch/blob/revokeObjectURL dance —
@@ -391,21 +395,23 @@ export function Docket() {
                 <Icon name="download" size={12} /> Word
               </a>
             )}
-            <button
-              className="btn btn-ghost btn-sm"
-              disabled={del.isPending || !!jobActive}
-              onClick={() => {
-                if (
-                  window.confirm(
-                    `Stop tracking ${d.docket_number}? All stored filings and summaries are removed. This cannot be undone.`,
-                  )
-                ) {
-                  del.mutate();
-                }
-              }}
-            >
-              <Icon name="trash" size={12} /> Delete
-            </button>
+            {canEdit && (
+              <button
+                className="btn btn-ghost btn-sm"
+                disabled={del.isPending || !!jobActive}
+                onClick={() => {
+                  if (
+                    window.confirm(
+                      `Stop tracking ${d.docket_number}? All stored filings and summaries are removed. This cannot be undone.`,
+                    )
+                  ) {
+                    del.mutate();
+                  }
+                }}
+              >
+                <Icon name="trash" size={12} /> Delete
+              </button>
+            )}
           </>
         }
       />
@@ -503,13 +509,15 @@ export function Docket() {
               </div>
             </div>
             {jobActive ? (
-              <button
-                className="btn btn-ghost btn-sm"
-                disabled={jobs.isCancelling || jobs.job.status === "cancelling"}
-                onClick={() => jobs.cancel(jobs.job!.id)}
-              >
-                {jobs.job.status === "cancelling" ? "Cancelling…" : "Cancel"}
-              </button>
+              canEdit && (
+                <button
+                  className="btn btn-ghost btn-sm"
+                  disabled={jobs.isCancelling || jobs.job.status === "cancelling"}
+                  onClick={() => jobs.cancel(jobs.job!.id)}
+                >
+                  {jobs.job.status === "cancelling" ? "Cancelling…" : "Cancel"}
+                </button>
+              )
             ) : (
               <button className="btn btn-ghost btn-sm" onClick={jobs.dismiss}>
                 Dismiss
@@ -552,12 +560,14 @@ export function Docket() {
               )}
               {brief && (
                 <>
-                  <button
-                    className="btn btn-ghost btn-sm"
-                    onClick={() => navigate(`/edit/docket/${did}`)}
-                  >
-                    <Icon name="edit" size={12} /> Edit
-                  </button>
+                  {canEdit && (
+                    <button
+                      className="btn btn-ghost btn-sm"
+                      onClick={() => navigate(`/edit/docket/${did}`)}
+                    >
+                      <Icon name="edit" size={12} /> Edit
+                    </button>
+                  )}
                   <button
                     className="btn btn-ghost btn-sm"
                     onClick={() => setShowHistory(!showHistory)}
@@ -566,14 +576,16 @@ export function Docket() {
                   </button>
                 </>
               )}
-              <button
-                className="btn btn-ghost btn-sm"
-                disabled={!!jobActive || jobs.isStartingBrief}
-                onClick={jobs.startBrief}
-              >
-                <Icon name="spark" size={12} />
-                {brief ? "Regenerate" : "Generate"}
-              </button>
+              {canEdit && (
+                <button
+                  className="btn btn-ghost btn-sm"
+                  disabled={!!jobActive || jobs.isStartingBrief}
+                  onClick={jobs.startBrief}
+                >
+                  <Icon name="spark" size={12} />
+                  {brief ? "Regenerate" : "Generate"}
+                </button>
+              )}
             </div>
           </div>
 

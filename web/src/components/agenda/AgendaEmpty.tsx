@@ -1,7 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Icon } from "../Icon";
 import { api } from "../../lib/api";
-import { qk } from "../../lib/queries";
+import { qk, useCan } from "../../lib/queries";
 import { formatRel } from "../../lib/format";
 
 export function AgendaEmpty({
@@ -12,6 +12,7 @@ export function AgendaEmpty({
   lastScraped?: string;
 }) {
   const qc = useQueryClient();
+  const { canEdit } = useCan();
   const refresh = useMutation({
     mutationFn: () => api.refreshMeeting(meetingId),
     onSuccess: () => {
@@ -32,14 +33,16 @@ export function AgendaEmpty({
           ? `Last checked ${rel}. ISO-NE typically posts agendas about a week before the meeting.`
           : "This meeting hasn't been scraped for materials yet."}
       </div>
-      <button
-        className="btn btn-sm btn-accent"
-        onClick={() => refresh.mutate()}
-        disabled={refresh.isPending}
-      >
-        <Icon name="refresh" size={12} />{" "}
-        {refresh.isPending ? "Checking…" : "Re-check now"}
-      </button>
+      {canEdit && (
+        <button
+          className="btn btn-sm btn-accent"
+          onClick={() => refresh.mutate()}
+          disabled={refresh.isPending}
+        >
+          <Icon name="refresh" size={12} />{" "}
+          {refresh.isPending ? "Checking…" : "Re-check now"}
+        </button>
+      )}
     </div>
   );
 }

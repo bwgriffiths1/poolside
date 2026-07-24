@@ -2,11 +2,12 @@ import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Icon } from "../Icon";
 import { api } from "../../lib/api";
-import { qk } from "../../lib/queries";
+import { qk, useCan } from "../../lib/queries";
 import { toast } from "../../lib/toast";
 
 export function AddAgendaItem({ meetingId }: { meetingId: number }) {
   const qc = useQueryClient();
+  const { canEdit } = useCan();
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState({ item_id: "", title: "", presenter: "" });
   const create = useMutation({
@@ -23,6 +24,8 @@ export function AddAgendaItem({ meetingId }: { meetingId: number }) {
     },
     onError: (e: Error) => toast.error(`Add failed: ${e.message}`),
   });
+
+  if (!canEdit) return null;
 
   if (!open) {
     return (

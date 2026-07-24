@@ -137,10 +137,14 @@ export interface IngestJob {
   agenda_items: number;
 }
 
+export type Role = "admin" | "editor" | "viewer";
+
 export interface CurrentUser {
+  id: number;
   name: string;
   email: string;
   initials: string;
+  role: Role;
 }
 
 export type RoundupStatus = "draft" | "generating" | "complete" | "error";

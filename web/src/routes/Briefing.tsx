@@ -11,7 +11,7 @@ import { VersionHistory } from "../components/VersionHistory";
 import { useScrollSpy } from "../hooks/useScrollSpy";
 import { useReadingProgress } from "../hooks/useReadingProgress";
 import { api, type ShareToken } from "../lib/api";
-import { qk, useBriefing, useMeeting } from "../lib/queries";
+import { qk, useBriefing, useCan, useMeeting } from "../lib/queries";
 import { toast } from "../lib/toast";
 import { inlineMd } from "../lib/markdown";
 import type { Briefing as BriefingType } from "../types";
@@ -106,6 +106,7 @@ export function Briefing() {
   const [showVersions, setShowVersions] = useState(false);
   const [showShare, setShowShare] = useState(false);
   const qc = useQueryClient();
+  const { canEdit } = useCan();
   const approval = useQuery({
     queryKey: qk.approval(meetingId),
     queryFn: () => api.getApproval(meetingId),
@@ -278,12 +279,14 @@ export function Briefing() {
             >
               <Icon name="refresh" /> Versions
             </button>
-            <button
-              className="btn btn-sm btn-ghost"
-              onClick={() => navigate(`/edit/meeting/${meetingId}`)}
-            >
-              <Icon name="edit" /> Edit
-            </button>
+            {canEdit && (
+              <button
+                className="btn btn-sm btn-ghost"
+                onClick={() => navigate(`/edit/meeting/${meetingId}`)}
+              >
+                <Icon name="edit" /> Edit
+              </button>
+            )}
             <button
               className="btn btn-sm"
               onClick={async () => {
@@ -297,35 +300,39 @@ export function Briefing() {
             >
               <Icon name="download" /> Download .docx
             </button>
-            <button
-              className="btn btn-sm"
-              onClick={() => setShowShare(true)}
-              title="Generate a public link to share this briefing without login"
-            >
-              <Icon name="link" /> Share
-            </button>
-            <button
-              className={`btn btn-sm ${isApproved ? "" : "btn-primary"}`}
-              onClick={() => approveMut.mutate()}
-              disabled={approveMut.isPending}
-              title={
-                isApproved
-                  ? `Approved by ${approval.data?.approved_by ?? ""}`
-                  : "Stamp this briefing as approved and notify watchers"
-              }
-            >
-              <Icon name="check" />{" "}
-              {approveMut.isPending
-                ? "Working…"
-                : isApproved
-                ? "Unapprove"
-                : "Approve & publish"}
-            </button>
+            {canEdit && (
+              <>
+                <button
+                  className="btn btn-sm"
+                  onClick={() => setShowShare(true)}
+                  title="Generate a public link to share this briefing without login"
+                >
+                  <Icon name="link" /> Share
+                </button>
+                <button
+                  className={`btn btn-sm ${isApproved ? "" : "btn-primary"}`}
+                  onClick={() => approveMut.mutate()}
+                  disabled={approveMut.isPending}
+                  title={
+                    isApproved
+                      ? `Approved by ${approval.data?.approved_by ?? ""}`
+                      : "Stamp this briefing as approved and notify watchers"
+                  }
+                >
+                  <Icon name="check" />{" "}
+                  {approveMut.isPending
+                    ? "Working…"
+                    : isApproved
+                    ? "Unapprove"
+                    : "Approve & publish"}
+                </button>
+              </>
+            )}
           </>
         }
       />
 
-      {showShare && (
+      {canEdit && showShare && (
         <ShareLinkModal
           meetingId={meetingId}
           onClose={() => setShowShare(false)}

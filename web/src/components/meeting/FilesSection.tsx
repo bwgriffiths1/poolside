@@ -2,13 +2,14 @@ import { useRef, useState, type ChangeEvent, type DragEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Icon } from "../Icon";
 import { api } from "../../lib/api";
-import { qk } from "../../lib/queries";
+import { qk, useCan } from "../../lib/queries";
 import { toast } from "../../lib/toast";
 import { fmtBytes } from "../../lib/format";
 import type { Attachment } from "../../types";
 
 export function FilesSection({ meetingId }: { meetingId: number }) {
   const qc = useQueryClient();
+  const { canEdit } = useCan();
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragOver, setDragOver] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -63,43 +64,47 @@ export function FilesSection({ meetingId }: { meetingId: number }) {
           {files.length} file{files.length === 1 ? "" : "s"}
         </span>
       </div>
-      <p className="muted text-xs" style={{ marginTop: -8, marginBottom: 12 }}>
-        Upload your own files against this meeting — hand-written briefings,
-        notes, reference docs. Download them back any time. 25 MB max per file.
-      </p>
+      {canEdit && (
+        <>
+          <p className="muted text-xs" style={{ marginTop: -8, marginBottom: 12 }}>
+            Upload your own files against this meeting — hand-written briefings,
+            notes, reference docs. Download them back any time. 25 MB max per file.
+          </p>
 
-      <div
-        className={`file-drop${dragOver ? " is-over" : ""}`}
-        onClick={() => inputRef.current?.click()}
-        onDragOver={(e) => {
-          e.preventDefault();
-          setDragOver(true);
-        }}
-        onDragLeave={() => setDragOver(false)}
-        onDrop={onDrop}
-        role="button"
-        tabIndex={0}
-      >
-        <Icon name="upload" size={18} />
-        <div className="file-drop-text">
-          <strong>Click to upload</strong> or drag &amp; drop
-        </div>
-        {upload.isPending && (
-          <div className="muted text-xs">Uploading…</div>
-        )}
-        <input
-          ref={inputRef}
-          type="file"
-          multiple
-          hidden
-          onChange={onPick}
-        />
-      </div>
+          <div
+            className={`file-drop${dragOver ? " is-over" : ""}`}
+            onClick={() => inputRef.current?.click()}
+            onDragOver={(e) => {
+              e.preventDefault();
+              setDragOver(true);
+            }}
+            onDragLeave={() => setDragOver(false)}
+            onDrop={onDrop}
+            role="button"
+            tabIndex={0}
+          >
+            <Icon name="upload" size={18} />
+            <div className="file-drop-text">
+              <strong>Click to upload</strong> or drag &amp; drop
+            </div>
+            {upload.isPending && (
+              <div className="muted text-xs">Uploading…</div>
+            )}
+            <input
+              ref={inputRef}
+              type="file"
+              multiple
+              hidden
+              onChange={onPick}
+            />
+          </div>
 
-      {error && (
-        <div className="muted text-xs" style={{ color: "var(--accent)", marginTop: 8 }}>
-          Upload failed: {error}
-        </div>
+          {error && (
+            <div className="muted text-xs" style={{ color: "var(--accent)", marginTop: 8 }}>
+              Upload failed: {error}
+            </div>
+          )}
+        </>
       )}
 
       {files.length > 0 && (
@@ -128,16 +133,18 @@ export function FilesSection({ meetingId }: { meetingId: number }) {
               >
                 <Icon name="download" size={12} /> Download
               </button>
-              <button
-                className="btn btn-sm btn-ghost"
-                disabled={remove.isPending}
-                onClick={() => {
-                  if (confirm(`Delete "${f.filename}"?`)) remove.mutate(f.id);
-                }}
-                title="Delete file"
-              >
-                <Icon name="trash" size={12} />
-              </button>
+              {canEdit && (
+                <button
+                  className="btn btn-sm btn-ghost"
+                  disabled={remove.isPending}
+                  onClick={() => {
+                    if (confirm(`Delete "${f.filename}"?`)) remove.mutate(f.id);
+                  }}
+                  title="Delete file"
+                >
+                  <Icon name="trash" size={12} />
+                </button>
+              )}
             </div>
           ))}
         </div>

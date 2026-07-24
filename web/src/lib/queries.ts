@@ -63,6 +63,7 @@ export const qk = {
   ingestJobs: ["ingest-jobs"] as const,
   usageDashboard: ["usage-dashboard"] as const,
   userTokens: ["user-tokens"] as const,
+  users: ["users"] as const,
 
   promptIndex: ["prompt-index"] as const,
   prompt: (slug: string) => ["prompt", slug] as const,
@@ -77,6 +78,20 @@ export const qk = {
 
 export function useMe() {
   return useQuery({ queryKey: qk.me, queryFn: api.me, retry: false });
+}
+
+/** Role gates for conditional UI. Defaults to viewer while /me is loading,
+ *  so gated controls appear when data lands rather than flashing away.
+ *  (AppShell blocks render until the user exists, so in practice only
+ *  direct-URL edge cases ever see the loading default.) */
+export function useCan() {
+  const { data } = useMe();
+  const role = data?.role ?? "viewer";
+  return {
+    role,
+    isAdmin: role === "admin",
+    canEdit: role === "admin" || role === "editor",
+  } as const;
 }
 
 /** The shared "everything" meeting list (10y back, 1y forward) used by

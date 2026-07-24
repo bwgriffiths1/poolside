@@ -9,10 +9,11 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from fastapi import APIRouter, Body, HTTPException
+from fastapi import APIRouter, Body, Depends, HTTPException
 
 from pipeline import db
 from .. import lifecycle
+from ..auth import current_user
 
 router = APIRouter(tags=["summaries"])
 
@@ -82,6 +83,7 @@ def save_summary(
     entity_type: str,
     entity_id: int,
     body: dict[str, Any] = Body(...),
+    user: dict = Depends(current_user),
 ) -> dict[str, Any]:
     """Save a manual edit as a new approved version. Supersedes the prior.
 
@@ -118,7 +120,9 @@ def save_summary(
         entity_id=entity_id,
         one_line=(one_line or None),
         detailed=detailed,
-        created_by="user",
+        # Real identity — this used to record the literal string "user",
+        # which made manual edits unattributable.
+        created_by=user.get("email") or "user",
     )
     if meeting_id is not None:
         lifecycle.bump_lifecycle(meeting_id)

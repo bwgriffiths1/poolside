@@ -6,13 +6,16 @@ import { Icon } from "../components/Icon";
 import { Segmented } from "../components/Segmented";
 import { Pill } from "../components/Pill";
 import { api } from "../lib/api";
-import { qk } from "../lib/queries";
+import { qk, useCan } from "../lib/queries";
 import { formatRel } from "../lib/format";
 
 type Mode = "auto" | "manual";
 
 export function Add() {
   const navigate = useNavigate();
+  // Calendar scraping (triggerDiscover) is an admin-only op; editors get the
+  // manual ingest-by-URL flow only (the route itself is already editor-gated).
+  const { isAdmin } = useCan();
   const [mode, setMode] = useState<Mode>("auto");
 
   const { data: recent = [] } = useQuery({
@@ -43,31 +46,33 @@ export function Add() {
           </p>
         </div>
 
-        <Segmented
-          value={mode}
-          onChange={setMode}
-          style={{ marginBottom: 24 }}
-          options={[
-            {
-              value: "auto",
-              label: (
-                <>
-                  <Icon name="refresh" size={12} /> Scrape calendars
-                </>
-              ),
-            },
-            {
-              value: "manual",
-              label: (
-                <>
-                  <Icon name="plus" size={12} /> Add manually
-                </>
-              ),
-            },
-          ]}
-        />
+        {isAdmin && (
+          <Segmented
+            value={mode}
+            onChange={setMode}
+            style={{ marginBottom: 24 }}
+            options={[
+              {
+                value: "auto",
+                label: (
+                  <>
+                    <Icon name="refresh" size={12} /> Scrape calendars
+                  </>
+                ),
+              },
+              {
+                value: "manual",
+                label: (
+                  <>
+                    <Icon name="plus" size={12} /> Add manually
+                  </>
+                ),
+              },
+            ]}
+          />
+        )}
 
-        {mode === "auto" ? <AutoScrape /> : <ManualAdd />}
+        {isAdmin && mode === "auto" ? <AutoScrape /> : <ManualAdd />}
 
         <div className="section-h" style={{ marginTop: 48 }}>
           <h2>Recent ingest jobs</h2>

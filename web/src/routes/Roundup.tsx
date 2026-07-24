@@ -4,7 +4,7 @@ import { Topbar } from "../components/Topbar";
 import { Icon } from "../components/Icon";
 import { TypeTag } from "../components/Tag";
 import { api } from "../lib/api";
-import { qk } from "../lib/queries";
+import { qk, useCan } from "../lib/queries";
 import { fmtDateRange } from "../lib/format";
 import { Markdown } from "../lib/markdown";
 import type { Roundup as RoundupData } from "../types";
@@ -38,6 +38,7 @@ export function Roundup() {
   const rid = Number(id);
   const navigate = useNavigate();
   const qc = useQueryClient();
+  const { canEdit } = useCan();
 
   const {
     data: r,
@@ -118,24 +119,26 @@ export function Roundup() {
           { label: r.month_label },
         ]}
         actions={
-          <>
-            <button
-              className="btn btn-ghost btn-sm"
-              disabled={generating}
-              onClick={onRegenerate}
-            >
-              <Icon name="refresh" size={12} />
-              {r.status === "complete" ? "Regenerate" : "Generate"}
-            </button>
-            <button
-              className="btn btn-ghost btn-sm"
-              disabled={generating || del.isPending}
-              onClick={onDelete}
-            >
-              <Icon name="trash" size={12} />
-              Delete
-            </button>
-          </>
+          canEdit && (
+            <>
+              <button
+                className="btn btn-ghost btn-sm"
+                disabled={generating}
+                onClick={onRegenerate}
+              >
+                <Icon name="refresh" size={12} />
+                {r.status === "complete" ? "Regenerate" : "Generate"}
+              </button>
+              <button
+                className="btn btn-ghost btn-sm"
+                disabled={generating || del.isPending}
+                onClick={onDelete}
+              >
+                <Icon name="trash" size={12} />
+                Delete
+              </button>
+            </>
+          )
         }
       />
 
@@ -186,13 +189,15 @@ export function Roundup() {
           <div className="ru-error-panel">
             <div className="ru-error-title">Generation failed</div>
             <div className="ru-error-detail">{r.error_message || "Unknown error."}</div>
-            <button
-              className="btn btn-sm"
-              disabled={regenerate.isPending}
-              onClick={() => regenerate.mutate()}
-            >
-              <Icon name="refresh" size={12} /> Retry
-            </button>
+            {canEdit && (
+              <button
+                className="btn btn-sm"
+                disabled={regenerate.isPending}
+                onClick={() => regenerate.mutate()}
+              >
+                <Icon name="refresh" size={12} /> Retry
+              </button>
+            )}
           </div>
         ) : r.report_md ? (
           <article className="ru-body">
@@ -201,15 +206,17 @@ export function Roundup() {
         ) : (
           <div className="empty">
             Not generated yet.
-            <div style={{ marginTop: 12 }}>
-              <button
-                className="btn btn-sm"
-                disabled={regenerate.isPending}
-                onClick={() => regenerate.mutate()}
-              >
-                <Icon name="spark" size={12} /> Generate roundup
-              </button>
-            </div>
+            {canEdit && (
+              <div style={{ marginTop: 12 }}>
+                <button
+                  className="btn btn-sm"
+                  disabled={regenerate.isPending}
+                  onClick={() => regenerate.mutate()}
+                >
+                  <Icon name="spark" size={12} /> Generate roundup
+                </button>
+              </div>
+            )}
           </div>
         )}
 

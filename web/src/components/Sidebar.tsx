@@ -10,6 +10,8 @@ interface NavItem {
   icon: IconName;
   label: string;
   matchPrefix?: string;
+  /** Minimum role to see this link; absent = every role. */
+  requires?: "editor" | "admin";
 }
 
 interface NavGroup {
@@ -35,18 +37,24 @@ const GROUPS: NavGroup[] = [
   {
     label: "Pipeline",
     items: [
-      { to: "/add", icon: "plus", label: "Add Meeting" },
-      { to: "/prompts", icon: "library", label: "Prompt Library" },
+      { to: "/add", icon: "plus", label: "Add Meeting", requires: "editor" },
+      { to: "/prompts", icon: "library", label: "Prompt Library", requires: "admin" },
     ],
   },
   {
     label: "Account",
     items: [
-      { to: "/admin", icon: "spark", label: "Admin · Usage" },
+      { to: "/admin", icon: "spark", label: "Admin", requires: "admin" },
       { to: "/settings", icon: "settings", label: "Settings" },
     ],
   },
 ];
+
+function canSee(item: NavItem, role: CurrentUser["role"]): boolean {
+  if (item.requires === "admin") return role === "admin";
+  if (item.requires === "editor") return role === "admin" || role === "editor";
+  return true;
+}
 
 interface SidebarProps {
   user: CurrentUser;
@@ -81,28 +89,32 @@ export function Sidebar({ user, onOpenPalette }: SidebarProps) {
         <span className="kbd">⌘K</span>
       </button>
 
-      {GROUPS.map((g) => (
-        <div key={g.label}>
-          <div className="sidebar-group-label">{g.label}</div>
-          {g.items.map((it) => {
-            const active = it.matchPrefix
-              ? pathname.startsWith(it.matchPrefix)
-              : pathname === it.to || pathname.startsWith(`${it.to}/`);
-            return (
-              <NavLink
-                key={it.to}
-                to={it.to}
-                className={`sidebar-link ${active ? "active" : ""}`}
-              >
-                <span className="glyph">
-                  <Icon name={it.icon} />
-                </span>
-                <span>{it.label}</span>
-              </NavLink>
-            );
-          })}
-        </div>
-      ))}
+      {GROUPS.map((g) => {
+        const visible = g.items.filter((it) => canSee(it, user.role));
+        if (!visible.length) return null; // Pipeline vanishes for viewers
+        return (
+          <div key={g.label}>
+            <div className="sidebar-group-label">{g.label}</div>
+            {visible.map((it) => {
+              const active = it.matchPrefix
+                ? pathname.startsWith(it.matchPrefix)
+                : pathname === it.to || pathname.startsWith(`${it.to}/`);
+              return (
+                <NavLink
+                  key={it.to}
+                  to={it.to}
+                  className={`sidebar-link ${active ? "active" : ""}`}
+                >
+                  <span className="glyph">
+                    <Icon name={it.icon} />
+                  </span>
+                  <span>{it.label}</span>
+                </NavLink>
+              );
+            })}
+          </div>
+        );
+      })}
 
       <div className="sidebar-foot">
         <div className="user-chip">

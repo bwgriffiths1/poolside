@@ -71,8 +71,18 @@ def _esc(v: Any) -> str:
     return html.escape(str(v or ""), quote=True)
 
 
-def _shell(title_html: str, body_html: str) -> str:
-    """The shared Editorial wrapper: cream page, elevated card, footer."""
+def _shell(title_html: str, body_html: str, footer_html: str | None = None) -> str:
+    """The shared Editorial wrapper: cream page, elevated card, footer.
+
+    footer_html overrides the default settings-page footer — invite/reset
+    recipients aren't (yet) users with a settings page, so that copy would
+    be wrong for them.
+    """
+    if footer_html is None:
+        footer_html = (
+            "You're receiving this because email notifications are enabled in your\n"
+            f'      <a href="{_base_url()}/#/settings" style="color:#c4633a;">Poolside settings</a>.'
+        )
     return f"""\
 <div style="margin:0;padding:32px 16px;background:#f6f4ef;font-family:Georgia,'Iowan Old Style',serif;color:#1a1815;">
   <div style="max-width:560px;margin:0 auto;">
@@ -84,8 +94,7 @@ def _shell(title_html: str, body_html: str) -> str:
       {body_html}
     </div>
     <div style="font-family:Helvetica,Arial,sans-serif;font-size:11px;color:#8a847a;margin-top:14px;line-height:1.5;">
-      You're receiving this because email notifications are enabled in your
-      <a href="{_base_url()}/#/settings" style="color:#c4633a;">Poolside settings</a>.
+      {footer_html}
     </div>
   </div>
 </div>"""
@@ -133,6 +142,84 @@ def briefing_approved_email(payload: dict) -> tuple[str, str]:
         f'padding:9px 16px;border-radius:6px;">Read the briefing</a>'
     )
     return subject, _shell(title_html, body_html)
+
+
+_ROLE_BLURB = {
+    "admin": "full access, including user management and system settings",
+    "editor": "you can edit and approve briefings, run summaries, and manage content",
+    "viewer": "read-only access to briefings, meetings, and dockets",
+}
+
+
+def invite_email(payload: dict) -> tuple[str, str]:
+    """(subject, html) for a new-user invite. payload: {name, email, role,
+    accept_url, expires_days?, invited_by?}."""
+    name = payload.get("name") or ""
+    role = payload.get("role") or "viewer"
+    invited_by = payload.get("invited_by") or ""
+    expires_days = payload.get("expires_days")
+    subject = "You're invited to Poolside"
+
+    intro = (f"{_esc(invited_by)} has invited you to Poolside"
+             if invited_by else "You've been invited to Poolside")
+    expiry_note = (
+        f'<p style="font-family:Helvetica,Arial,sans-serif;font-size:12px;'
+        f'color:#8a847a;margin:16px 0 0;">This invitation expires in '
+        f'{int(expires_days)} days.</p>'
+        if expires_days else ""
+    )
+    title_html = (
+        f'<h1 style="font-size:24px;font-weight:400;margin:0 0 6px;'
+        f'letter-spacing:-0.015em;">Hi {_esc(name)},</h1>'
+        f'<p style="font-family:Helvetica,Arial,sans-serif;font-size:13px;'
+        f'color:#4a4640;margin:0 0 18px;">{intro} — ISO-NE meeting '
+        f'intelligence: briefings, dockets, and committee materials.</p>'
+    )
+    body_html = (
+        f'<p style="font-size:15px;margin:0 0 20px;">Your account will be an '
+        f'<strong>{_esc(role)}</strong> ({_esc(_ROLE_BLURB.get(role, ""))}).</p>'
+        f'<a href="{_esc(payload.get("accept_url"))}" '
+        f'style="display:inline-block;font-family:Helvetica,Arial,sans-serif;'
+        f'font-size:13px;background:#c4633a;color:#fbf9f4;text-decoration:none;'
+        f'padding:9px 16px;border-radius:6px;">Accept invitation</a>'
+        + expiry_note
+    )
+    footer = (f"This invitation was sent to {_esc(payload.get('email'))}. "
+              "If you weren't expecting it, you can safely ignore this email.")
+    return subject, _shell(title_html, body_html, footer_html=footer)
+
+
+def password_reset_email(payload: dict) -> tuple[str, str]:
+    """(subject, html) for a password reset. payload: {name, email,
+    accept_url, expires_days?}."""
+    name = payload.get("name") or ""
+    expires_days = payload.get("expires_days")
+    subject = "Reset your Poolside password"
+
+    expiry_note = (
+        f'<p style="font-family:Helvetica,Arial,sans-serif;font-size:12px;'
+        f'color:#8a847a;margin:16px 0 0;">This link expires in '
+        f'{int(expires_days)} days.</p>'
+        if expires_days else ""
+    )
+    title_html = (
+        f'<h1 style="font-size:24px;font-weight:400;margin:0 0 6px;'
+        f'letter-spacing:-0.015em;">Hi {_esc(name)},</h1>'
+        f'<p style="font-family:Helvetica,Arial,sans-serif;font-size:13px;'
+        f'color:#4a4640;margin:0 0 18px;">A password reset was generated for '
+        f'your Poolside account.</p>'
+    )
+    body_html = (
+        f'<a href="{_esc(payload.get("accept_url"))}" '
+        f'style="display:inline-block;font-family:Helvetica,Arial,sans-serif;'
+        f'font-size:13px;background:#c4633a;color:#fbf9f4;text-decoration:none;'
+        f'padding:9px 16px;border-radius:6px;">Set a new password</a>'
+        + expiry_note
+    )
+    footer = (f"This reset link was sent to {_esc(payload.get('email'))}. "
+              "If you didn't ask for it, you can safely ignore this email — "
+              "your current password still works.")
+    return subject, _shell(title_html, body_html, footer_html=footer)
 
 
 def weekly_digest_email(upcoming: list[dict],

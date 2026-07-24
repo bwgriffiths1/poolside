@@ -1,5 +1,6 @@
 import { HashRouter, Navigate, Route, Routes } from "react-router-dom";
 import { AppShell } from "./components/AppShell";
+import { RequireRole } from "./components/RequireRole";
 import { Overview } from "./routes/Overview";
 import { Meetings } from "./routes/Meetings";
 import { Meeting } from "./routes/Meeting";
@@ -47,11 +48,11 @@ export function App() {
           <Route path="/initiatives/:code" element={<InitiativeDetail />} />
           <Route path="/search" element={<Search />} />
           <Route path="/ask" element={<Ask />} />
-          <Route path="/add" element={<Add />} />
-          <Route path="/edit/:type/:id" element={<Editor />} />
-          <Route path="/prompts" element={<Prompts />} />
+          <Route path="/add" element={<RequireRole min="editor"><Add /></RequireRole>} />
+          <Route path="/edit/:type/:id" element={<RequireRole min="editor"><Editor /></RequireRole>} />
+          <Route path="/prompts" element={<RequireRole min="admin"><Prompts /></RequireRole>} />
           <Route path="/settings" element={<Settings />} />
-          <Route path="/admin" element={<Admin />} />
+          <Route path="/admin" element={<RequireRole min="admin"><Admin /></RequireRole>} />
           <Route path="*" element={<Navigate to="/overview" replace />} />
         </Route>
       </Routes>

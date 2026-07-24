@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Topbar } from "../components/Topbar";
 import { Icon } from "../components/Icon";
 import { api, type AppConfig, type AppConfigCommittee } from "../lib/api";
-import { qk } from "../lib/queries";
+import { qk, useCan } from "../lib/queries";
 import { toast } from "../lib/toast";
 
 function clamp(n: number, lo: number, hi: number): number {
@@ -80,6 +80,9 @@ function NotificationPrefs() {
 
 export function Settings() {
   const qc = useQueryClient();
+  // Scraper + committee config saves via api.saveConfig (admin-only op);
+  // non-admins keep only their own notification prefs.
+  const { isAdmin } = useCan();
   const { data, isLoading, error } = useQuery({
     queryKey: qk.appConfig,
     queryFn: () => api.getConfig(),
@@ -143,24 +146,28 @@ export function Settings() {
       <Topbar
         crumbs={[{ label: "Settings" }]}
         actions={
-          <>
-            <button
-              className="btn btn-sm"
-              disabled={!dirty || save.isPending}
-              onClick={() =>
-                data && setDraft({ ...data, committees: data.committees.map((c) => ({ ...c })) })
-              }
-            >
-              Discard
-            </button>
-            <button
-              className="btn btn-sm btn-primary"
-              disabled={!dirty || save.isPending}
-              onClick={() => save.mutate()}
-            >
-              <Icon name="check" /> {save.isPending ? "Saving…" : "Save"}
-            </button>
-          </>
+          // Save/Discard exist solely for the admin-only config sections below
+          // (notification prefs save themselves on toggle).
+          isAdmin && (
+            <>
+              <button
+                className="btn btn-sm"
+                disabled={!dirty || save.isPending}
+                onClick={() =>
+                  data && setDraft({ ...data, committees: data.committees.map((c) => ({ ...c })) })
+                }
+              >
+                Discard
+              </button>
+              <button
+                className="btn btn-sm btn-primary"
+                disabled={!dirty || save.isPending}
+                onClick={() => save.mutate()}
+              >
+                <Icon name="check" /> {save.isPending ? "Saving…" : "Save"}
+              </button>
+            </>
+          )
         }
       />
 
@@ -183,7 +190,7 @@ export function Settings() {
 
         <NotificationPrefs />
 
-        {draft && (
+        {isAdmin && draft && (
           <>
             <section style={{ marginBottom: 28 }}>
               <h2 className="section-head">Scraper</h2>

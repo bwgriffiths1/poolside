@@ -6,7 +6,7 @@ import { Icon } from "../components/Icon";
 import { Segmented } from "../components/Segmented";
 import { MeetingRow } from "../components/MeetingRow";
 import { api } from "../lib/api";
-import { qk, useMe } from "../lib/queries";
+import { qk, useCan, useMe } from "../lib/queries";
 import { formatRel } from "../lib/format";
 import { toast } from "../lib/toast";
 import type { MeetingListItem, MeetingStatus } from "../types";
@@ -33,6 +33,7 @@ export function Overview() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("All");
 
   const { data: me } = useMe();
+  const { canEdit, isAdmin } = useCan();
   const firstName = (me?.name || "").split(" ")[0] || "there";
 
   const { data: meetings = [] } = useQuery({
@@ -127,21 +128,25 @@ export function Overview() {
         crumbs={[{ label: "Overview" }]}
         actions={
           <>
-            <button
-              className="btn btn-sm"
-              onClick={() => refreshAll.mutate()}
-              disabled={refreshAll.isPending}
-              title="Scrape calendars for new meetings AND pull latest materials for upcoming ones."
-            >
-              <Icon name="refresh" />
-              {refreshAll.isPending ? "Refreshing…" : "Refresh"}
-            </button>
-            <button
-              className="btn btn-sm btn-primary"
-              onClick={() => navigate("/add")}
-            >
-              <Icon name="plus" /> Add meeting
-            </button>
+            {isAdmin && (
+              <button
+                className="btn btn-sm"
+                onClick={() => refreshAll.mutate()}
+                disabled={refreshAll.isPending}
+                title="Scrape calendars for new meetings AND pull latest materials for upcoming ones."
+              >
+                <Icon name="refresh" />
+                {refreshAll.isPending ? "Refreshing…" : "Refresh"}
+              </button>
+            )}
+            {canEdit && (
+              <button
+                className="btn btn-sm btn-primary"
+                onClick={() => navigate("/add")}
+              >
+                <Icon name="plus" /> Add meeting
+              </button>
+            )}
           </>
         }
       />

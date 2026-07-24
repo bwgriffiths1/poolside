@@ -18,7 +18,7 @@ import { FilesSection } from "../components/meeting/FilesSection";
 import { DangerZone } from "../components/meeting/DangerZone";
 import { useSummarizeJob } from "../hooks/useSummarizeJob";
 import { api } from "../lib/api";
-import { qk, useBriefing, useMeeting } from "../lib/queries";
+import { qk, useBriefing, useCan, useMeeting } from "../lib/queries";
 import { toast } from "../lib/toast";
 import { fmtDateRange } from "../lib/format";
 
@@ -26,6 +26,7 @@ export function Meeting() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const qc = useQueryClient();
+  const { canEdit, isAdmin } = useCan();
 
   const meetingId = Number(id);
 
@@ -145,21 +146,25 @@ export function Meeting() {
             >
               <Icon name="book" /> Open briefing
             </button>
-            <button
-              className="btn btn-sm"
-              onClick={() => cleanupZips.mutate()}
-              disabled={cleanupZips.isPending}
-              title="Undo a prior Expand zips run — zips are now handled inline at summarize time."
-            >
-              <Icon name="refresh" />{" "}
-              {cleanupZips.isPending ? "Cleaning…" : "Reset zip rows"}
-            </button>
-            <button
-              className="btn btn-sm btn-primary"
-              onClick={() => setShowSummaryRunner(true)}
-            >
-              <Icon name="spark" /> Summarize
-            </button>
+            {isAdmin && (
+              <button
+                className="btn btn-sm"
+                onClick={() => cleanupZips.mutate()}
+                disabled={cleanupZips.isPending}
+                title="Undo a prior Expand zips run — zips are now handled inline at summarize time."
+              >
+                <Icon name="refresh" />{" "}
+                {cleanupZips.isPending ? "Cleaning…" : "Reset zip rows"}
+              </button>
+            )}
+            {canEdit && (
+              <button
+                className="btn btn-sm btn-primary"
+                onClick={() => setShowSummaryRunner(true)}
+              >
+                <Icon name="spark" /> Summarize
+              </button>
+            )}
           </>
         }
       />
@@ -287,21 +292,23 @@ export function Meeting() {
                 No briefing yet — run summarization to generate one.
               </h2>
             </div>
-            <div className="briefing-card-right">
-              <button
-                className="btn btn-sm btn-accent"
-                onClick={() => setShowSummaryRunner(true)}
-              >
-                <Icon name="spark" size={12} /> Summarize
-              </button>
-            </div>
+            {canEdit && (
+              <div className="briefing-card-right">
+                <button
+                  className="btn btn-sm btn-accent"
+                  onClick={() => setShowSummaryRunner(true)}
+                >
+                  <Icon name="spark" size={12} /> Summarize
+                </button>
+              </div>
+            )}
           </div>
         )}
 
         {job.job && (
           <SummarizeJobBanner
             job={job.job}
-            onCancel={() => job.cancel(job.job!.id)}
+            onCancel={canEdit ? () => job.cancel(job.job!.id) : undefined}
             cancelling={job.isCancelling}
             onDismiss={job.dismiss}
           />
@@ -350,7 +357,7 @@ export function Meeting() {
 
         <FilesSection meetingId={meetingId} />
 
-        <DangerZone meetingId={meetingId} title={m.title} />
+        {canEdit && <DangerZone meetingId={meetingId} title={m.title} />}
 
         <div style={{ height: 64 }} />
       </div>

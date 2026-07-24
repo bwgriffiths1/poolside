@@ -1,8 +1,9 @@
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Topbar } from "../components/Topbar";
 import { Icon } from "../components/Icon";
-import { api, type ImageStorageStats, type UserTokenRow } from "../lib/api";
+import { UsersPanel } from "../components/admin/UsersPanel";
+import { api, type ImageStorageStats } from "../lib/api";
 import { qk } from "../lib/queries";
 import { toast } from "../lib/toast";
 
@@ -33,16 +34,16 @@ export function Admin() {
 
   return (
     <>
-      <Topbar crumbs={[{ label: "Admin", to: "/admin" }, { label: "Usage" }]} />
+      <Topbar crumbs={[{ label: "Admin", to: "/admin" }]} />
 
       <div className="page">
         <div className="page-header">
-          <div className="page-eyebrow">Admin · Usage</div>
-          <h1 className="page-title">Summarization usage</h1>
+          <div className="page-eyebrow">Admin</div>
+          <h1 className="page-title">Usage & users</h1>
           <p className="page-subtitle">
-            Token + cost totals derived from completed summarize jobs. Numbers
-            reflect actual API usage captured at run time, not the pre-flight
-            estimates.
+            Token + cost totals derived from completed summarize jobs, plus
+            account management. Usage numbers reflect actual API spend
+            captured at run time, not the pre-flight estimates.
           </p>
         </div>
 
@@ -140,14 +141,16 @@ export function Admin() {
                 <ImageStoragePanel stats={data.images} />
               </section>
             )}
-
-            <section style={{ marginTop: 48 }}>
-              <UserTokensPanel />
-            </section>
-
-            <div style={{ height: 64 }} />
           </>
         )}
+
+        {/* Outside the usage gate — a usage-fetch failure must not hide
+            account management. */}
+        <section style={{ marginTop: 48 }}>
+          <UsersPanel />
+        </section>
+
+        <div style={{ height: 64 }} />
       </div>
     </>
   );
@@ -223,206 +226,6 @@ function ImageStoragePanel({ stats }: { stats: ImageStorageStats }) {
           sub={last ? `${last.deleted} deleted · ${mb(last.freed_bytes)}` : "weekly · Sun 05:00 ET"}
         />
       </div>
-    </>
-  );
-}
-
-function UserTokensPanel() {
-  const qc = useQueryClient();
-  const tokens = useQuery({
-    queryKey: qk.userTokens,
-    queryFn: () => api.listUserTokens(),
-  });
-  const [inviteEmail, setInviteEmail] = useState("");
-  const [inviteName, setInviteName] = useState("");
-  const [resetEmail, setResetEmail] = useState("");
-  const [showToken, setShowToken] = useState<UserTokenRow | null>(null);
-
-  const createInvite = useMutation({
-    mutationFn: () =>
-      api.createInvite({ email: inviteEmail, name: inviteName }),
-    onSuccess: (row) => {
-      setShowToken(row);
-      setInviteEmail("");
-      setInviteName("");
-      qc.invalidateQueries({ queryKey: qk.userTokens });
-    },
-    onError: (e: Error) => toast.error(e.message),
-  });
-  const createReset = useMutation({
-    mutationFn: () => api.createPasswordReset(resetEmail),
-    onSuccess: (row) => {
-      setShowToken(row);
-      setResetEmail("");
-      qc.invalidateQueries({ queryKey: qk.userTokens });
-    },
-    onError: (e: Error) => toast.error(e.message),
-  });
-  const revoke = useMutation({
-    mutationFn: (id: number) => api.revokeUserToken(id),
-    onSuccess: () => qc.invalidateQueries({ queryKey: qk.userTokens }),
-  });
-
-  const urlFor = (t: UserTokenRow) =>
-    `${window.location.origin}/#/accept/${t.token}`;
-
-  const copy = async (t: UserTokenRow) => {
-    const url = urlFor(t);
-    try {
-      await navigator.clipboard.writeText(url);
-    } catch {
-      window.prompt("Copy this URL:", url);
-    }
-  };
-
-  return (
-    <>
-      <h2 className="section-head">Users</h2>
-      <p className="muted text-sm" style={{ marginBottom: 12 }}>
-        Email infrastructure isn't wired yet — generate an invite or reset
-        link below, copy the URL, and forward it to the user yourself.
-      </p>
-
-      <div className="row" style={{ gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
-        <input
-          className="input"
-          placeholder="email@example.com"
-          value={inviteEmail}
-          onChange={(e) => setInviteEmail(e.target.value)}
-          style={{ flex: "1 1 220px", minWidth: 200 }}
-        />
-        <input
-          className="input"
-          placeholder="Full name"
-          value={inviteName}
-          onChange={(e) => setInviteName(e.target.value)}
-          style={{ flex: "1 1 200px", minWidth: 180 }}
-        />
-        <button
-          className="btn btn-sm btn-accent"
-          disabled={!inviteEmail || !inviteName || createInvite.isPending}
-          onClick={() => createInvite.mutate()}
-        >
-          <Icon name="plus" size={12} /> Invite user
-        </button>
-      </div>
-      <div className="row" style={{ gap: 8, flexWrap: "wrap", marginBottom: 16 }}>
-        <input
-          className="input"
-          placeholder="email of existing user"
-          value={resetEmail}
-          onChange={(e) => setResetEmail(e.target.value)}
-          style={{ flex: "1 1 220px", minWidth: 200 }}
-        />
-        <button
-          className="btn btn-sm"
-          disabled={!resetEmail || createReset.isPending}
-          onClick={() => createReset.mutate()}
-        >
-          <Icon name="refresh" size={12} /> Generate password reset
-        </button>
-      </div>
-
-      {showToken && (
-        <div
-          style={{
-            background: "var(--accent-tint)",
-            border: "1px solid var(--accent-soft)",
-            padding: "12px 14px",
-            borderRadius: "var(--radius)",
-            marginBottom: 16,
-          }}
-        >
-          <div className="text-sm" style={{ marginBottom: 6 }}>
-            {showToken.purpose === "invite"
-              ? `Invite link for ${showToken.email}:`
-              : `Password reset for ${showToken.email}:`}
-          </div>
-          <div
-            className="mono text-xs"
-            style={{
-              wordBreak: "break-all",
-              background: "var(--bg-elev)",
-              padding: "6px 8px",
-              borderRadius: "var(--radius-sm)",
-              marginBottom: 8,
-            }}
-          >
-            {urlFor(showToken)}
-          </div>
-          <div className="row" style={{ gap: 6 }}>
-            <button
-              className="btn btn-sm"
-              onClick={() => copy(showToken)}
-            >
-              <Icon name="copy" size={12} /> Copy
-            </button>
-            <button
-              className="btn btn-sm btn-ghost"
-              onClick={() => setShowToken(null)}
-            >
-              Dismiss
-            </button>
-          </div>
-        </div>
-      )}
-
-      {tokens.isLoading ? (
-        <div className="muted">Loading…</div>
-      ) : (tokens.data ?? []).length === 0 ? (
-        <div className="empty">No invites or resets yet.</div>
-      ) : (
-        <div className="usage-table">
-          <div className="usage-row usage-row-head">
-            <div style={{ flex: 0.7 }}>Kind</div>
-            <div style={{ flex: 1.5 }}>Email</div>
-            <div style={{ flex: 1 }}>Created</div>
-            <div style={{ flex: 0.7 }}>Status</div>
-            <div style={{ flex: 0.8, textAlign: "right" }}>Actions</div>
-          </div>
-          {(tokens.data ?? []).map((t) => (
-            <div className="usage-row" key={t.id}>
-              <div style={{ flex: 0.7 }} className="mono text-xs">
-                {t.purpose === "invite" ? "invite" : "reset"}
-              </div>
-              <div style={{ flex: 1.5 }}>
-                <div>{t.email}</div>
-                {t.name && <div className="muted text-xs">{t.name}</div>}
-              </div>
-              <div style={{ flex: 1 }} className="muted text-xs">
-                {new Date(t.created_at).toLocaleString()}
-              </div>
-              <div style={{ flex: 0.7 }} className="text-xs mono">
-                {t.status}
-              </div>
-              <div
-                style={{ flex: 0.8, textAlign: "right", display: "flex", gap: 4, justifyContent: "flex-end" }}
-              >
-                {t.status === "active" && (
-                  <>
-                    <button
-                      className="btn btn-sm btn-ghost"
-                      onClick={() => copy(t)}
-                      title="Copy URL"
-                    >
-                      <Icon name="copy" size={12} />
-                    </button>
-                    <button
-                      className="btn btn-sm btn-ghost"
-                      onClick={() => {
-                        if (confirm("Revoke this token?")) revoke.mutate(t.id);
-                      }}
-                      title="Revoke"
-                    >
-                      <Icon name="trash" size={12} />
-                    </button>
-                  </>
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
     </>
   );
 }

@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field
 
 import pipeline.db as db
 from pipeline import appconfig
-from ..auth import current_user
+from ..auth import current_user, require_admin
 
 router = APIRouter(prefix="/api/admin", tags=["config"])
 
@@ -50,7 +50,7 @@ def get_config(_: dict = Depends(current_user)) -> ConfigPayload:
 @router.put("/config", response_model=ConfigPayload)
 def put_config(
     body: ConfigPayload,
-    user: dict = Depends(current_user),
+    user: dict = Depends(require_admin),
 ) -> ConfigPayload:
     clean = [
         {"name": c.name, "short": c.short, "url": c.url, "active": c.active}

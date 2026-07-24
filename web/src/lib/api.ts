@@ -463,6 +463,20 @@ export const api = {
     const qs = q.toString();
     return get<AuditPage>(`/admin/audit${qs ? `?${qs}` : ""}`);
   },
+  viewsSummary: (days: number) =>
+    get<ViewSummaryRow[]>(`/admin/views?days=${days}`, () => []),
+  viewsRecent: () => get<RecentViewRow[]>(`/admin/views/recent`, () => []),
+  /** Fire-and-forget read beacon — never throws, never blocks rendering. */
+  trackView: (entity_type: ViewEntityType, entity_id: number): void => {
+    fetch(`${BASE}/track/view`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ entity_type, entity_id }),
+    }).catch(() => {
+      /* analytics must never surface as a user-facing error */
+    });
+  },
 
   // ── Invites + password resets ────────────────────────────────────────
   listUserTokens: (purpose?: "invite" | "password_reset") =>
@@ -1296,6 +1310,30 @@ export interface AuditItem {
 export interface AuditPage {
   items: AuditItem[];
   next_before_id: number | null;
+}
+
+export type ViewEntityType =
+  | "meeting"
+  | "briefing"
+  | "docket"
+  | "roundup"
+  | "deep_dive";
+
+export interface ViewSummaryRow {
+  entity_type: ViewEntityType;
+  entity_id: number;
+  title: string;
+  views: number;
+  unique_viewers: number;
+  last_viewed_at: string;
+}
+
+export interface RecentViewRow {
+  user_email: string;
+  entity_type: ViewEntityType;
+  entity_id: number;
+  title: string;
+  viewed_at: string;
 }
 
 export interface InitiativeSummary {

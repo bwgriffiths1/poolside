@@ -8,6 +8,7 @@ import { qk, useCan } from "../lib/queries";
 import { fmtDateRange } from "../lib/format";
 import { Markdown } from "../lib/markdown";
 import type { Roundup as RoundupData } from "../types";
+import { useTrackView } from "../hooks/useTrackView";
 
 function metaLine(r: RoundupData): string {
   const parts: string[] = [];
@@ -36,6 +37,7 @@ function metaLine(r: RoundupData): string {
 export function Roundup() {
   const { id } = useParams();
   const rid = Number(id);
+  useTrackView("roundup", rid);
   const navigate = useNavigate();
   const qc = useQueryClient();
   const { canEdit } = useCan();

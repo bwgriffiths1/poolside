@@ -1,12 +1,15 @@
-"""Activity feed — the audit log, read side (Admin → Activity).
+"""Activity feed — audit log + readership, read side (Admin page).
 
 The middleware (api/audit.py) records raw method + route template; this
 router translates rows into human labels via _LABELS at read time, so
 labeling improvements never require touching stored data. Unmapped routes
 degrade to "METHOD /route" — visible, never dropped.
 
-Mounted _ADMIN in api/main.py. (PR 3 adds the read-analytics views
-endpoints alongside.)
+The /views endpoints aggregate page_views (the /api/track/view beacon)
+with batched title enrichment; deleted entities render as
+"deleted {type} #{id}" — the log outlives its subjects by design.
+
+Mounted _ADMIN in api/main.py.
 """
 from __future__ import annotations
 
@@ -117,3 +120,39 @@ def list_audit(
     items = [_serialize(r) for r in rows]
     next_before = items[-1]["id"] if len(items) == limit else None
     return {"items": items, "next_before_id": next_before}
+
+
+# ── Readership (page views) ─────────────────────────────────────────────
+
+def _with_titles(rows: list[dict]) -> list[dict[str, Any]]:
+    """Attach display titles with one batched lookup per entity type."""
+    by_type: dict[str, list[int]] = {}
+    for r in rows:
+        by_type.setdefault(r["entity_type"], []).append(r["entity_id"])
+    titles = {
+        t: db.entity_titles(t, sorted(set(ids)))
+        for t, ids in by_type.items()
+    }
+    out = []
+    for r in rows:
+        row = dict(r)
+        row["title"] = titles.get(r["entity_type"], {}).get(
+            r["entity_id"], f"deleted {r['entity_type']} #{r['entity_id']}"
+        )
+        for k in ("last_viewed_at", "viewed_at"):
+            if row.get(k) is not None and hasattr(row[k], "isoformat"):
+                row[k] = row[k].isoformat()
+        out.append(row)
+    return out
+
+
+@router.get("/views")
+def views_summary(days: int = 30) -> list[dict[str, Any]]:
+    days = max(1, min(int(days), 365))
+    return _with_titles(db.page_view_summary(days=days))
+
+
+@router.get("/views/recent")
+def views_recent(limit: int = 50) -> list[dict[str, Any]]:
+    limit = max(1, min(int(limit), 200))
+    return _with_titles(db.recent_page_views(limit=limit))

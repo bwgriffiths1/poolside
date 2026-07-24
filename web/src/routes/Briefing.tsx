@@ -15,6 +15,7 @@ import { qk, useBriefing, useCan, useMeeting } from "../lib/queries";
 import { toast } from "../lib/toast";
 import { inlineMd } from "../lib/markdown";
 import type { Briefing as BriefingType } from "../types";
+import { useTrackView } from "../hooks/useTrackView";
 
 function voteOk(vote?: string): boolean {
   return !!vote && vote.toLowerCase().includes("approved");
@@ -95,6 +96,7 @@ export function Briefing() {
   const navigate = useNavigate();
 
   const meetingId = Number(id);
+  useTrackView("briefing", meetingId);
 
   const { data: m, isLoading: meetingLoading } = useMeeting(meetingId);
   const {

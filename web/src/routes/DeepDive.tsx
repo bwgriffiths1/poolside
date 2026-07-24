@@ -6,6 +6,7 @@ import { TypeTag } from "../components/Tag";
 import { api, type DeepDive as DeepDiveData } from "../lib/api";
 import { qk, useCan } from "../lib/queries";
 import { Markdown } from "../lib/markdown";
+import { useTrackView } from "../hooks/useTrackView";
 
 function metaLine(d: DeepDiveData): string {
   const parts: string[] = [];
@@ -36,6 +37,7 @@ function metaLine(d: DeepDiveData): string {
 export function DeepDive() {
   const { id } = useParams();
   const rid = Number(id);
+  useTrackView("deep_dive", rid);
   const navigate = useNavigate();
   const qc = useQueryClient();
   const { canEdit } = useCan();

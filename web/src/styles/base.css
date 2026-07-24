@@ -441,16 +441,24 @@ a:hover { text-decoration: underline; }
   gap: 8px;
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.10);
 }
+.login-mascot {
+  display: block;
+  width: 132px;
+  height: auto;
+  margin: 0 auto 2px;
+}
 .login-brand {
   font-size: 22px;
   font-weight: 600;
   letter-spacing: -0.01em;
   color: var(--ink);
+  text-align: center;
 }
 .login-sub {
   font-size: 13px;
   color: var(--muted);
   margin-bottom: 16px;
+  text-align: center;
 }
 .login-label {
   font-size: 11.5px;

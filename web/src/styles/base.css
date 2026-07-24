@@ -1178,6 +1178,19 @@ a:hover { text-decoration: underline; }
 .text-sm { font-size: 12.5px; }
 .truncate { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
+/* Markdown data tables (agenda-item summaries, roundups, editor preview).
+   Per-context selectors set header/cell structure; this layers the same
+   zebra + hover + header background the briefing .b-table uses, so every
+   rendered table reads consistently. The ink-tint zebra adapts to light and
+   dark automatically. Header/cell styling stays in the scoped rules. */
+.md-table th { background: var(--bg-elev); }
+.md-table tbody tr:nth-child(even) {
+  background: color-mix(in oklab, var(--ink) 3.5%, transparent);
+}
+.md-table tbody tr:hover {
+  background: color-mix(in oklab, var(--ink) 7%, transparent);
+}
+
 /* Toasts (bottom-right, above the command palette) */
 .toaster {
   position: fixed;

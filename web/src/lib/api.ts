@@ -863,7 +863,12 @@ export const api = {
 
   updateDocket: (
     id: number,
-    body: { title?: string; notes?: string; auto_refresh?: boolean }
+    body: {
+      title?: string;
+      party_label?: string;
+      notes?: string;
+      auto_refresh?: boolean;
+    }
   ): Promise<DocketListItem> => {
     return (async () => {
       const res = await fetch(`${BASE}/dockets/${id}`, {
@@ -963,6 +968,7 @@ export interface DocketListItem {
   id: number;
   docket_number: string;
   title: string | null;
+  party_label: string | null;
   notes: string | null;
   auto_refresh: boolean;
   last_crawled_at: string | null;

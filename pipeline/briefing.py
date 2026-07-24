@@ -241,10 +241,25 @@ _CONTENT_W    = 9360  # 6.5" in twips
 
 
 def _v2_run(para, text, *, size=brand.SZ_BODY, bold=False, color=_INK,
-            italic=False, font=None):
+            italic=False, font=None, track=None):
     r = para.add_run(text)
     r.font.name = font or _BODY; r.font.size = size
     r.bold = bold; r.italic = italic; r.font.color.rgb = color
+    # `track` = inter-character spacing in twips (1/20 pt) via w:spacing —
+    # real tracking for letterspaced labels, so a multi-word masthead kicker
+    # ("POOLSIDE REPORTING SERVICE") stays on one line instead of the manual
+    # space-between-every-letter trick that only scales to a single word.
+    if track is not None:
+        rPr = r._element.get_or_add_rPr()
+        sp = OxmlElement("w:spacing")
+        sp.set(qn("w:val"), str(track))
+        # CT_RPr is an ordered sequence — w:spacing must precede w:sz/w:szCs,
+        # or Word may drop it. Slot it right before the size we just set.
+        sz = rPr.find(qn("w:sz"))
+        if sz is not None:
+            sz.addprevious(sp)
+        else:
+            rPr.append(sp)
     return r
 
 
@@ -801,7 +816,6 @@ def render_briefing_docx(
     committee: str,
     meeting_dates: list[str],
     materials_url: str | None = None,
-    webex_url: str | None = None,
 ) -> bytes:
     """
     Render a parsed briefing AST to the NEPOOL-branded v2 .docx design and
@@ -815,8 +829,8 @@ def render_briefing_docx(
     silently drift from what the reader shows (which happened twice while
     there was a second parser here).
 
-    `materials_url` / `webex_url` are the venue-hosted links (see
-    pipeline/venue_links.py); each renders under the cover header when given.
+    `materials_url` is the venue's event page (see pipeline/venue_links.py);
+    it renders under the cover header when given.
     """
     import io
 
@@ -871,7 +885,8 @@ def render_briefing_docx(
     p = doc.add_paragraph(); _v2_spacing(p, before=Pt(0), after=Pt(0))
     _v2_pborder(p, "top", 30, _CYAN_HEX)
     p = doc.add_paragraph(); _v2_spacing(p, before=Pt(10), after=Pt(2))
-    _v2_run(p, "N E P O O L", size=brand.SZ_LABEL, bold=True, color=_CYAN, font=_LABEL)
+    _v2_run(p, "POOLSIDE REPORTING SERVICE", size=brand.SZ_LABEL, bold=True,
+            color=_CYAN, font=_LABEL, track=40)
     p = doc.add_paragraph(); _v2_spacing(p, before=Pt(0), after=Pt(6))
     p.paragraph_format.keep_with_next = True
     _v2_run(p, committee, size=brand.SZ_MASTHEAD, bold=True, color=_INK)
@@ -882,18 +897,12 @@ def render_briefing_docx(
     p = doc.add_paragraph(); _v2_spacing(p, before=Pt(0), after=Pt(0))
     _v2_pborder(p, "bottom", 4, _GRAY_MID_HEX)
 
-    # Venue links, directly under the header rule — the source materials and
-    # the virtual-attendance permalink, one hop from the briefing.
-    if materials_url or webex_url:
+    # Source materials link, directly under the header rule — the venue's own
+    # event page, one hop from the briefing.
+    if materials_url:
         p = doc.add_paragraph(); _v2_spacing(p, before=Pt(9), after=Pt(0))
-        if materials_url:
-            _v2_run(p, "Meeting materials:  ", size=brand.SZ_LINK, color=_GRAY_TEXT)
-            _v2_link(p, materials_url, "View on iso-ne.com")
-        if webex_url:
-            if materials_url:
-                _v2_run(p, "      •      ", size=brand.SZ_LINK, color=_GRAY_MID)
-            _v2_run(p, "Join virtually:  ", size=brand.SZ_LINK, color=_GRAY_TEXT)
-            _v2_link(p, webex_url, "ISO-NE Webex")
+        _v2_run(p, "Meeting materials:  ", size=brand.SZ_LINK, color=_GRAY_TEXT)
+        _v2_link(p, materials_url, "View on iso-ne.com")
 
     tldr = list(getattr(briefing, "tldr", None) or [])
     if tldr:

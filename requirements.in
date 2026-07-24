@@ -16,3 +16,4 @@ pdfplumber
 fastapi
 uvicorn[standard]
 apscheduler
+boto3

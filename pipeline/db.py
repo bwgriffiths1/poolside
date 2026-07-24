@@ -779,16 +779,24 @@ def insert_document_image(
     height: int | None = None,
     file_path: str | None = None,
     image_b64: str | None = None,
+    storage_key: str | None = None,
+    size_bytes: int | None = None,
     description: str | None = None,
 ) -> dict:
-    """Insert or update an extracted image record."""
+    """Insert or update an extracted image record.
+
+    Exactly one of image_b64 (legacy in-DB bytes) and storage_key (object
+    storage, see pipeline/storage.py) should be set; the upsert overwrites
+    both so a re-extract cleanly transitions a row between the two modes.
+    """
     with _conn() as conn:
         with _cursor(conn) as cur:
             cur.execute("""
                 INSERT INTO document_images
                     (document_id, filename, page_or_slide, img_index,
-                     width, height, file_path, image_b64, description)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                     width, height, file_path, image_b64, storage_key,
+                     size_bytes, description)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (document_id, page_or_slide, img_index)
                 DO UPDATE SET
                     filename  = EXCLUDED.filename,
@@ -796,10 +804,13 @@ def insert_document_image(
                     height    = EXCLUDED.height,
                     file_path = EXCLUDED.file_path,
                     image_b64 = EXCLUDED.image_b64,
+                    storage_key = EXCLUDED.storage_key,
+                    size_bytes  = EXCLUDED.size_bytes,
                     description = COALESCE(EXCLUDED.description, document_images.description)
                 RETURNING *
             """, (document_id, filename, page_or_slide, img_index,
-                  width, height, file_path, image_b64, description))
+                  width, height, file_path, image_b64, storage_key,
+                  size_bytes, description))
             return dict(cur.fetchone())
 
 
@@ -907,13 +918,24 @@ _IMAGE_REF_SOURCES_SQL = """
     UNION
     SELECT (regexp_matches(brief_md, '/api/images/(\\d+)', 'g'))[1]::int
       FROM initiative_briefs WHERE brief_md LIKE '%%/api/images/%%'
+    UNION
+    SELECT (regexp_matches(report_md, 'image_id:(\\d+)', 'g'))[1]::int
+      FROM monthly_roundups WHERE report_md LIKE '%%image_id:%%'
+    UNION
+    SELECT (regexp_matches(report_md, '/api/images/(\\d+)', 'g'))[1]::int
+      FROM monthly_roundups WHERE report_md LIKE '%%/api/images/%%'
 """
 
 
 def image_stats() -> dict:
     """Storage snapshot for the admin dashboard: how many extracted images
     exist, how many any stored markdown actually references, and the bytes
-    the unreferenced remainder occupies."""
+    the unreferenced remainder occupies.
+
+    Byte figures mix eras: legacy rows count their base64 length (≈1.33×
+    the raw PNG), offloaded rows their raw size_bytes. `offloaded` tracks
+    how many rows have moved to object storage (== stored once the
+    backfill has run)."""
     with _conn() as conn:
         with _cursor(conn) as cur:
             # Empty params tuple so psycopg2 runs placeholder processing and
@@ -922,11 +944,13 @@ def image_stats() -> dict:
                 WITH refs AS ({_IMAGE_REF_SOURCES_SQL})
                 SELECT
                     (SELECT COUNT(*) FROM document_images)          AS stored,
-                    (SELECT COALESCE(SUM(length(image_b64)), 0)
+                    (SELECT COALESCE(SUM(COALESCE(length(image_b64), size_bytes, 0)), 0)
                        FROM document_images)                        AS stored_bytes,
                     (SELECT COUNT(*) FROM document_images
+                      WHERE storage_key IS NOT NULL)                AS offloaded,
+                    (SELECT COUNT(*) FROM document_images
                       WHERE id IN (SELECT img_id FROM refs))        AS referenced,
-                    (SELECT COALESCE(SUM(length(image_b64)), 0)
+                    (SELECT COALESCE(SUM(COALESCE(length(image_b64), size_bytes, 0)), 0)
                        FROM document_images
                       WHERE id NOT IN (SELECT img_id FROM refs))    AS unreferenced_bytes
             """, ())
@@ -946,9 +970,11 @@ def prune_unreferenced_document_images(older_than_days: int = 30) -> dict:
     source_url) are never pruned. editor_images is a different table and is
     untouched.
 
-    Returns {deleted, freed_bytes}. Space is reclaimed by the caller's
-    vacuum (see vacuum_document_images) — DELETE alone leaves the file size
-    unchanged.
+    Returns {deleted, freed_bytes, storage_keys}. storage_keys lists the
+    object-storage keys of deleted rows — the DB never talks to the bucket,
+    so callers (scheduler / admin route) pass them to storage.delete_images.
+    DB space is reclaimed by the caller's vacuum (see
+    vacuum_document_images) — DELETE alone leaves the file size unchanged.
     """
     with _conn() as conn:
         with _cursor(conn) as cur:
@@ -960,12 +986,14 @@ def prune_unreferenced_document_images(older_than_days: int = 30) -> dict:
                    AND COALESCE(d.source_url, '') <> ''
                    AND di.created_at < NOW() - make_interval(days => %s)
                    AND di.id NOT IN (SELECT img_id FROM refs)
-             RETURNING length(di.image_b64) AS b
+             RETURNING di.storage_key,
+                       COALESCE(length(di.image_b64), di.size_bytes, 0) AS b
             """, (older_than_days,))
             rows = cur.fetchall()
     return {
         "deleted": len(rows),
         "freed_bytes": int(sum((r["b"] or 0) for r in rows)),
+        "storage_keys": [r["storage_key"] for r in rows if r["storage_key"]],
     }
 
 

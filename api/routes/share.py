@@ -10,7 +10,6 @@ intentionally NOT protected — that's the whole point.
 """
 from __future__ import annotations
 
-import base64
 import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -18,7 +17,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import Response
 
-from pipeline import db
+from pipeline import db, storage
 from .. import adapters, briefing_parser
 from ..auth import current_user, require_editor
 
@@ -188,19 +187,16 @@ def public_share_document_image(token: str, image_id: int) -> Response:
     with db._conn() as conn:
         with db._cursor(conn) as cur:
             cur.execute(
-                """SELECT di.image_b64
+                """SELECT di.id, di.image_b64, di.storage_key
                      FROM document_images di
                      JOIN documents d ON d.id = di.document_id
                     WHERE di.id = %s AND d.meeting_id = %s""",
                 (image_id, row["meeting_id"]),
             )
             img = cur.fetchone()
-    if not img or not img["image_b64"]:
+    raw = storage.get_image_bytes(dict(img)) if img else None
+    if raw is None:
         raise HTTPException(status_code=404, detail="Image not found")
-    try:
-        raw = base64.b64decode(img["image_b64"])
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Corrupt image bytes: {e}")
     return Response(
         content=raw,
         media_type="image/png",

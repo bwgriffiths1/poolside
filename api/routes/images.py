@@ -1,18 +1,17 @@
 """Document-extracted images served by id.
 
 When the summarizer extracts a chart/diagram from a PDF or PPTX, the bytes
-land in `document_images.image_b64` and the summary text gets a marker
-comment like `<!-- image_id:441 -->`. This route exposes those images so
-the rendered summary can show them as inline `<img>` tags.
+go to object storage (document_images.storage_key — see pipeline/storage.py)
+or, for legacy rows, base64 in document_images.image_b64, and the summary
+text gets a marker comment like `<!-- image_id:441 -->`. This route exposes
+those images so the rendered summary can show them as inline `<img>` tags.
 """
 from __future__ import annotations
-
-import base64
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import Response
 
-from pipeline import db
+from pipeline import db, storage
 from ..auth import current_user
 
 router = APIRouter(prefix="/api/images", tags=["images"])
@@ -27,15 +26,11 @@ def get_image(
     if not rows:
         raise HTTPException(status_code=404, detail="Image not found")
 
-    row = rows[0]
-    b64 = row.get("image_b64") or ""
-    if not b64:
+    raw = storage.get_image_bytes(rows[0])
+    if raw is None:
+        # Missing bytes or a transient storage failure — 404 without the
+        # cache header below, so browsers retry rather than pin the failure.
         raise HTTPException(status_code=404, detail="Image bytes not stored")
-
-    try:
-        raw = base64.b64decode(b64)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Corrupt image bytes: {e}")
 
     return Response(
         content=raw,

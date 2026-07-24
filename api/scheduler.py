@@ -167,17 +167,21 @@ def _prune_images_job() -> None:
     actually shrinks; stamps the result in app_config for the admin page."""
     from datetime import datetime, timezone
 
-    from pipeline import appconfig, db
+    from pipeline import appconfig, db, storage
 
     try:
         before = db.image_stats()
         result = db.prune_unreferenced_document_images(older_than_days=30)
+        # Bucket objects for the pruned rows (pop: the key list is plumbing,
+        # not something to stamp into app_config). Best-effort by design.
+        objects_deleted = storage.delete_images(result.pop("storage_keys", []))
         if result["deleted"]:
             db.vacuum_document_images()
         stamp = {
             "at": datetime.now(timezone.utc).isoformat(),
             "deleted": result["deleted"],
             "freed_bytes": result["freed_bytes"],
+            "objects_deleted": objects_deleted,
             "stored_after": before["stored"] - result["deleted"],
         }
         appconfig.set_config_key("image_prune_last", stamp, updated_by="scheduler")

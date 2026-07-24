@@ -282,4 +282,14 @@ if _DIST.exists():
         # the latter masks typos and confuses monitoring.
         if path.startswith("api/"):
             return JSONResponse(status_code=404, content={"detail": "Not found"})
+        # Vite copies web/public/* to the dist ROOT, not into /assets — so
+        # favicon.svg, icons.svg and mascot.png are not covered by the mount
+        # above. Without this they fall through to index.html and reach the
+        # browser as undecodable HTML (a broken <img>, not a 404).
+        if path:
+            candidate = (_DIST / path).resolve()
+            # Containment check before the stat: a crafted path must not read
+            # outside dist.
+            if candidate.is_relative_to(_DIST.resolve()) and candidate.is_file():
+                return FileResponse(candidate)
         return FileResponse(_DIST / "index.html")

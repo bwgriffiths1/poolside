@@ -50,6 +50,15 @@ Given raw agenda text (extracted from a .docx table or PDF), extract every agend
 - Presenter names typically appear right-aligned or indented after the title.
 - Time slots appear in a separate column.
 
+### PJM
+- Agendas are prose documents (no tables): numbered sentences "1.", "2.", "3." … each describing who will present what.
+- **The numbered sentences are the agenda items.** Unnumbered bold/centered lines between them ("Administration", "CIFP – … – Stage 1", "Next Steps") are SECTION HEADINGS, not items — never emit them as items, and never renumber the sentences to match the headings.
+- item_id is the sentence's own number ("1"–"6" etc.), flat structure, no sub-items. PJM's posted materials are named "Item 03 - …", "Item 04 - …" matching these numbers, so preserving the source numbering is load-bearing.
+- Presenter names lead the sentence in prose ("Jen Tribulski will review …" → presenter = "Jen Tribulski"; "Adam Keech and Jen Tribulski will…" → "Adam Keech and Jen Tribulski"; "PJM will present…" → org = "PJM", presenter = null). There are no parentheticals.
+- Title: a concise noun phrase for what the item covers (e.g. "CIFP Process and RBP Work Plan Review" for "Jen Tribulski will review the Critical Issue Fast Path (CIFP) process and the CIFP-Reliability Backstop Procurement Work Plan."), not the full sentence.
+- No vote tags, WMPP IDs, or initiative codes — return null/empty for those.
+- Ignore the "Future Meeting Dates" table, antitrust/code-of-conduct boilerplate, and author footer entirely.
+
 ## Important Rules
 
 1. Extract EVERY numbered agenda item — do not skip procedural items (Call to Order, Roll Call, etc.).

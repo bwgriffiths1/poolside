@@ -76,7 +76,12 @@ def try_parse_agenda(meeting_id: int, config: dict) -> dict[str, Any]:
         {"filename": d["filename"], "url": d.get("source_url"), "_db": d}
         for d in docs
     ]
-    agenda = find_agenda_doc(candidates)
+    # PJM: prefer the .pdf agenda — the .docx twin uses Word auto-numbering,
+    # so its extracted text has no item numbers (see _find_agenda_doc).
+    if (meeting.get("venue_short") or "ISO-NE") == "PJM":
+        agenda = find_agenda_doc(candidates, prefer_ext=".pdf")
+    else:
+        agenda = find_agenda_doc(candidates)
     if agenda is None:
         return {"parsed": False, "n_items": 0, "agenda_filename": None,
                 "reason": "no document name matches agenda heuristic"}
@@ -99,6 +104,12 @@ def try_parse_agenda(meeting_id: int, config: dict) -> dict[str, Any]:
     venue_short = meeting.get("venue_short") or "ISO-NE"
     type_short = meeting.get("type_short") or ""
     parse_mode = config.get("agenda_parsing", {}).get("mode", "llm_verify")
+    if venue_short == "PJM":
+        # PJM agendas are prose, not docx tables: llm_verify's regex side
+        # always parses 0 items, which reads as a structural disagreement
+        # and escalates every parse to the bigger model. One Haiku call
+        # does the job.
+        parse_mode = "llm_only"
 
     try:
         parsed_items, audit = parse_agenda_hybrid(
@@ -284,9 +295,16 @@ def assign_existing_docs(meeting_id: int, config: dict) -> None:
     if not unassigned:
         return
 
-    # ── regex pass ──────────────────────────────────────────────────────────
+    meeting = db.get_meeting(meeting_id) or {}
+    venue_short = meeting.get("venue_short") or "ISO-NE"
+
+    # ── deterministic filename pass (venue-specific convention) ────────────
     doc_rows_simple = [{"filename": d["filename"]} for d in unassigned]
-    buckets = pl_refresh.map_docs_to_agenda_items(doc_rows_simple, items)
+    if venue_short == "PJM":
+        from pipeline.pjm_scraper import map_pjm_docs_to_agenda_items
+        buckets = map_pjm_docs_to_agenda_items(doc_rows_simple, items)
+    else:
+        buckets = pl_refresh.map_docs_to_agenda_items(doc_rows_simple, items)
 
     prefix_to_item_db_id = {
         item["prefix"]: item["id"] for item in items if item.get("prefix")
@@ -322,8 +340,6 @@ def assign_existing_docs(meeting_id: int, config: dict) -> None:
         match_model = config.get("agenda_parsing", {}).get(
             "match_model", "claude-haiku-4-5-20251001"
         )
-        meeting = db.get_meeting(meeting_id) or {}
-        venue_short = meeting.get("venue_short") or "ISO-NE"
         filenames = [d["filename"] for d in still_unassigned]
         # Same bucket-dict contract as map_docs_to_agenda_items; mirrors the
         # working call in pipeline/refresh.py.

@@ -1,9 +1,11 @@
 """Venue-hosted URLs for a meeting.
 
-Mirrors web/src/lib/links.ts — keep the two in sync. Only ISO-NE has these
-URLs today; every helper returns None for other venues so callers can render
-conditionally without knowing the venue's conventions.
+Mirrors web/src/lib/links.ts — keep the two in sync. (PJM is deliberately
+absent from the TS mirror while it's hidden from the main UI; the /pjm demo
+page links pjm.com itself.) Helpers return None when a venue has no such
+URL so callers can render conditionally without knowing venue conventions.
 """
+import re
 from urllib.parse import quote
 
 # ISO-NE runs every committee meeting off one Webex site, so this is a
@@ -20,6 +22,14 @@ def webex_url(venue_short: str | None) -> str | None:
 
 def materials_url(venue_short: str | None, external_id: str | None) -> str | None:
     """The venue's own event page — agenda plus posted materials."""
-    if venue_short != "ISO-NE" or not external_id:
+    if not external_id:
         return None
-    return f"https://www.iso-ne.com/event-details?eventId={quote(str(external_id))}"
+    if venue_short == "ISO-NE":
+        return f"https://www.iso-ne.com/event-details?eventId={quote(str(external_id))}"
+    if venue_short == "PJM":
+        # external_id is pjm-{committee-slug}-{yyyymmdd}; materials live on
+        # the committee page (one accordion entry per meeting date).
+        m = re.fullmatch(r"pjm-(.+)-\d{8}", str(external_id))
+        if m:
+            return f"https://www.pjm.com/committees-and-groups/{m.group(1)}"
+    return None

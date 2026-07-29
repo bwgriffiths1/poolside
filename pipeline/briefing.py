@@ -20,6 +20,7 @@ import logging
 import re
 import tempfile
 from pathlib import Path
+from urllib.parse import urlparse
 
 from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_LINE_SPACING
@@ -899,11 +900,15 @@ def render_briefing_docx(
     _v2_pborder(p, "bottom", 4, _GRAY_MID_HEX)
 
     # Source materials link, directly under the header rule — the venue's own
-    # event page, one hop from the briefing.
+    # event page, one hop from the briefing. Label follows the link's host so
+    # non-ISO-NE venues (PJM) read correctly: "View on iso-ne.com" stays
+    # byte-identical for ISO-NE URLs.
     if materials_url:
+        host = urlparse(materials_url).netloc
+        host = host[4:] if host.startswith("www.") else host
         p = doc.add_paragraph(); _v2_spacing(p, before=Pt(9), after=Pt(0))
         _v2_run(p, "Meeting materials:  ", size=brand.SZ_LINK, color=_GRAY_TEXT)
-        _v2_link(p, materials_url, "View on iso-ne.com")
+        _v2_link(p, materials_url, f"View on {host or 'the venue site'}")
 
     tldr = list(getattr(briefing, "tldr", None) or [])
     if tldr:

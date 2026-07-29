@@ -153,23 +153,39 @@ def test_venue_links_only_resolve_for_iso_ne():
 
 
 def test_cover_links_render_as_real_hyperlinks(new_format):
-    """The URLs must land in document.xml.rels as external relationships —
-    plain text would not be clickable in Word."""
+    """The URL must land in document.xml.rels as an external relationship —
+    plain text would not be clickable in Word. (The webex_url kwarg was
+    removed with the Webex cover line in PR #62.)"""
     from pipeline import venue_links
 
     b, _ = new_format
     materials = venue_links.materials_url("ISO-NE", "160094")
     blob = render_briefing_docx(
-        b, "Markets Committee", ["2025-11-04"],
-        materials_url=materials, webex_url=venue_links.ISO_NE_WEBEX_URL,
+        b, "Markets Committee", ["2025-11-04"], materials_url=materials,
     )
     z = zipfile.ZipFile(io.BytesIO(blob))
     rels = z.read("word/_rels/document.xml.rels").decode()
     xml = z.read("word/document.xml").decode()
 
-    assert materials in rels and venue_links.ISO_NE_WEBEX_URL in rels
-    assert xml.count("<w:hyperlink") == 2
-    assert "View on iso-ne.com" in xml and "ISO-NE Webex" in xml
+    assert materials in rels
+    assert xml.count("<w:hyperlink") == 1
+    assert "View on iso-ne.com" in xml
+
+
+def test_cover_link_label_follows_venue_host(new_format):
+    """PJM briefings link the committee page and the label follows the host."""
+    from pipeline import venue_links
+
+    b, _ = new_format
+    materials = venue_links.materials_url("PJM", "pjm-cifp-rbp-20260416")
+    assert materials == "https://www.pjm.com/committees-and-groups/cifp-rbp"
+    blob = render_briefing_docx(
+        b, "Critical Issue Fast Path - Reliability Backstop Procurement",
+        ["2026-04-16"], materials_url=materials,
+    )
+    z = zipfile.ZipFile(io.BytesIO(blob))
+    xml = z.read("word/document.xml").decode()
+    assert "View on pjm.com" in xml
 
 
 def test_cover_links_omitted_when_unknown(new_format):

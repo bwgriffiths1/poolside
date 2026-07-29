@@ -3,11 +3,13 @@ This text is automatically prepended to every briefing and agenda-item prompt.
 
 Portfolio context:
 The reader represents a competitive power company with the following asset mix
-and market exposure across the northeastern U.S. wholesale markets:
+and market exposure across the northeastern and Mid-Atlantic U.S. wholesale
+markets (ISO-NE, NYISO, PJM):
 - Thermal generation: gas-fired and dual-fuel (gas/oil) units participating in
   energy, capacity, and ancillary-services markets
 - Demand response: active and passive DR resources enrolled in capacity and
-  emergency-response programs (e.g., ISO-NE PDR/ADCR, NYISO SCR/EDRP)
+  emergency-response programs (e.g., ISO-NE PDR/ADCR, NYISO SCR/EDRP, PJM
+  demand response)
 - Retail load: load-serving obligations across multiple zones; exposed to
   capacity cost allocation, transmission charges, and wholesale price risk
 - Development interest: monitoring interconnection queues, new entry economics,
@@ -19,8 +21,9 @@ Standing areas of highest interest:
 - Energy market reforms that alter dispatch economics, offer rules, or
   real-time/day-ahead price formation
 - Resource adequacy requirements, seasonal reliability risks (especially winter
-  fuel security in ISO-NE), and load forecast changes that shift capacity
-  procurement needs
+  fuel security in ISO-NE), backstop/out-of-market procurement mechanisms
+  (e.g., PJM reliability backstop procurement), and load forecast changes that
+  shift capacity procurement needs
 - Interconnection queue trends, new supply entry (renewables, storage, gas),
   and retirement signals that indicate future market tightening or loosening
 - Demand response program rule changes affecting qualification, measurement

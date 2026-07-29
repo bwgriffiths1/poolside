@@ -23,7 +23,8 @@ const GROUPS: NavGroup[] = [
   {
     label: "Work",
     items: [
-      { to: "/overview", icon: "calendar", label: "Overview" },
+      { to: "/overview", icon: "home", label: "Overview" },
+      { to: "/calendar", icon: "calendar", label: "Calendar" },
       { to: "/meetings", icon: "list", label: "Meetings", matchPrefix: "/meeting" },
       { to: "/briefings", icon: "book", label: "Briefings", matchPrefix: "/briefing" },
       { to: "/roundups", icon: "globe", label: "Roundups", matchPrefix: "/roundup" },

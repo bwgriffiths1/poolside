@@ -15,27 +15,8 @@ import {
   weekdayShort,
 } from "../lib/format";
 import { toast } from "../lib/toast";
+import { addDays, localIso, mondayOf } from "../lib/dates";
 import type { MeetingListItem, MeetingStatus } from "../types";
-
-// ── Calendar-week math ────────────────────────────────────────────────────
-// All in LOCAL time. toISOString() is UTC: on a Sunday evening in New
-// England it already reads as Monday and would flip the page a week early.
-
-function localIso(d: Date): string {
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${d.getFullYear()}-${m}-${day}`;
-}
-
-function addDays(d: Date, n: number): Date {
-  const out = new Date(d.getFullYear(), d.getMonth(), d.getDate());
-  out.setDate(out.getDate() + n);
-  return out;
-}
-
-function mondayOf(d: Date): Date {
-  return addDays(d, -((d.getDay() + 6) % 7));
-}
 
 function weekLabel(startIso: string, endIso: string): string {
   const s = new Date(`${startIso}T12:00:00`);

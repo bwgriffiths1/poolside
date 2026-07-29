@@ -1,5 +1,6 @@
 import {
   Calendar,
+  Home,
   List,
   FileText,
   BookOpen,
@@ -40,6 +41,7 @@ import {
 
 const REGISTRY = {
   calendar: Calendar,
+  home: Home,
   list: List,
   doc: FileText,
   book: BookOpen,

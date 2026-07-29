@@ -13,6 +13,7 @@ import { toast } from "./lib/toast";
 import "./styles/tokens.css";
 import "./styles/base.css";
 import "./styles/screens/overview.css";
+import "./styles/screens/calendar.css";
 import "./styles/screens/meeting.css";
 import "./styles/screens/briefing.css";
 import "./styles/screens/roundup.css";

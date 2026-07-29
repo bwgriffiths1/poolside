@@ -111,9 +111,13 @@ def _create_discovered_meeting(
         venue = next((v for v in venues if v["short_name"] == venue_short), None)
         if venue is None:
             raise RuntimeError(f"Unknown venue {venue_short}")
+        # create_meeting_type / upsert_meeting return full row dicts — take
+        # the ids. (Passing the dicts through crashed every genuinely-new
+        # meeting's bump_lifecycle with "can't adapt type 'dict'", silently
+        # swallowed by the per-committee except in discover_all_venues.)
         mt_id = db.create_meeting_type(
             venue_id=venue["id"], name=committee_name, short_name=committee_short
-        )
+        )["id"]
     else:
         mt_id = mt["id"]
 
@@ -124,7 +128,7 @@ def _create_discovered_meeting(
         meeting_date=meeting_date or date.today(),
         end_date=end_date,
         location=location,
-    )
+    )["id"]
     lifecycle.bump_lifecycle(meeting_id)
     return meeting_id
 
@@ -136,6 +140,114 @@ def _stamp_venue_scrape(venue_short: str) -> None:
                 "UPDATE venues SET last_scraped_at = NOW() WHERE short_name = %s",
                 (venue_short,),
             )
+
+
+def discover_pjm() -> dict[str, Any]:
+    """Scrape configured PJM committee pages; upsert meetings + documents.
+
+    Deliberately NOT part of discover_all_venues(): the daily cron stays
+    ISO-NE-only while PJM is demo-phase, and this is button-driven from
+    POST /api/pjm/discover.
+
+    Unlike the ISO-NE calendar path (stubs only; docs arrive via refresh),
+    one PJM committee-page fetch carries the full materials list, so
+    documents are upserted in the same pass. Zero LLM calls. Idempotent —
+    a re-run reports 0 new. Upcoming meetings (registration table) become
+    stub rows under the same pjm-{slug}-{yyyymmdd} external-id scheme, so
+    a stub converges onto its accordion entry once materials post.
+    """
+    from pipeline import pjm_scraper
+
+    cfg = _load_config()
+    new_meetings = 0
+    meetings_seen = 0
+    detail: list[dict[str, Any]] = []
+
+    for committee in (cfg.get("pjm") or {}).get("committees", []):
+        if not committee.get("active", True):
+            continue
+        try:
+            html = pjm_scraper.fetch_committee_page(committee["url"])
+            parsed = pjm_scraper.parse_committee_page(html, committee["url"])
+        except Exception as e:
+            log.exception("PJM scrape failed for %s: %s", committee.get("short"), e)
+            detail.append({"committee": committee.get("short"), "error": str(e)})
+            continue
+
+        entries = [
+            {**m, "location": "", "kind": "materials"} for m in parsed["meetings"]
+        ] + [
+            {"date": u["date"], "title": u["title"], "documents": [],
+             "location": u.get("location", ""), "kind": "upcoming"}
+            for u in parsed["upcoming"]
+        ]
+        meetings_seen += len(parsed["meetings"])
+
+        seen_external_ids: set[str] = set()
+        for entry in entries:
+            external_id = pjm_scraper.pjm_external_id(committee["slug"], entry["date"])
+            if external_id in seen_external_ids:
+                continue  # accordion + upcoming rows for the same date
+            seen_external_ids.add(external_id)
+
+            existing = _find_meeting_by_external_id(external_id)
+            created = existing is None
+            if created:
+                meeting_id = _create_discovered_meeting(
+                    venue_short="PJM",
+                    committee_short=committee["short"],
+                    committee_name=committee["name"],
+                    external_id=external_id,
+                    title=entry["title"] or committee["name"],
+                    meeting_date=entry["date"],
+                    end_date=None,
+                    location=entry.get("location") or "",
+                )
+                new_meetings += 1
+            else:
+                meeting_id = existing["id"]
+
+            existing_filenames = db.get_existing_filenames(meeting_id)
+            new_docs: list[str] = []
+            for doc in entry["documents"]:
+                if doc["filename"] in existing_filenames:
+                    continue
+                db.upsert_document(
+                    meeting_id=meeting_id,
+                    filename=doc["filename"],
+                    file_type=doc.get("ext") or "",
+                    source_url=doc["url"],
+                    ceii_skipped=False,
+                )
+                new_docs.append(doc["filename"])
+            # Re-bump after doc upserts even for just-created meetings:
+            # _create_discovered_meeting bumps before any documents exist,
+            # which would leave a materials-bearing meeting at 'discovered'.
+            if new_docs:
+                lifecycle.bump_lifecycle(meeting_id)
+
+            detail.append({
+                "committee": committee["short"],
+                "external_id": external_id,
+                "meeting_id": meeting_id,
+                "meeting_date": entry["date"].isoformat(),
+                "title": entry["title"],
+                "created": created,
+                "new_docs": new_docs,
+                "doc_count": len(existing_filenames) + len(new_docs),
+                "posted_dates": {
+                    d["filename"]: d["posted_date"].isoformat()
+                    for d in entry["documents"] if d.get("posted_date")
+                },
+            })
+
+    if meetings_seen > 0:
+        _stamp_venue_scrape("PJM")
+    else:
+        log.warning(
+            "PJM discover: 0 meetings parsed — NOT stamping last_scraped_at"
+        )
+    return {"discovered": {"PJM": new_meetings}, "meetings": detail}
 
 
 def refresh_upcoming_meetings() -> dict[str, Any]:

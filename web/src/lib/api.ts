@@ -81,8 +81,9 @@ export const api = {
     if (params?.venue) qs.set("venue", params.venue);
     const tail = qs.toString() ? `?${qs}` : "";
     const all = await get<MeetingListItem[]>(`/meetings${tail}`, () => MEETINGS);
-    // NYISO is intentionally hidden from the Vite UI for now (see plan).
-    return all.filter((m) => m.venue !== "NYISO");
+    // NYISO and PJM are intentionally hidden from the Vite UI for now —
+    // PJM lives on the /pjm demo page until the main-UI integration pass.
+    return all.filter((m) => m.venue !== "NYISO" && m.venue !== "PJM");
   },
 
   // No fallback — if the API can't return a specific meeting / briefing,
@@ -153,7 +154,7 @@ export const api = {
     const all = await get<VenueWithScrape[]>("/admin/venues", () => [
       { id: 1, short_name: "ISO-NE", name: "ISO New England", last_scraped_at: null },
     ]);
-    return all.filter((v) => v.short_name !== "NYISO");
+    return all.filter((v) => v.short_name !== "NYISO" && v.short_name !== "PJM");
   },
 
   schedulerStatus: () =>

@@ -17,6 +17,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY api/ ./api/
 COPY pipeline/ ./pipeline/
 COPY prompts/ ./prompts/
+COPY demo/ ./demo/
 COPY config.yaml ./
 
 COPY --from=web-builder /web/dist ./web/dist

@@ -30,6 +30,15 @@ NYISO files use simpler prefixes: just the item number, sometimes with a letter 
 - "5_market_ops.pdf" → item "5"
 - "5a_appendix.pdf" → item "5" (sub-document)
 
+### PJM-specific
+PJM filenames carry an "item-NN" token after a date prefix; NN (leading zeros
+stripped) is the agenda item number:
+- "20260416-item-03---cifp---rbp-draft-work-plan.pdf" → item "3"
+- "20260416-item-05---pjm-presentation.pdf" → item "5"
+- Files named "...-agenda.pdf" / "...-agenda-doc.docx" are the agenda itself → item_id = null.
+(A deterministic matcher normally handles these before you see them — any
+PJM file reaching you lacks the token, so match semantically on the title.)
+
 ## Important Rules
 
 1. Every filename in the input MUST appear exactly once in your output.

@@ -1,0 +1,446 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Poolside · PJM Demo</title>
+<style>
+  /* Brand tokens — mirrors pipeline/brand.py / web tokens.css */
+  :root {
+    --ink: #1A1815; --ink-soft: #4A4640; --muted: #8A847A;
+    --accent: #C4633A; --accent-tint: #F4E4D8;
+    --elev: #FBF9F4; --border: #E3DDD1; --paper: #FDFCF8;
+    --ok: #5A7A52; --ok-tint: #E8EEE4;
+    --info: #4A6A82; --info-tint: #E4EBF1;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: Baskerville, 'Libre Baskerville', 'Times New Roman', Georgia, serif;
+    background: var(--paper); color: var(--ink); line-height: 1.45;
+  }
+  .mono { font-family: Consolas, 'SF Mono', Menlo, monospace; }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 28px 24px 80px; }
+
+  header.masthead { border-top: 3px solid var(--accent); padding: 14px 0 12px; border-bottom: 1px solid var(--border); margin-bottom: 22px; }
+  .kicker { font-family: Consolas, Menlo, monospace; font-size: 11px; letter-spacing: .32em; color: var(--accent); text-transform: uppercase; }
+  h1 { font-size: 30px; font-weight: 500; margin-top: 4px; }
+  h1 .demo { color: var(--muted); font-style: italic; font-size: 22px; }
+  .authline { float: right; text-align: right; font-size: 13px; color: var(--ink-soft); padding-top: 6px; }
+  .authline .role { font-family: Consolas, Menlo, monospace; font-size: 10px; letter-spacing: .12em; text-transform: uppercase; color: var(--paper); background: var(--ink-soft); border-radius: 3px; padding: 2px 7px; margin-left: 7px; }
+
+  .notice { background: var(--accent-tint); border: 1px solid var(--accent); border-radius: 6px; padding: 14px 18px; margin-bottom: 20px; font-size: 15px; }
+  .notice a { color: var(--accent); }
+
+  .card { background: var(--elev); border: 1px solid var(--border); border-radius: 8px; padding: 18px 20px; margin-bottom: 18px; }
+  .card h2 { font-size: 13px; font-family: Consolas, Menlo, monospace; letter-spacing: .22em; text-transform: uppercase; color: var(--ink-soft); font-weight: 400; margin-bottom: 12px; }
+  .card h2 .hint { letter-spacing: 0; text-transform: none; color: var(--muted); font-size: 12px; float: right; }
+
+  button {
+    font-family: Consolas, Menlo, monospace; font-size: 12.5px; letter-spacing: .04em;
+    background: var(--ink); color: var(--paper); border: 1px solid var(--ink);
+    border-radius: 5px; padding: 7px 16px; cursor: pointer;
+  }
+  button:hover:not(:disabled) { background: var(--accent); border-color: var(--accent); }
+  button:disabled { background: var(--border); border-color: var(--border); color: var(--muted); cursor: not-allowed; }
+  button.ghost { background: transparent; color: var(--ink-soft); border-color: var(--border); }
+  button.ghost:hover:not(:disabled) { color: var(--accent); border-color: var(--accent); background: transparent; }
+  select { font-family: Consolas, Menlo, monospace; font-size: 12.5px; padding: 6px 8px; border: 1px solid var(--border); border-radius: 5px; background: #fff; color: var(--ink); }
+  .status { font-size: 13px; color: var(--ink-soft); margin-top: 10px; white-space: pre-wrap; }
+  .status.err { color: #9B3A22; }
+
+  .cols { display: grid; grid-template-columns: 340px 1fr; gap: 18px; align-items: start; }
+  @media (max-width: 900px) { .cols { grid-template-columns: 1fr; } }
+
+  .mlist { list-style: none; }
+  .mlist li { padding: 10px 10px; border-bottom: 1px solid var(--border); cursor: pointer; border-left: 3px solid transparent; }
+  .mlist li:hover { background: #fff; }
+  .mlist li.sel { border-left-color: var(--accent); background: #fff; }
+  .mdate { font-family: Consolas, Menlo, monospace; font-size: 12px; color: var(--accent); }
+  .mtitle { font-size: 14.5px; margin: 2px 0 4px; }
+  .mmeta { font-size: 12px; color: var(--muted); }
+
+  .badge { display: inline-block; font-family: Consolas, Menlo, monospace; font-size: 9.5px; letter-spacing: .1em; text-transform: uppercase; border-radius: 3px; padding: 2px 7px; vertical-align: 1px; }
+  .b-discovered { background: var(--border); color: var(--ink-soft); }
+  .b-agenda_posted { background: var(--info-tint); color: var(--info); }
+  .b-materials_posted { background: var(--accent-tint); color: var(--accent); }
+  .b-summarized { background: var(--ok-tint); color: var(--ok); }
+  .b-approved { background: var(--ok); color: #fff; }
+
+  .detail h3 { font-size: 21px; font-weight: 500; }
+  .detail .sub { color: var(--muted); font-size: 13.5px; margin: 3px 0 12px; }
+  .toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 10px 0 4px; }
+
+  .agenda-item { border-top: 1px solid var(--border); padding: 10px 2px; }
+  .agenda-item .no { font-family: Consolas, Menlo, monospace; color: var(--accent); font-size: 12.5px; margin-right: 8px; }
+  .agenda-item .who { color: var(--muted); font-size: 12.5px; }
+  .agenda-item .summ { font-size: 13.5px; color: var(--ink-soft); margin-top: 5px; font-style: italic; }
+  .chips { margin-top: 6px; }
+  .chip { display: inline-block; font-family: Consolas, Menlo, monospace; font-size: 10.5px; background: #fff; border: 1px solid var(--border); border-radius: 3px; padding: 2px 7px; margin: 2px 4px 0 0; color: var(--ink-soft); text-decoration: none; }
+  a.chip:hover { border-color: var(--accent); color: var(--accent); }
+  .chip .xls { color: var(--muted); font-style: italic; }
+
+  .jobbox { background: #fff; border: 1px dashed var(--border); border-radius: 6px; padding: 12px 14px; margin-top: 10px; font-size: 13px; }
+  .jobbox .prog { font-family: Consolas, Menlo, monospace; font-size: 12px; color: var(--ink-soft); white-space: pre-wrap; margin-top: 5px; }
+  .spin { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--accent); margin-right: 7px; animation: pulse 1.2s infinite ease-in-out; }
+  @keyframes pulse { 0%,100% { opacity: .25 } 50% { opacity: 1 } }
+
+  /* Briefing reader */
+  .briefing { background: #fff; border: 1px solid var(--border); border-radius: 8px; padding: 28px 34px; margin-top: 16px; }
+  .briefing .b-kicker { font-family: Consolas, Menlo, monospace; font-size: 10px; letter-spacing: .32em; color: var(--accent); text-transform: uppercase; border-top: 2px solid var(--accent); padding-top: 10px; display: block; }
+  .briefing h3.b-title { font-size: 24px; font-weight: 500; margin: 6px 0 2px; }
+  .briefing .b-meta { font-size: 12px; color: var(--muted); margin-bottom: 16px; }
+  .briefing .b-meta a { color: var(--accent); }
+  .briefing .headline { font-size: 16px; font-style: italic; color: var(--ink-soft); border-bottom: 1px solid var(--border); padding-bottom: 14px; margin-bottom: 14px; }
+  .eyebrow { font-family: Consolas, Menlo, monospace; font-size: 11px; letter-spacing: .26em; text-transform: uppercase; color: var(--ink-soft); margin: 20px 0 8px; font-weight: 400; }
+  .briefing ol.tldr { margin: 0 0 6px 22px; }
+  .briefing ol.tldr li { margin-bottom: 7px; font-size: 15px; }
+  .briefing p { font-size: 15px; margin-bottom: 10px; }
+  .briefing p.hblock { font-weight: 700; margin: 14px 0 6px; }
+  .briefing .sec-h { display: flex; align-items: baseline; gap: 10px; border-bottom: 1px solid var(--border); margin: 26px 0 10px; padding-bottom: 5px; }
+  .briefing .sec-h .n { font-family: Consolas, Menlo, monospace; color: var(--accent); font-size: 14px; }
+  .briefing .sec-h h5 { font-size: 17px; font-weight: 600; letter-spacing: .01em; }
+  .briefing .sec-h.d1 { border-bottom: none; margin: 16px 0 6px; }
+  .briefing .sec-h.d1 h5 { font-size: 15px; font-style: italic; font-weight: 600; }
+  .briefing .callout { background: var(--elev); border-left: 3px solid var(--accent); padding: 10px 14px; margin: 10px 0; font-size: 14px; }
+  .briefing .callout .lbl { font-family: Consolas, Menlo, monospace; font-size: 10px; letter-spacing: .18em; text-transform: uppercase; color: var(--accent); display: block; margin-bottom: 3px; }
+  .briefing table { border-collapse: collapse; margin: 10px 0; font-size: 13.5px; width: 100%; }
+  .briefing th, .briefing td { border-bottom: 1px solid var(--border); text-align: left; padding: 5px 10px 5px 0; vertical-align: top; }
+  .briefing th { font-family: Consolas, Menlo, monospace; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-soft); }
+  .briefing .next-steps { background: var(--elev); border-radius: 5px; padding: 9px 13px; margin: 8px 0 4px; font-size: 13.5px; }
+  .briefing .next-steps .lbl { font-family: Consolas, Menlo, monospace; font-size: 10px; letter-spacing: .18em; color: var(--ink-soft); text-transform: uppercase; display: block; margin-bottom: 3px; }
+  .briefing img { max-width: 100%; border: 1px solid var(--border); border-radius: 4px; margin: 8px 0; }
+  .briefing code { font-family: Consolas, Menlo, monospace; font-size: .88em; background: var(--elev); padding: 1px 4px; border-radius: 3px; }
+  .briefing a { color: var(--accent); }
+  footer { margin-top: 40px; border-top: 1px solid var(--border); padding-top: 12px; font-size: 11.5px; color: var(--muted); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="masthead">
+    <div class="authline" id="authline"></div>
+    <span class="kicker">Poolside Reporting Service</span>
+    <h1>PJM <span class="demo">— demo pipeline</span></h1>
+  </header>
+
+  <div id="gate"></div>
+
+  <div id="app" style="display:none">
+    <div class="card">
+      <h2>1 · Discover <span class="hint">scrapes the CIFP-RBP committee page — meetings, materials, upcoming; no LLM</span></h2>
+      <button id="btn-discover">Discover PJM meetings</button>
+      <a class="chip" style="margin-left:10px" href="https://www.pjm.com/committees-and-groups/cifp-rbp" target="_blank" rel="noopener">source: pjm.com ↗</a>
+      <div class="status" id="discover-status"></div>
+    </div>
+
+    <div class="cols">
+      <div class="card">
+        <h2>2 · Meetings</h2>
+        <ul class="mlist" id="mlist"><li style="border:none;color:var(--muted)">Nothing yet — run Discover.</li></ul>
+      </div>
+
+      <div class="card detail" id="detail">
+        <h2>3 · Pipeline</h2>
+        <div style="color:var(--muted);font-size:14px">Select a meeting.</div>
+      </div>
+    </div>
+  </div>
+
+  <footer>Poolside · PJM demo surface. Hidden from the main app until integration; data lives in the shared Poolside database.</footer>
+</div>
+
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+const state = { me: null, meetings: [], mid: null, detail: null, poll: null };
+
+// ── plumbing ──────────────────────────────────────────────────────────
+async function api(path, opts = {}) {
+  const r = await fetch("/api" + path, { credentials: "include", ...opts });
+  if (r.status === 401) { showGate(); throw new Error("Not signed in"); }
+  if (!r.ok) {
+    let msg = r.status + " " + r.statusText;
+    try { const j = await r.json(); if (j.detail) msg = typeof j.detail === "string" ? j.detail : JSON.stringify(j.detail); } catch {}
+    throw new Error(msg);
+  }
+  if ((r.headers.get("content-type") || "").includes("json")) return r.json();
+  return r;
+}
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+// Minimal inline markdown: images, links, bold, italic, code — applied AFTER escaping.
+function inline(s) {
+  let t = esc(s);
+  t = t.replace(/!\[([^\]]*)\]\(([^)\s]+)\)/g, (_, alt, src) => `<img src="${src}" alt="${alt}">`);
+  t = t.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (_, txt, href) => `<a href="${href}" target="_blank" rel="noopener">${txt}</a>`);
+  t = t.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+  t = t.replace(/(^|[^*])\*([^*\n]+)\*/g, "$1<em>$2</em>");
+  t = t.replace(/`([^`]+)`/g, "<code>$1</code>");
+  // markdown backslash-escapes (\$, \_, \% …) — same set the main app strips
+  t = t.replace(/\\([$_*`\[\](){}#.\-+!|<>%~&])/g, "$1");
+  return t;
+}
+const fmtUsd = (v) => (v == null ? "—" : "$" + Number(v).toFixed(2));
+const fmtTok = (v) => (v == null ? "—" : Number(v).toLocaleString());
+const isSpreadsheet = (fn) => /\.(xls|xlsx)$/i.test(fn || "");
+const canEdit = () => state.me && ["admin", "editor"].includes(state.me.role);
+const isAdmin = () => state.me && state.me.role === "admin";
+
+function setStatus(id, msg, isErr = false) { const el = $(id); if (el) { el.textContent = msg; el.className = "status" + (isErr ? " err" : ""); } }
+
+// ── auth ──────────────────────────────────────────────────────────────
+function showGate() {
+  $("app").style.display = "none";
+  $("gate").innerHTML = `<div class="notice">This demo uses your Poolside session. <a href="/">Sign in via the main app</a>, then reload this page.</div>`;
+}
+async function boot() {
+  try { state.me = await api("/me"); } catch { return; }
+  $("authline").innerHTML = `${esc(state.me.name)}<span class="role">${esc(state.me.role)}</span>`;
+  $("gate").innerHTML = "";
+  $("app").style.display = "";
+  $("btn-discover").disabled = !isAdmin();
+  if (!isAdmin()) setStatus("discover-status", "Discover requires the admin role.");
+  await loadMeetings();
+}
+
+// ── discover ──────────────────────────────────────────────────────────
+$("btn-discover").addEventListener("click", async () => {
+  const btn = $("btn-discover"); btn.disabled = true;
+  setStatus("discover-status", "Scraping pjm.com… (paced requests, a few seconds)");
+  try {
+    const r = await api("/pjm/discover", { method: "POST" });
+    const rows = (r.meetings || []).filter((m) => !m.error);
+    const created = rows.filter((m) => m.created).length;
+    const newDocs = rows.reduce((n, m) => n + (m.new_docs || []).length, 0);
+    const errs = (r.meetings || []).filter((m) => m.error);
+    let msg = `${created} new meeting(s), ${newDocs} new document(s) across ${rows.length} entr${rows.length === 1 ? "y" : "ies"}.`;
+    if (!created && !newDocs) msg += "  Everything already ingested — discover is idempotent.";
+    if (errs.length) msg += `\nErrors: ${errs.map((e) => e.committee + ": " + e.error).join("; ")}`;
+    setStatus("discover-status", msg, errs.length > 0);
+    await loadMeetings();
+  } catch (e) { setStatus("discover-status", "Discover failed: " + e.message, true); }
+  btn.disabled = !isAdmin();
+});
+
+// ── meetings list ─────────────────────────────────────────────────────
+async function loadMeetings() {
+  const ms = await api("/meetings?venue=PJM&past_days=730&future_days=365");
+  ms.sort((a, b) => a.meeting_date.localeCompare(b.meeting_date));
+  state.meetings = ms;
+  const ul = $("mlist");
+  if (!ms.length) { ul.innerHTML = `<li style="border:none;color:var(--muted)">Nothing yet — run Discover.</li>`; return; }
+  ul.innerHTML = ms.map((m) => `
+    <li data-id="${m.id}" class="${m.id === state.mid ? "sel" : ""}">
+      <span class="mdate">${esc(m.meeting_date)}</span>
+      <span class="badge b-${esc(m.lifecycle_status)}" style="float:right">${esc(m.lifecycle_status.replace(/_/g, " "))}</span>
+      <div class="mtitle">${esc(m.title)}</div>
+      <div class="mmeta">${m.doc_count} document${m.doc_count === 1 ? "" : "s"} · ${m.item_count} agenda item${m.item_count === 1 ? "" : "s"}</div>
+    </li>`).join("");
+  ul.querySelectorAll("li[data-id]").forEach((li) => li.addEventListener("click", () => openMeeting(Number(li.dataset.id))));
+}
+
+// ── meeting detail ────────────────────────────────────────────────────
+async function openMeeting(mid) {
+  state.mid = mid;
+  stopPoll();
+  document.querySelectorAll("#mlist li").forEach((li) => li.classList.toggle("sel", Number(li.dataset.id) === mid));
+  await renderDetail();
+  const job = await api(`/meetings/${mid}/active-job`).catch(() => null);
+  if (job && job.id) attachJob(job.id);
+}
+
+function docsHtml(docs) {
+  return docs.map((doc) => {
+    const xls = isSpreadsheet(doc.filename);
+    const href = doc.source_url ? esc(doc.source_url) : null;
+    const inner = `${esc(doc.filename)}${xls ? ` <span class="xls">· stored, not summarized</span>` : ""}`;
+    return href ? `<a class="chip" href="${href}" target="_blank" rel="noopener">${inner}</a>` : `<span class="chip">${inner}</span>`;
+  }).join("");
+}
+
+async function renderDetail() {
+  const mid = state.mid;
+  const d = await api(`/meetings/${mid}`);
+  state.detail = d;
+  const el = $("detail");
+
+  const agendaHtml = (d.agenda || []).length
+    ? d.agenda.map((it) => `
+        <div class="agenda-item" style="margin-left:${(it.depth || 0) * 18}px">
+          <span class="no">${esc(it.item_id || "·")}</span><strong>${esc(it.title)}</strong>
+          ${it.presenter || it.org ? `<span class="who"> — ${esc([it.presenter, it.org].filter(Boolean).join(", "))}</span>` : ""}
+          ${it.one_line ? `<div class="summ">${inline(it.one_line)}</div>` : ""}
+          ${(it.docs || []).length ? `<div class="chips">${docsHtml(it.docs)}</div>` : ""}
+        </div>`).join("")
+    : `<div style="color:var(--muted);font-size:13.5px;padding:6px 0">No agenda items yet — parse the agenda.</div>`;
+
+  el.innerHTML = `
+    <h2>3 · Pipeline</h2>
+    <h3>${esc(d.title)}</h3>
+    <div class="sub">${esc(d.meeting_date)}${d.end_date ? " – " + esc(d.end_date) : ""} · ${esc(d.type_short)} · <span class="badge b-${esc(d.lifecycle_status)}">${esc(d.lifecycle_status.replace(/_/g, " "))}</span>
+      · <a href="https://www.pjm.com/committees-and-groups/cifp-rbp" target="_blank" rel="noopener" style="color:var(--accent)">pjm.com ↗</a></div>
+
+    <div class="toolbar">
+      <button id="btn-parse" class="ghost" ${!isAdmin() || (d.agenda || []).length ? "disabled" : ""}>Parse agenda</button>
+      <button id="btn-refresh" class="ghost" ${!canEdit() ? "disabled" : ""}>Re-check materials</button>
+      <span style="flex:1"></span>
+      <select id="sel-mode" title="all: full re-run · missing: only unsummarized items · briefing: L3 only">
+        <option value="all">mode: all</option>
+        <option value="missing">mode: missing</option>
+        <option value="briefing">mode: briefing</option>
+      </select>
+      <button id="btn-estimate" class="ghost">Estimate</button>
+      <button id="btn-summarize" ${!canEdit() ? "disabled" : ""}>Summarize</button>
+    </div>
+    <div class="status" id="action-status"></div>
+    <div id="jobbox"></div>
+
+    <div class="eyebrow">Agenda &amp; materials</div>
+    ${agendaHtml}
+    <div id="unassigned-docs"></div>
+    <div id="briefing-slot"></div>`;
+
+  // detail carries only item-assigned docs; unassigned come from /documents
+  api(`/meetings/${mid}/documents`).then((docs) => {
+    const un = docs.unassigned || [];
+    if (un.length) $("unassigned-docs").innerHTML =
+      `<div class="agenda-item"><span class="who">Meeting-level documents (unassigned)</span><div class="chips">${docsHtml(un)}</div></div>`;
+  }).catch(() => {});
+
+  $("btn-parse").addEventListener("click", parseAgenda);
+  $("btn-refresh").addEventListener("click", refreshMaterials);
+  $("btn-estimate").addEventListener("click", estimate);
+  $("btn-summarize").addEventListener("click", summarize);
+  loadBriefing();
+}
+
+async function parseAgenda() {
+  setStatus("action-status", "Parsing agenda (one small LLM call)…");
+  try {
+    const r = await api(`/admin/parse-agenda/${state.mid}`, { method: "POST" });
+    setStatus("action-status", r.parsed ? `Parsed ${r.n_items} agenda items from ${r.agenda_filename}.` : `Not parsed: ${r.reason}`, !r.parsed);
+    await renderDetail(); await loadMeetings();
+  } catch (e) { setStatus("action-status", "Parse failed: " + e.message, true); }
+}
+
+async function refreshMaterials() {
+  setStatus("action-status", "Re-scraping the committee page…");
+  try {
+    const r = await api(`/admin/refresh-materials/${state.mid}`, { method: "POST" });
+    const step = (r.steps || []).find((s) => s.step === "refresh_materials") || {};
+    const errs = step.errors || [];
+    setStatus("action-status", `${step.new_docs ?? 0} new document(s).` + (errs.length ? " Errors: " + errs.join("; ") : ""), errs.length > 0);
+    await renderDetail(); await loadMeetings();
+  } catch (e) { setStatus("action-status", "Refresh failed: " + e.message, true); }
+}
+
+async function estimate() {
+  const mode = $("sel-mode").value;
+  setStatus("action-status", "Estimating…");
+  try {
+    const est = await api(`/meetings/${state.mid}/summarize/estimate?mode=${mode}`);
+    const stats = est.committee_stats || {};
+    let msg = `Estimate (${mode}): ~${fmtUsd(est.estimated_cost_usd)} · ~${fmtTok(est.estimated_input_tokens)} in / ${fmtTok(est.estimated_output_tokens)} out · ${est.items_planned} item(s) planned`;
+    if (est.docs_without_text) msg += ` · ${est.docs_without_text} doc(s) not yet extracted`;
+    if (stats.count) msg += `\nCommittee history: ${stats.count} run(s), avg ${fmtUsd(stats.avg_cost_usd)}`;
+    setStatus("action-status", msg);
+  } catch (e) { setStatus("action-status", "Estimate failed: " + e.message, true); }
+}
+
+async function summarize() {
+  const mode = $("sel-mode").value;
+  setStatus("action-status", "");
+  $("btn-summarize").disabled = true;
+  try {
+    const r = await api(`/meetings/${state.mid}/summarize`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ mode }),
+    });
+    const jobId = r.job_id ?? r.id;
+    if (r.already_running) setStatus("action-status", "A job is already running — attaching to it.");
+    attachJob(jobId);
+  } catch (e) {
+    setStatus("action-status", "Summarize failed to start: " + e.message, true);
+    $("btn-summarize").disabled = !canEdit();
+  }
+}
+
+// ── job polling ───────────────────────────────────────────────────────
+function stopPoll() { if (state.poll) { clearInterval(state.poll); state.poll = null; } }
+function attachJob(jobId) {
+  if (!jobId) return;
+  stopPoll();
+  const render = async () => {
+    let j;
+    try { j = await api(`/jobs/${jobId}`); } catch { return; }
+    const live = ["queued", "running", "cancelling"].includes(j.status);
+    const box = $("jobbox");
+    if (!box) { stopPoll(); return; }
+    box.innerHTML = `
+      <div class="jobbox">
+        ${live ? `<span class="spin"></span>` : ""}<strong class="mono" style="font-size:12px">JOB #${j.id} — ${esc(j.status).toUpperCase()}</strong>
+        ${live && canEdit() ? `<button id="btn-cancel" class="ghost" style="float:right;padding:3px 10px">Cancel</button>` : ""}
+        <div class="prog">${esc(j.progress_text || "")}
+L1 items done: ${j.level1_done ?? 0} · L2: ${j.level2_done ?? 0} · briefing: ${j.level3_done ? "done" : "—"}${j.status === "complete" ? `
+Tokens: ${fmtTok(j.input_tokens)} in / ${fmtTok(j.output_tokens)} out · Cost: ${fmtUsd(j.cost_usd)}` : ""}${j.error ? `
+Error: ${esc(j.error)}` : ""}</div>
+      </div>`;
+    const cancelBtn = $("btn-cancel");
+    if (cancelBtn) cancelBtn.addEventListener("click", async () => {
+      cancelBtn.disabled = true;
+      try { await api(`/jobs/${jobId}/cancel`, { method: "POST" }); } catch {}
+    });
+    if (!live) {
+      stopPoll();
+      const sb = $("btn-summarize"); if (sb) sb.disabled = !canEdit();
+      if (j.status === "complete") { await renderDetail(); await loadMeetings(); attachJob(jobId); return; }
+    }
+  };
+  render();
+  state.poll = setInterval(render, 2000);
+}
+
+// ── briefing reader ───────────────────────────────────────────────────
+function blockHtml(b) {
+  if (b.kind === "p") return `<p>${inline(b.text).replace(/\n/g, "<br>")}</p>`;
+  if (b.kind === "h") return `<p class="hblock">${inline(b.text)}</p>`;
+  if (b.kind === "callout") return `<div class="callout"><span class="lbl">${esc(b.label)}</span>${inline(b.text)}</div>`;
+  if (b.kind === "data") {
+    const [head, ...rows] = b.rows || [];
+    return `<table>${head ? `<thead><tr>${head.map((c) => `<th>${inline(c)}</th>`).join("")}</tr></thead>` : ""}
+      <tbody>${rows.map((r) => `<tr>${r.map((c) => `<td>${inline(c)}</td>`).join("")}</tr>`).join("")}</tbody></table>`;
+  }
+  return "";
+}
+
+async function loadBriefing() {
+  const slot = $("briefing-slot");
+  if (!slot) return;
+  slot.innerHTML = "";
+  let b;
+  try { b = await api(`/meetings/${state.mid}/briefing`); }
+  catch { slot.innerHTML = `<div style="color:var(--muted);font-size:13.5px;margin-top:14px">No briefing yet — run Summarize.</div>`; return; }
+  const chip = (doc) => doc.source_url
+    ? `<a class="chip" href="${esc(doc.source_url)}" target="_blank" rel="noopener">${esc(doc.filename)}</a>`
+    : `<span class="chip">${esc(doc.filename)}</span>`;
+  const sections = (b.sections || []).map((s) => `
+    <div class="sec-h ${s.depth ? "d1" : ""}"><span class="n">${esc(s.item_id)}</span><h5>${inline(s.title)}</h5>${s.vote ? `<span class="badge b-agenda_posted">${esc(s.vote)}</span>` : ""}</div>
+    ${(s.body || []).map(blockHtml).join("")}
+    ${(s.next_steps || []).length ? `<div class="next-steps"><span class="lbl">Next steps</span>${s.next_steps.map((n) => `<div>· ${inline(n)}</div>`).join("")}</div>` : ""}
+    ${(s.docs || []).length ? `<div class="chips">${s.docs.map(chip).join("")}</div>` : ""}`).join("");
+
+  slot.innerHTML = `
+    <div class="briefing">
+      <span class="b-kicker">Poolside Reporting Service</span>
+      <h3 class="b-title">${esc(b.title)}</h3>
+      <div class="b-meta">${esc(b.subtitle)} · ${b.word_count} words · ${b.reading_time} min read · model ${esc(b.model)}
+        · <a href="/api/meetings/${state.mid}/briefing.docx">Download .docx</a></div>
+      ${b.headline ? `<div class="headline">${inline(b.headline)}</div>` : ""}
+      ${(b.tldr || []).length ? `<div class="eyebrow">Key takeaways</div><ol class="tldr">${b.tldr.map((t) => `<li>${inline(t)}</li>`).join("")}</ol>` : ""}
+      ${(b.executive_summary || []).length ? `<div class="eyebrow">Executive summary</div>${b.executive_summary.map(blockHtml).join("")}` : ""}
+      ${sections ? `<div class="eyebrow">Agenda item summaries</div>${sections}` : ""}
+      ${(b.other_docs || []).length ? `<div class="eyebrow">Other documents</div><div class="chips">${b.other_docs.map(chip).join("")}</div>` : ""}
+    </div>`;
+}
+
+boot();
+</script>
+</body>
+</html>

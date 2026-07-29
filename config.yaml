@@ -34,6 +34,20 @@ committees:
   url: https://www.iso-ne.com/committees/planning/planning-advisory/calendar
   active: true
 
+pjm:
+  # PJM committees tracked by pipeline/pjm_scraper.py. Deliberately NOT part
+  # of the top-level committees[] list: PUT /api/admin/config auto-creates
+  # meeting_types under ISO-NE, and PJM discovery is button-driven from the
+  # /pjm demo page (no cron) until the main-UI integration pass.
+  # `slug` feeds the pjm-{slug}-{yyyymmdd} external-id namespace and must
+  # stay stable once meetings exist.
+  committees:
+  - name: Critical Issue Fast Path - Reliability Backstop Procurement
+    short: CIFP-RBP
+    slug: cifp-rbp
+    url: https://www.pjm.com/committees-and-groups/cifp-rbp
+    active: true
+
 npc_combined:
   # Section types to mark as ignored (stored but not summarized)
   skip_section_types:

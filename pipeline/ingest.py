@@ -35,11 +35,16 @@ _AGENDA_HINTS = ["agenda", "a00_", "a000"]
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _find_agenda_doc(doc_list: list[dict]) -> dict | None:
+def _find_agenda_doc(doc_list: list[dict], prefer_ext: str = ".docx") -> dict | None:
     """Return the first doc whose filename looks like the meeting agenda.
 
-    Prefers .docx over .pdf when both exist.
+    `prefer_ext` wins when both formats exist. ISO-NE keeps the .docx
+    default; PJM callers prefer ".pdf" — PJM agenda .docx files use Word
+    auto-numbering, so their extracted text carries no item numbers, while
+    the .pdf renders the literal "1."–"6." that PJM's item-NN material
+    filenames key off.
     """
+    fallback_ext = ".pdf" if prefer_ext == ".docx" else ".docx"
     best: dict | None = None
     for doc in doc_list:
         fn = doc["filename"].lower()
@@ -47,9 +52,9 @@ def _find_agenda_doc(doc_list: list[dict]) -> dict | None:
             continue  # NPC virtual section docs — never the agenda source
         if not any(h in fn for h in _AGENDA_HINTS):
             continue
-        if fn.endswith(".docx"):
-            return doc  # docx is preferred — return immediately
-        if fn.endswith(".pdf") and best is None:
+        if fn.endswith(prefer_ext):
+            return doc  # preferred format — return immediately
+        if fn.endswith(fallback_ext) and best is None:
             best = doc
     return best
 

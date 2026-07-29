@@ -18,10 +18,29 @@ from pathlib import Path
 import requests
 
 import pipeline.db as db
+from pipeline import pjm_scraper
 from pipeline.agenda_parser import map_docs_to_agenda_items
 from pipeline.scraper import fetch_event_docs
 
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Venue registry — how each venue's current document list is fetched
+# ---------------------------------------------------------------------------
+
+def _fetch_isone_docs(meeting: dict, config: dict,
+                      session: requests.Session | None) -> list[dict]:
+    """ISO-NE: the event documents JSON API, keyed by numeric external_id."""
+    return fetch_event_docs(str(meeting["external_id"]), session=session)
+
+
+# Venues absent from this registry can't refresh (historical NYISO rows stay
+# readable; they just get the skip error below, same as before the registry).
+VENUE_DOC_FETCHERS = {
+    "ISO-NE": _fetch_isone_docs,
+    "PJM": pjm_scraper.fetch_docs_for_meeting,
+}
 
 
 # ---------------------------------------------------------------------------
@@ -111,18 +130,16 @@ def refresh_meeting_documents(
     # Get existing filenames
     existing_filenames = db.get_existing_filenames(meeting_id)
 
-    # Scrape current doc list from source. Only ISO-NE has a live scraper —
-    # NYISO support was removed 2026-07 after sitting unreachable since the
-    # Streamlit UI was retired. Historical non-ISO-NE rows stay readable;
-    # they just can't be refreshed.
+    # Scrape current doc list from the venue's source (registry above).
     scraped_docs: list[dict] = []
-    if venue_short != "ISO-NE":
+    fetcher = VENUE_DOC_FETCHERS.get(venue_short)
+    if fetcher is None:
         result.errors.append(
             f"Venue {venue_short} has no active scraper — refresh skipped"
         )
         return result
     try:
-        scraped_docs = fetch_event_docs(str(external_id), session=session)
+        scraped_docs = fetcher(meeting, config, session)
     except Exception as exc:
         result.errors.append(f"Scrape failed: {exc}")
         return result
@@ -218,8 +235,12 @@ def refresh_meeting_documents(
         for item in agenda_items
         if item.get("prefix")
     }
-    # Step 1: regex prefix matching
-    buckets = map_docs_to_agenda_items(simple_doc_rows, agenda_items)
+    # Step 1: deterministic filename matching (venue-specific convention:
+    # ISO-NE prefixes docs "a07.1.b_", PJM tokens them "item-03---")
+    if venue_short == "PJM":
+        buckets = pjm_scraper.map_pjm_docs_to_agenda_items(simple_doc_rows, agenda_items)
+    else:
+        buckets = map_docs_to_agenda_items(simple_doc_rows, agenda_items)
     assigned = 0
 
     for prefix, docs_in_bucket in buckets.items():

@@ -56,6 +56,7 @@ from .routes import (
     me,
     meetings,
     notifications,
+    pjm,
     prompts,
     roundups,
     search,
@@ -213,6 +214,9 @@ app.add_middleware(AuditMiddleware)
 app.include_router(auth.router)
 app.include_router(share.router)
 app.include_router(user_tokens.router)
+# /pjm demo page shell — anonymous like the SPA's index.html (its data
+# fetches are all session-gated); must register before the dist catch-all.
+app.include_router(pjm.page_router)
 
 # ── Everything else requires a valid session cookie ────────────────────
 # Router-level dependencies; FastAPI's per-request dependency cache means
@@ -254,6 +258,9 @@ app.include_router(admin.router, dependencies=_EDIT)
 # config GET feeds Settings/Add for all roles; the PUT carries require_admin.
 app.include_router(config_route.router, dependencies=_EDIT)
 app.include_router(manual_ingest.router, dependencies=_EDIT)
+# pjm.router carries one endpoint (discover) which is require_admin
+# per-endpoint, mirroring the admin.py convention.
+app.include_router(pjm.router, dependencies=_EDIT)
 app.include_router(jobs.router, dependencies=_EDIT)
 app.include_router(search.router, dependencies=_EDIT)
 app.include_router(initiatives.router, dependencies=_EDIT)

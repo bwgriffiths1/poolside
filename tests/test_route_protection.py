@@ -105,6 +105,7 @@ ADMIN_REQUIRED = [
     "/api/admin/user-tokens/{token_id}",
     # the six owner-named admin ops in admin.py
     "/api/admin/discover",
+    "/api/pjm/discover",
     "/api/admin/refresh",
     "/api/admin/images/prune",
     "/api/admin/parse-agenda/{meeting_id}",

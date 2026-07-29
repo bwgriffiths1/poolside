@@ -189,34 +189,35 @@ export function Calendar() {
       <div className="page">
         <div className="page-header">
           <div className="page-eyebrow">Meeting calendar</div>
-          <h1 className="page-title">{monthTitle(month)}</h1>
-        </div>
-
-        <div className="cal-toolbar">
-          <button
-            className="btn btn-sm"
-            onClick={() => setMonth(addMonths(month, -1))}
-            aria-label="Previous month"
-          >
-            <Icon name="arrow-l" />
-          </button>
-          <button
-            className="btn btn-sm"
-            onClick={() => setMonth(currentMonth())}
-            disabled={isCurrentMonth}
-          >
-            Today
-          </button>
-          <button
-            className="btn btn-sm"
-            onClick={() => setMonth(addMonths(month, 1))}
-            aria-label="Next month"
-          >
-            <Icon name="arrow-r" />
-          </button>
-          <span className="muted text-xs">
-            {monthCount} meeting{monthCount === 1 ? "" : "s"}
-          </span>
+          <div className="cal-title-row">
+            <h1 className="page-title">{monthTitle(month)}</h1>
+            <div className="cal-toolbar">
+              <button
+                className="btn btn-sm"
+                onClick={() => setMonth(addMonths(month, -1))}
+                aria-label="Previous month"
+              >
+                <Icon name="arrow-l" />
+              </button>
+              <button
+                className="btn btn-sm"
+                onClick={() => setMonth(currentMonth())}
+                disabled={isCurrentMonth}
+              >
+                Today
+              </button>
+              <button
+                className="btn btn-sm"
+                onClick={() => setMonth(addMonths(month, 1))}
+                aria-label="Next month"
+              >
+                <Icon name="arrow-r" />
+              </button>
+              <span className="muted text-xs">
+                {monthCount} meeting{monthCount === 1 ? "" : "s"}
+              </span>
+            </div>
+          </div>
         </div>
 
         <div className="cal-grid">

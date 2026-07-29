@@ -1,33 +1,33 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Topbar } from "../components/Topbar";
 import { Pill } from "../components/Pill";
 import { Tag, VenueTag, TypeTag } from "../components/Tag";
 import { Icon } from "../components/Icon";
-import { MaterialAssignment } from "../components/MaterialAssignment";
 import { AgendaRow } from "../components/agenda/AgendaRow";
-import { AddAgendaItem } from "../components/agenda/AddAgendaItem";
 import { AgendaEmpty } from "../components/agenda/AgendaEmpty";
 import { idForAnchor } from "../components/agenda/anchors";
 import { MeetingLinks } from "../components/meeting/MeetingLinks";
 import { WatchToggle } from "../components/meeting/WatchToggle";
-import { SummarizeRunner } from "../components/meeting/SummarizeRunner";
 import { SummarizeJobBanner } from "../components/meeting/SummarizeJobBanner";
 import { FilesSection } from "../components/meeting/FilesSection";
-import { DangerZone } from "../components/meeting/DangerZone";
 import { useSummarizeJob } from "../hooks/useSummarizeJob";
 import { api } from "../lib/api";
-import { qk, useBriefing, useCan, useMeeting } from "../lib/queries";
+import { useBriefing, useCan, useMeeting, useMeetingsAll } from "../lib/queries";
 import { toast } from "../lib/toast";
 import { fmtDateRange } from "../lib/format";
 import { useTrackView } from "../hooks/useTrackView";
+import type { MeetingListItem } from "../types";
+
+// The reader half of the meeting split: everything you need to KNOW about a
+// meeting. Page-level operations (summarize runner, file triage, agenda
+// additions, danger zone) live on /meeting/:id/manage. Per-row agenda tools
+// stay here — they're contextual to reading an item.
 
 export function Meeting() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const qc = useQueryClient();
-  const { canEdit, isAdmin } = useCan();
+  const { canEdit } = useCan();
 
   const meetingId = Number(id);
   useTrackView("meeting", meetingId);
@@ -43,33 +43,9 @@ export function Meeting() {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [searchParams] = useSearchParams();
   const targetItemParam = searchParams.get("item");
-  const [showSummaryRunner, setShowSummaryRunner] = useState(false);
-  // TODO: meeting-level summarize options (briefing style, extract images,
-  // force re-run) are not honored by the backend yet — see the parity plan.
-  // Per-item re-runs work via AgendaRow's "Re-run" button.
 
-  const job = useSummarizeJob(meetingId, {
-    onStarted: () => setShowSummaryRunner(false),
-  });
-
-  const cleanupZips = useMutation({
-    mutationFn: () => api.cleanupZipExpansion(meetingId),
-    onSuccess: (res) => {
-      qc.invalidateQueries({ queryKey: qk.meeting(meetingId) });
-      qc.invalidateQueries({ queryKey: qk.meetingDocs(meetingId) });
-      qc.invalidateQueries({ queryKey: qk.meetings });
-      if (res.deleted_children === 0 && res.un_ignored_zips === 0) {
-        toast.info("Nothing to clean up — this meeting wasn't pre-expanded.");
-      } else {
-        toast.success(
-          `Removed ${res.deleted_children} expanded child row(s); ` +
-            `restored ${res.un_ignored_zips} zip(s). ` +
-            `Zips are now handled inline at summarize time.`,
-        );
-      }
-    },
-    onError: (e: Error) => toast.error(`Cleanup failed: ${e.message}`),
-  });
+  // Status visibility only — starting/cancelling a run lives on Manage.
+  const job = useSummarizeJob(meetingId);
 
   // Anchor links: ?item=7.a → auto-expand + scroll to that agenda item.
   // We run this once the agenda has loaded; subsequent param changes also
@@ -148,30 +124,19 @@ export function Meeting() {
             >
               <Icon name="book" /> Open briefing
             </button>
-            {isAdmin && (
-              <button
-                className="btn btn-sm"
-                onClick={() => cleanupZips.mutate()}
-                disabled={cleanupZips.isPending}
-                title="Undo a prior Expand zips run — zips are now handled inline at summarize time."
-              >
-                <Icon name="refresh" />{" "}
-                {cleanupZips.isPending ? "Cleaning…" : "Reset zip rows"}
-              </button>
-            )}
             {canEdit && (
               <button
                 className="btn btn-sm btn-primary"
-                onClick={() => setShowSummaryRunner(true)}
+                onClick={() => navigate(`/meeting/${m.id}/manage`)}
               >
-                <Icon name="spark" /> Summarize
+                <Icon name="settings" /> Manage
               </button>
             )}
           </>
         }
       />
 
-      <div className="page-wide" style={{ paddingLeft: 48, paddingRight: 48 }}>
+      <div className="page-wide">
         <div className="meeting-head">
           <div>
             <div className="page-eyebrow">
@@ -298,9 +263,9 @@ export function Meeting() {
               <div className="briefing-card-right">
                 <button
                   className="btn btn-sm btn-accent"
-                  onClick={() => setShowSummaryRunner(true)}
+                  onClick={() => navigate(`/meeting/${m.id}/manage`)}
                 >
-                  <Icon name="spark" size={12} /> Summarize
+                  <Icon name="spark" size={12} /> Manage &amp; summarize
                 </button>
               </div>
             )}
@@ -310,24 +275,10 @@ export function Meeting() {
         {job.job && (
           <SummarizeJobBanner
             job={job.job}
-            onCancel={canEdit ? () => job.cancel(job.job!.id) : undefined}
-            cancelling={job.isCancelling}
+            cancelling={false}
             onDismiss={job.dismiss}
           />
         )}
-
-        {showSummaryRunner && (
-          <SummarizeRunner
-            meetingId={meetingId}
-            agenda={detail.agenda}
-            hasBriefing={hasBriefing}
-            onClose={() => setShowSummaryRunner(false)}
-            onStart={job.start}
-            isStarting={job.isStarting}
-          />
-        )}
-
-        <MaterialAssignment meetingId={meetingId} agenda={detail.agenda} />
 
         <div className="section-h" style={{ marginTop: 32 }}>
           <h2>Agenda</h2>
@@ -355,14 +306,54 @@ export function Meeting() {
           </div>
         )}
 
-        <AddAgendaItem meetingId={meetingId} />
+        <FilesSection meetingId={meetingId} readOnly />
 
-        <FilesSection meetingId={meetingId} />
-
-        {canEdit && <DangerZone meetingId={meetingId} title={m.title} />}
+        <PrevNextNav meetingId={meetingId} />
 
         <div style={{ height: 64 }} />
       </div>
     </>
+  );
+}
+
+// Chronological neighbors from the already-warm meetings cache. The briefing
+// prev/next API skips meetings without briefings, which is wrong here — the
+// reader pages over the calendar record itself.
+function PrevNextNav({ meetingId }: { meetingId: number }) {
+  const navigate = useNavigate();
+  const { data: all } = useMeetingsAll();
+
+  const { prev, next } = useMemo(() => {
+    if (!all) return { prev: undefined, next: undefined };
+    const sorted = [...all].sort(
+      (a, b) => a.meeting_date.localeCompare(b.meeting_date) || a.id - b.id,
+    );
+    const i = sorted.findIndex((x) => x.id === meetingId);
+    if (i < 0) return { prev: undefined, next: undefined };
+    return { prev: sorted[i - 1], next: sorted[i + 1] };
+  }, [all, meetingId]);
+
+  if (!prev && !next) return null;
+
+  const label = (x: MeetingListItem) =>
+    `${fmtDateRange(x.meeting_date, x.end_date)} · ${x.type_short}`;
+
+  return (
+    <div className="meeting-prevnext">
+      {prev ? (
+        <button className="btn btn-sm" onClick={() => navigate(`/meeting/${prev.id}`)}>
+          <Icon name="arrow-l" size={12} /> {label(prev)}
+        </button>
+      ) : (
+        <span />
+      )}
+      {next ? (
+        <button className="btn btn-sm" onClick={() => navigate(`/meeting/${next.id}`)}>
+          {label(next)} <Icon name="arrow-r" size={12} />
+        </button>
+      ) : (
+        <span />
+      )}
+    </div>
   );
 }

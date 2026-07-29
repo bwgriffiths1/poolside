@@ -2144,15 +2144,20 @@ def get_docket_by_number(docket_number: str) -> dict | None:
 
 
 def list_dockets() -> list[dict]:
-    """All tracked dockets, newest first, each with filing rollups and the
-    current state-of-play status joined in (list page in one query)."""
+    """All tracked dockets, newest first, each with filing rollups, the
+    current state-of-play status, and recent-activity fields joined in
+    (list page + overview in one query). recent_filing_count uses a fixed
+    14-day window; latest_filing_one_line falls back to FERC's own
+    description when the newest filing isn't summarized yet."""
     with _conn() as conn:
         with _cursor(conn) as cur:
             cur.execute("""
                 SELECT d.*,
                        COALESCE(f.filing_count, 0)      AS filing_count,
                        COALESCE(f.intervenor_count, 0)  AS intervenor_count,
+                       COALESCE(f.recent_filing_count, 0) AS recent_filing_count,
                        f.latest_filed_date,
+                       lf.latest_filing_one_line,
                        sv.status  AS brief_status,
                        sv.created_at AS brief_generated_at
                   FROM dockets d
@@ -2161,10 +2166,32 @@ def list_dockets() -> list[dict]:
                              COUNT(*) AS filing_count,
                              COUNT(*) FILTER (WHERE document_class = 'Intervention')
                                  AS intervenor_count,
+                             COUNT(*) FILTER (WHERE COALESCE(filed_date, issued_date)
+                                              >= CURRENT_DATE - 14)
+                                 AS recent_filing_count,
                              MAX(COALESCE(filed_date, issued_date)) AS latest_filed_date
                         FROM docket_filings
                        GROUP BY docket_id
                   ) f ON f.docket_id = d.id
+                  LEFT JOIN LATERAL (
+                      SELECT COALESCE(fsv.one_line, df.description)
+                                 AS latest_filing_one_line
+                        FROM docket_filings df
+                        LEFT JOIN LATERAL (
+                            SELECT one_line
+                              FROM summary_versions
+                             WHERE entity_type = 'docket_filing'
+                               AND entity_id   = df.id
+                               AND status != 'superseded'
+                          ORDER BY CASE status WHEN 'approved' THEN 0 ELSE 1 END,
+                                   version DESC
+                             LIMIT 1
+                        ) fsv ON true
+                       WHERE df.docket_id = d.id
+                    ORDER BY COALESCE(df.filed_date, df.issued_date) DESC NULLS LAST,
+                             df.id DESC
+                       LIMIT 1
+                  ) lf ON true
                   LEFT JOIN LATERAL (
                       SELECT status, created_at
                         FROM summary_versions

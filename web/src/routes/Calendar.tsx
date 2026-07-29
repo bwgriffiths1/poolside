@@ -48,7 +48,8 @@ export function Calendar() {
   const firstIso = monthStart(month);
   const lastIso = localIso(addDays(atNoon(monthStart(addMonths(month, 1))), -1));
 
-  // Monday-start grid padded to full weeks with adjacent-month days.
+  // Monday-start weekday grid (Mon–Fri; NEPOOL never meets weekends) padded
+  // to full weeks with adjacent-month days.
   // Plain derivations, no manual useMemo: the React Compiler memoizes these
   // itself, and it refuses to preserve hand-written deps once Date objects
   // flow through the helper chain.
@@ -56,7 +57,8 @@ export function Calendar() {
   {
     const end = addDays(mondayOf(atNoon(lastIso)), 6);
     for (let d = mondayOf(atNoon(firstIso)); d <= end; d = addDays(d, 1)) {
-      days.push(localIso(d));
+      const dow = d.getDay();
+      if (dow !== 0 && dow !== 6) days.push(localIso(d));
     }
   }
 
@@ -157,7 +159,7 @@ export function Calendar() {
         </div>
 
         <div className="cal-grid">
-          {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((d) => (
+          {["Mon", "Tue", "Wed", "Thu", "Fri"].map((d) => (
             <div key={d} className="cal-dow">
               {d}
             </div>

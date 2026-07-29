@@ -9,7 +9,7 @@
 
 .cal-grid {
   display: grid;
-  grid-template-columns: repeat(7, 1fr);
+  grid-template-columns: repeat(5, 1fr);
   background: var(--bg-elev);
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -35,8 +35,8 @@
   border-top: 1px solid var(--border-soft);
   border-left: 1px solid var(--border-soft);
 }
-/* First column: children 8, 15, 22… (after the 7 dow cells). */
-.cal-cell:nth-child(7n + 8) { border-left: 0; }
+/* First column: children 6, 11, 16… (after the 5 dow cells). */
+.cal-cell:nth-child(5n + 6) { border-left: 0; }
 .cal-cell-date {
   font-family: var(--font-mono);
   font-size: 11px;

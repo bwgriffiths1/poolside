@@ -11,6 +11,7 @@ from typing import Any
 
 from pipeline import db
 from pipeline import scraper as pl_scraper
+from pipeline.dedupe import materials_match
 
 from .. import lifecycle, orchestrator
 
@@ -45,22 +46,7 @@ def discover_all_venues() -> dict[str, Any]:
             )
             events_seen += len(events)
             for ev in events:
-                ev_id = str(ev.get("primary_event_id") or "")
-                if not ev_id:
-                    continue
-                # Idempotent: check by external_id
-                existing = _find_meeting_by_external_id(ev_id)
-                if existing is None:
-                    _create_discovered_meeting(
-                        venue_short="ISO-NE",
-                        committee_short=committee["short"],
-                        committee_name=committee["name"],
-                        external_id=ev_id,
-                        title=ev.get("title") or committee["name"],
-                        meeting_date=ev["dates"][0] if ev.get("dates") else None,
-                        end_date=ev["dates"][-1] if len(ev.get("dates") or []) > 1 else None,
-                        location=ev.get("location") or "",
-                    )
+                if _reconcile_isone_event(committee, ev):
                     iso_new += 1
         except Exception as e:
             log.exception("ISO-NE scrape failed for %s: %s", committee.get("short"), e)
@@ -81,53 +67,117 @@ def discover_all_venues() -> dict[str, Any]:
     return {"discovered": results}
 
 
-def _find_meeting_by_external_id(external_id: str) -> dict | None:
-    with db._conn() as conn:
-        with db._cursor(conn) as cur:
-            cur.execute(
-                "SELECT * FROM meetings WHERE external_id = %s LIMIT 1",
-                (external_id,),
+def _reconcile_isone_event(committee: dict, ev: dict) -> bool:
+    """Match one scraped calendar group to an existing meeting and widen it,
+    or create a new meeting. Returns True when a meeting was created.
+
+    Matching is two-stage: any shared day-event ID first; failing that, the
+    materials guard — ISO occasionally re-posts a day under a brand-new event
+    ID (June 11 2026 MC arrived as 162644 beside 160096/97), and rows created
+    before external_ids existed only know their first day's ID.
+    """
+    ev_ids = [str(i) for i in (ev.get("all_event_ids") or []) if i]
+    if not ev_ids:
+        primary = str(ev.get("primary_event_id") or "")
+        ev_ids = [primary] if primary else []
+    dates = ev.get("dates") or []
+    if not ev_ids or not dates:
+        return False
+    start, end = dates[0], dates[-1]
+
+    mt_id = _resolve_meeting_type_id("ISO-NE", committee["short"], committee["name"])
+
+    existing = db.find_meeting_by_event_ids(mt_id, ev_ids)
+    if existing is None:
+        existing = _find_same_materials_meeting(mt_id, ev_ids, start, end)
+    if existing is not None:
+        # Same meeting seen again — under fresh day-event IDs, or with days
+        # that were past/beyond the horizon on an earlier scrape. Widen the
+        # span (never shrink) and remember the new IDs instead of duplicating.
+        db.extend_meeting_span(
+            existing["id"], str(start), str(end), add_event_ids=ev_ids,
+        )
+        return False
+
+    _create_discovered_meeting(
+        meeting_type_id=mt_id,
+        external_id=ev_ids[0],
+        title=ev.get("title") or committee["name"],
+        meeting_date=start,
+        end_date=end if end != start else None,
+        location=ev.get("location") or "",
+        external_ids=ev_ids,
+    )
+    return True
+
+
+def _find_same_materials_meeting(
+    mt_id: int, ev_ids: list[str], start: date, end: date,
+) -> dict | None:
+    """The dedupe rule at discovery time: a same-committee meeting whose span
+    overlaps this group's and whose stored documents match what the event's
+    documents API returns IS this meeting."""
+    candidates = db.find_overlapping_meetings(
+        mt_id, str(start), str(end), slack_days=1,
+    )
+    if not candidates:
+        return None
+    try:
+        scraped = pl_scraper.fetch_event_docs(ev_ids[0])
+    except Exception as e:
+        log.warning("materials guard: doc fetch failed for event %s: %s", ev_ids[0], e)
+        return None
+    scraped_urls = {d["url"] for d in scraped if d.get("url")}
+    if not scraped_urls:
+        return None
+    for cand in candidates:
+        if materials_match(scraped_urls, db.get_document_urls(cand["id"])):
+            log.info(
+                "discover: event %s shares materials with meeting %s (%s) — merging",
+                ev_ids[0], cand["id"], cand.get("meeting_date"),
             )
-            row = cur.fetchone()
-            return dict(row) if row else None
+            return cand
+    return None
+
+
+def _resolve_meeting_type_id(venue_short: str, committee_short: str,
+                             committee_name: str) -> int:
+    """Find or create the meeting_type for a venue + committee."""
+    types = db.get_meeting_types(venue_short_name=venue_short)
+    mt = next((t for t in types if t["short_name"] == committee_short), None)
+    if mt is not None:
+        return mt["id"]
+    venues = db.get_venues()
+    venue = next((v for v in venues if v["short_name"] == venue_short), None)
+    if venue is None:
+        raise RuntimeError(f"Unknown venue {venue_short}")
+    # create_meeting_type / upsert_meeting return full row dicts — take
+    # the ids. (Passing the dicts through crashed every genuinely-new
+    # meeting's bump_lifecycle with "can't adapt type 'dict'", silently
+    # swallowed by the per-committee except in discover_all_venues.)
+    return db.create_meeting_type(
+        venue_id=venue["id"], name=committee_name, short_name=committee_short
+    )["id"]
 
 
 def _create_discovered_meeting(
-    venue_short: str,
-    committee_short: str,
-    committee_name: str,
+    meeting_type_id: int,
     external_id: str,
     title: str,
     meeting_date: date | None,
     end_date: date | None,
     location: str,
+    external_ids: list[str] | None = None,
 ) -> int:
     """Write a stub meeting row at lifecycle_status='discovered'."""
-    # Find or create the meeting_type
-    types = db.get_meeting_types(venue_short_name=venue_short)
-    mt = next((t for t in types if t["short_name"] == committee_short), None)
-    if mt is None:
-        venues = db.get_venues()
-        venue = next((v for v in venues if v["short_name"] == venue_short), None)
-        if venue is None:
-            raise RuntimeError(f"Unknown venue {venue_short}")
-        # create_meeting_type / upsert_meeting return full row dicts — take
-        # the ids. (Passing the dicts through crashed every genuinely-new
-        # meeting's bump_lifecycle with "can't adapt type 'dict'", silently
-        # swallowed by the per-committee except in discover_all_venues.)
-        mt_id = db.create_meeting_type(
-            venue_id=venue["id"], name=committee_name, short_name=committee_short
-        )["id"]
-    else:
-        mt_id = mt["id"]
-
     meeting_id = db.upsert_meeting(
-        meeting_type_id=mt_id,
+        meeting_type_id=meeting_type_id,
         external_id=external_id,
         title=title,
         meeting_date=meeting_date or date.today(),
         end_date=end_date,
         location=location,
+        external_ids=external_ids,
     )["id"]
     lifecycle.bump_lifecycle(meeting_id)
     return meeting_id
@@ -183,6 +233,8 @@ def discover_pjm() -> dict[str, Any]:
         ]
         meetings_seen += len(parsed["meetings"])
 
+        mt_id = _resolve_meeting_type_id("PJM", committee["short"], committee["name"])
+
         seen_external_ids: set[str] = set()
         for entry in entries:
             external_id = pjm_scraper.pjm_external_id(committee["slug"], entry["date"])
@@ -190,13 +242,11 @@ def discover_pjm() -> dict[str, Any]:
                 continue  # accordion + upcoming rows for the same date
             seen_external_ids.add(external_id)
 
-            existing = _find_meeting_by_external_id(external_id)
+            existing = db.find_meeting_by_event_ids(mt_id, [external_id])
             created = existing is None
             if created:
                 meeting_id = _create_discovered_meeting(
-                    venue_short="PJM",
-                    committee_short=committee["short"],
-                    committee_name=committee["name"],
+                    meeting_type_id=mt_id,
                     external_id=external_id,
                     title=entry["title"] or committee["name"],
                     meeting_date=entry["date"],

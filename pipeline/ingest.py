@@ -258,6 +258,7 @@ def ingest_meeting(
         title=meeting_dict.get("title"),
         meeting_number=meeting_dict.get("meeting_number"),
         location=meeting_dict.get("location"),
+        external_ids=[str(i) for i in meeting_dict.get("all_event_ids") or []],
     )
     meeting_id = meeting_row["id"]
     logger.info("Meeting upserted: id=%s  %s %s", meeting_id, committee_short, meeting_date)

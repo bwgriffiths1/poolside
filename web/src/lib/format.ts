@@ -24,6 +24,19 @@ export function dayNumber(iso: string): number {
   return new Date(`${iso}T12:00:00`).getDate();
 }
 
+export function weekdayShort(iso: string): string {
+  return new Date(`${iso.slice(0, 10)}T12:00:00`).toLocaleDateString("en-US", {
+    weekday: "short",
+  });
+}
+
+export function fmtShortDate(iso: string): string {
+  return new Date(`${iso.slice(0, 10)}T12:00:00`).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+  });
+}
+
 export function extFromFilename(filename: string): string {
   return (filename.split(".").pop() || "").toUpperCase();
 }

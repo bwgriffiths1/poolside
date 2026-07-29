@@ -977,7 +977,9 @@ export interface DocketListItem {
   created_at: string | null;
   filing_count?: number;
   intervenor_count?: number;
+  recent_filing_count?: number;
   latest_filed_date?: string | null;
+  latest_filing_one_line?: string | null;
   brief_status?: string | null;
   brief_generated_at?: string | null;
 }

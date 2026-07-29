@@ -49,6 +49,18 @@ def discover_all_venues(_: dict = Depends(require_admin)) -> dict[str, Any]:
     return discovery.discover_all_venues()
 
 
+@router.post("/meetings/dedupe")
+def dedupe_meetings(apply: bool = False,
+                    _: dict = Depends(require_admin)) -> dict[str, Any]:
+    """Find duplicate meeting rows — same committee, overlapping span, same
+    materials (ISO-NE's one-event-per-day pattern) — and merge each cluster
+    into the content-bearing row, widened to the union span. Dry-run by
+    default; pass ?apply=true to execute."""
+    from pipeline.dedupe import dedupe_meetings as run_dedupe
+
+    return run_dedupe(dry_run=not apply)
+
+
 @router.post("/images/prune")
 def prune_images(user: dict = Depends(require_admin)) -> dict[str, Any]:
     """On-demand run of the weekly image prune: delete extracted images no

@@ -255,6 +255,11 @@ def scrape_calendar(committee: dict, lookahead_days: int) -> list[dict]:
 
     today = date.today()
     cutoff = today + timedelta(days=lookahead_days)
+    # Keep recent-past rows so an in-progress multi-day meeting still groups
+    # with its earlier days. Filtering strictly at `today` shifted the group's
+    # first row — and therefore primary_event_id — forward each morning of a
+    # multi-day meeting, which discovery then treated as a brand-new meeting.
+    earliest = today - timedelta(days=MAX_MEETING_SPAN_DAYS)
 
     raw_rows = []
     for tr in tbody.find_all("tr"):
@@ -288,8 +293,8 @@ def scrape_calendar(committee: dict, lookahead_days: int) -> list[dict]:
         if event_date is None:
             continue
 
-        # Apply lookahead filter
-        if event_date < today or event_date > cutoff:
+        # Apply lookahead filter (past-but-recent rows survive for grouping)
+        if event_date < earliest or event_date > cutoff:
             continue
 
         raw_rows.append({
@@ -305,10 +310,27 @@ def scrape_calendar(committee: dict, lookahead_days: int) -> list[dict]:
         logger.info("No upcoming events found within %d days on %s", lookahead_days, url)
         return []
 
-    # Sort by date so grouping is deterministic
-    raw_rows.sort(key=lambda r: r["date"])
+    meetings = group_calendar_rows(raw_rows, committee, today)
 
-    # --- Group consecutive same-title rows into meetings ---
+    logger.info(
+        "Found %d meeting(s) for %s within %d-day window",
+        len(meetings), committee["name"], lookahead_days,
+    )
+    return meetings
+
+
+def group_calendar_rows(raw_rows: list[dict], committee: dict, today: date) -> list[dict]:
+    """
+    Group calendar rows (one per day per ISO event) into meeting dicts.
+
+    Rows with the same normalized title within MAX_MEETING_SPAN_DAYS of the
+    group's first date form one multi-day meeting. Rows may include recent
+    past days; groups whose last day is already over are dropped, but a group
+    still in progress keeps its past days — so primary_event_id stays the
+    first day's event ID for the whole life of the meeting.
+    """
+    raw_rows = sorted(raw_rows, key=lambda r: r["date"])
+
     meetings = []
     used = set()
 
@@ -331,6 +353,9 @@ def scrape_calendar(committee: dict, lookahead_days: int) -> list[dict]:
                 used.add(j)
 
         dates = [r["date"] for r in group]
+        if dates[-1] < today:
+            continue  # meeting already ended — not an upcoming meeting
+
         event_ids = [r["event_id"] for r in group]
         detail_urls = [r["detail_url"] for r in group]
 
@@ -345,10 +370,6 @@ def scrape_calendar(committee: dict, lookahead_days: int) -> list[dict]:
             "location": group[0]["location"],
         })
 
-    logger.info(
-        "Found %d meeting(s) for %s within %d-day window",
-        len(meetings), committee["name"], lookahead_days,
-    )
     return meetings
 
 

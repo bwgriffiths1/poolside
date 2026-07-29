@@ -118,19 +118,24 @@ def upsert_meeting(
     end_date: str | None = None,
     location: str | None = None,
     notes: str | None = None,
+    external_ids: list[str] | None = None,
 ) -> dict:
     """
     Insert or update a meeting row.
     Conflict key: (meeting_type_id, external_id).
+    external_ids: ALL venue event IDs for the meeting (ISO-NE posts one per
+    day of a multi-day meeting); defaults to [external_id]. Merged, never
+    replaced, on conflict.
     Returns the full row as a dict.
     """
+    id_list = external_ids or ([external_id] if external_id else [])
     with _conn() as conn:
         with _cursor(conn) as cur:
             cur.execute("""
                 INSERT INTO meetings
                     (meeting_type_id, external_id, title, meeting_date, end_date,
-                     meeting_number, location, notes)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                     meeting_number, location, notes, external_ids)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (meeting_type_id, external_id)
                 DO UPDATE SET
                     title          = EXCLUDED.title,
@@ -138,11 +143,91 @@ def upsert_meeting(
                     end_date       = EXCLUDED.end_date,
                     meeting_number = EXCLUDED.meeting_number,
                     location       = EXCLUDED.location,
-                    notes          = EXCLUDED.notes
+                    notes          = EXCLUDED.notes,
+                    external_ids   = ARRAY(SELECT DISTINCT e
+                                           FROM unnest(meetings.external_ids
+                                                       || EXCLUDED.external_ids) AS e
+                                           ORDER BY e)
                 RETURNING *
             """, (meeting_type_id, external_id, title, meeting_date, end_date,
-                  meeting_number, location, notes))
+                  meeting_number, location, notes, id_list))
             return dict(cur.fetchone())
+
+
+def find_meeting_by_event_ids(meeting_type_id: int, event_ids: list[str]) -> dict | None:
+    """Find a meeting of this type matching ANY of the given venue event IDs
+    (against the single external_id or the external_ids array)."""
+    if not event_ids:
+        return None
+    with _conn() as conn:
+        with _cursor(conn) as cur:
+            cur.execute("""
+                SELECT * FROM meetings
+                WHERE meeting_type_id = %s
+                  AND (external_id = ANY(%s) OR external_ids && %s::text[])
+                ORDER BY id
+                LIMIT 1
+            """, (meeting_type_id, event_ids, event_ids))
+            row = cur.fetchone()
+            return dict(row) if row else None
+
+
+def find_overlapping_meetings(meeting_type_id: int, start_date: str,
+                              end_date: str, slack_days: int = 0) -> list[dict]:
+    """Meetings of this type whose span overlaps [start_date, end_date]
+    (widened by slack_days on both sides)."""
+    with _conn() as conn:
+        with _cursor(conn) as cur:
+            cur.execute("""
+                SELECT * FROM meetings
+                WHERE meeting_type_id = %s
+                  AND meeting_date <= %s::date + %s
+                  AND COALESCE(end_date, meeting_date) >= %s::date - %s
+                ORDER BY meeting_date, id
+            """, (meeting_type_id, end_date, slack_days, start_date, slack_days))
+            return [dict(r) for r in cur.fetchall()]
+
+
+def extend_meeting_span(meeting_id: int, start_date: str, end_date: str | None,
+                        add_event_ids: list[str] | None = None) -> dict:
+    """Widen a meeting's span to include [start_date, end_date] and merge in
+    newly-seen venue event IDs. Never shrinks the existing span — a scrape
+    that only sees the tail of an in-progress meeting must not eat its past
+    days. end_date collapses to NULL for single-day spans."""
+    end_date = end_date or start_date
+    with _conn() as conn:
+        with _cursor(conn) as cur:
+            cur.execute("""
+                UPDATE meetings SET
+                    meeting_date = LEAST(meeting_date, %(start)s::date),
+                    end_date = CASE
+                        WHEN GREATEST(COALESCE(end_date, meeting_date), %(end)s::date)
+                           > LEAST(meeting_date, %(start)s::date)
+                        THEN GREATEST(COALESCE(end_date, meeting_date), %(end)s::date)
+                        ELSE NULL
+                    END,
+                    external_ids = ARRAY(SELECT DISTINCT e
+                                         FROM unnest(external_ids || %(ids)s::text[]) AS e
+                                         ORDER BY e)
+                WHERE id = %(id)s
+                RETURNING *
+            """, {"start": start_date, "end": end_date,
+                  "ids": add_event_ids or [], "id": meeting_id})
+            return dict(cur.fetchone())
+
+
+def get_document_urls(meeting_id: int) -> set[str]:
+    """Source URLs of a meeting's documents — the identity of its materials.
+    Synthetic zip-child rows (#zip: fragment) are excluded."""
+    with _conn() as conn:
+        with _cursor(conn) as cur:
+            cur.execute("""
+                SELECT source_url FROM documents
+                WHERE meeting_id = %s
+                  AND source_url IS NOT NULL
+                  AND source_url NOT LIKE '%%#zip:%%'
+            """, (meeting_id,))
+            return {r["source_url"] for r in cur.fetchall()}
 
 
 def create_meeting_type(venue_id: int, name: str, short_name: str,

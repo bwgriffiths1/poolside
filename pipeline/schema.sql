@@ -37,6 +37,9 @@ CREATE TABLE IF NOT EXISTS meetings (
     id              SERIAL PRIMARY KEY,
     meeting_type_id INT NOT NULL REFERENCES meeting_types(id),
     external_id     TEXT,              -- venue-specific event ID (e.g. ISO-NE "160091")
+    external_ids    TEXT[] NOT NULL DEFAULT '{}',
+                                       -- ALL venue event IDs for this meeting; ISO-NE
+                                       -- posts one event per day of a multi-day meeting
     title           TEXT,              -- optional display override
     meeting_date    DATE NOT NULL,
     end_date        DATE,              -- last day for multi-day meetings (null = single day)
@@ -176,6 +179,8 @@ CREATE INDEX IF NOT EXISTS idx_entity_tags_entity      ON entity_tags (entity_ty
 CREATE INDEX IF NOT EXISTS idx_summary_versions_entity ON summary_versions (entity_type, entity_id);
 CREATE INDEX IF NOT EXISTS idx_meetings_type           ON meetings (meeting_type_id);
 CREATE INDEX IF NOT EXISTS idx_meetings_date           ON meetings (meeting_date);
+-- idx_meetings_external_ids lives in migration 019 — this file runs BEFORE
+-- migrations on every boot, so it must not reference migration-added columns.
 
 -- -----------------------------------------------------------------------------
 -- Seed data  — ISO-NE venue and committees

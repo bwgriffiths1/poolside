@@ -23,9 +23,17 @@ import type { MeetingListItem } from "../types";
 const MAX_SPAN_DAYS = 14;
 const MAX_VISIBLE_CHIPS = 3;
 
-interface DayEntry {
+interface SpanSeg {
   m: MeetingListItem;
-  cont: boolean; // continuation day of a multi-day meeting (day 2+)
+  startCol: number; // 0-based weekday column, inclusive
+  endCol: number;
+  contLeft: boolean; // meeting started before this segment (prior week)
+  contRight: boolean; // meeting continues past this segment
+}
+
+interface Week {
+  days: string[]; // 5 ISO dates, Mon–Fri
+  lanes: SpanSeg[][]; // one row per stack of non-overlapping spans
 }
 
 export function Calendar() {
@@ -62,32 +70,80 @@ export function Calendar() {
     }
   }
 
-  // Multi-day meetings repeat a chip on every covered day (spans would need
-  // lane allocation + re-splitting at each Monday for no real gain here).
+  // Multi-day meetings render as one bar spanning their days (split at week
+  // boundaries, stacked into lanes when they overlap); single-day meetings
+  // stay chips inside their day cell.
   const gridStart = days[0];
   const gridEnd = days[days.length - 1];
-  const byDay = new Map<string, DayEntry[]>();
-  for (const m of meetings) {
-    const end =
-      m.end_date && m.end_date > m.meeting_date ? m.end_date : m.meeting_date;
-    let d = atNoon(m.meeting_date);
-    for (let i = 0; i < MAX_SPAN_DAYS; i++) {
-      const iso = localIso(d);
-      if (iso > end || iso > gridEnd) break;
-      if (iso >= gridStart) {
-        const list = byDay.get(iso) ?? [];
-        list.push({ m, cont: iso !== m.meeting_date });
-        byDay.set(iso, list);
+
+  // weeks + lanes + singles all populate inside ONE derivation block: lanes
+  // mutate the week objects, and a cached `weeks` from a separate memo scope
+  // would accumulate duplicate lanes on every meetings refetch.
+  const weeks: Week[] = [];
+  const singlesByDay = new Map<string, MeetingListItem[]>();
+  {
+    for (let i = 0; i < days.length; i += 5) {
+      weeks.push({ days: days.slice(i, i + 5), lanes: [] });
+    }
+
+    const weekSegs = new Map<Week, SpanSeg[]>();
+    for (const m of meetings) {
+      const rawEnd =
+        m.end_date && m.end_date > m.meeting_date ? m.end_date : m.meeting_date;
+      // Cap runaway spans — a bad end_date from a scraper shouldn't flood
+      // the month with a wall-to-wall bar.
+      const cap = localIso(addDays(atNoon(m.meeting_date), MAX_SPAN_DAYS - 1));
+      const end = rawEnd > cap ? cap : rawEnd;
+
+      if (end === m.meeting_date) {
+        if (m.meeting_date >= gridStart && m.meeting_date <= gridEnd) {
+          const list = singlesByDay.get(m.meeting_date) ?? [];
+          list.push(m);
+          singlesByDay.set(m.meeting_date, list);
+        }
+        continue;
       }
-      d = addDays(d, 1);
+
+      for (const w of weeks) {
+        if (end < w.days[0] || m.meeting_date > w.days[w.days.length - 1]) {
+          continue;
+        }
+        let startCol = 0;
+        while (startCol < w.days.length && w.days[startCol] < m.meeting_date) {
+          startCol++;
+        }
+        let endCol = w.days.length - 1;
+        while (endCol >= 0 && w.days[endCol] > end) endCol--;
+        if (startCol > endCol) continue; // only hidden weekend days overlap
+        const segs = weekSegs.get(w) ?? [];
+        segs.push({
+          m,
+          startCol,
+          endCol,
+          contLeft: m.meeting_date < w.days[startCol],
+          contRight: end > w.days[endCol],
+        });
+        weekSegs.set(w, segs);
+      }
+    }
+
+    // Greedy lane allocation: overlapping bars stack, the rest share a lane.
+    for (const [w, segs] of weekSegs) {
+      segs.sort(
+        (a, b) =>
+          a.startCol - b.startCol ||
+          a.m.meeting_date.localeCompare(b.m.meeting_date) ||
+          a.m.type_short.localeCompare(b.m.type_short),
+      );
+      for (const seg of segs) {
+        const lane = w.lanes.find((l) => l[l.length - 1].endCol < seg.startCol);
+        if (lane) lane.push(seg);
+        else w.lanes.push([seg]);
+      }
     }
   }
-  for (const list of byDay.values()) {
-    list.sort(
-      (a, b) =>
-        a.m.meeting_date.localeCompare(b.m.meeting_date) ||
-        a.m.type_short.localeCompare(b.m.type_short),
-    );
+  for (const list of singlesByDay.values()) {
+    list.sort((a, b) => a.type_short.localeCompare(b.type_short));
   }
 
   const monthCount = meetings.filter(
@@ -96,6 +152,11 @@ export function Calendar() {
 
   // Venue prefix on chips only once a second venue is actually visible.
   const multiVenue = new Set(meetings.map((m) => m.venue)).size > 1;
+
+  const dayCls = (base: string, iso: string) =>
+    `${base}${iso >= firstIso && iso <= lastIso ? "" : " is-out"}${
+      iso === todayIso ? " is-today" : ""
+    }`;
 
   const openMeeting = (m: MeetingListItem) => navigate(`/meeting/${m.id}`);
   const toggleDay = (iso: string) =>
@@ -159,23 +220,88 @@ export function Calendar() {
         </div>
 
         <div className="cal-grid">
-          {["Mon", "Tue", "Wed", "Thu", "Fri"].map((d) => (
-            <div key={d} className="cal-dow">
-              {d}
+          <div className="cal-dow-row">
+            {["Mon", "Tue", "Wed", "Thu", "Fri"].map((d) => (
+              <div key={d} className="cal-dow">
+                {d}
+              </div>
+            ))}
+          </div>
+          {weeks.map((w) => (
+            <div
+              key={w.days[0]}
+              className="cal-week"
+              style={{
+                gridTemplateRows: [
+                  "auto",
+                  ...w.lanes.map(() => "auto"),
+                  "1fr",
+                ].join(" "),
+              }}
+            >
+              {/* Background layer: cell borders, out-month + today washes.
+                  Spans all rows so bars and chips paint over one surface. */}
+              {w.days.map((iso, c) => (
+                <div
+                  key={`bg-${iso}`}
+                  className={dayCls("cal-bg", iso)}
+                  style={{ gridColumn: c + 1, gridRow: "1 / -1" }}
+                />
+              ))}
+              {w.days.map((iso, c) => (
+                <div
+                  key={`dt-${iso}`}
+                  className={dayCls("cal-datecell", iso)}
+                  style={{ gridColumn: c + 1, gridRow: 1 }}
+                >
+                  <span className="cal-cell-date">
+                    {Number(iso.slice(8, 10)) === 1
+                      ? atNoon(iso).toLocaleDateString("en-US", {
+                          month: "short",
+                          day: "numeric",
+                        })
+                      : Number(iso.slice(8, 10))}
+                  </span>
+                </div>
+              ))}
+              {w.lanes.map((lane, li) =>
+                lane.map((seg) => (
+                  <button
+                    key={`${seg.m.id}-${seg.startCol}`}
+                    type="button"
+                    className={`cal-span${seg.contLeft ? " cont-l" : ""}${seg.contRight ? " cont-r" : ""}`}
+                    style={{
+                      gridColumn: `${seg.startCol + 1} / ${seg.endCol + 2}`,
+                      gridRow: li + 2,
+                    }}
+                    onClick={() => openMeeting(seg.m)}
+                    title={`${seg.m.type_name} · ${fmtDateRange(seg.m.meeting_date, seg.m.end_date)}`}
+                  >
+                    <span className={`cal-chip-dot ${seg.m.status}`} />
+                    <span className="cal-chip-label">
+                      {multiVenue
+                        ? `${seg.m.venue} ${seg.m.type_short}`
+                        : seg.m.type_short}
+                    </span>
+                    <span className="cal-chip-title">
+                      {seg.m.title || seg.m.type_name}
+                    </span>
+                  </button>
+                )),
+              )}
+              {w.days.map((iso, c) => (
+                <DayChips
+                  key={`ch-${iso}`}
+                  col={c + 1}
+                  row={w.lanes.length + 2}
+                  meetings={singlesByDay.get(iso) ?? []}
+                  expanded={expandedDays.has(iso)}
+                  onToggle={() => toggleDay(iso)}
+                  onOpen={openMeeting}
+                  multiVenue={multiVenue}
+                />
+              ))}
             </div>
-          ))}
-          {days.map((iso) => (
-            <DayCell
-              key={iso}
-              iso={iso}
-              inMonth={iso >= firstIso && iso <= lastIso}
-              isToday={iso === todayIso}
-              entries={byDay.get(iso) ?? []}
-              expanded={expandedDays.has(iso)}
-              onToggle={() => toggleDay(iso)}
-              onOpen={openMeeting}
-              multiVenue={multiVenue}
-            />
           ))}
         </div>
 
@@ -210,53 +336,37 @@ export function Calendar() {
   );
 }
 
-function DayCell({
-  iso,
-  inMonth,
-  isToday,
-  entries,
+function DayChips({
+  col,
+  row,
+  meetings,
   expanded,
   onToggle,
   onOpen,
   multiVenue,
 }: {
-  iso: string;
-  inMonth: boolean;
-  isToday: boolean;
-  entries: DayEntry[];
+  col: number;
+  row: number;
+  meetings: MeetingListItem[];
   expanded: boolean;
   onToggle: () => void;
   onOpen: (m: MeetingListItem) => void;
   multiVenue: boolean;
 }) {
-  const dayNum = Number(iso.slice(8, 10));
-  const visible = expanded ? entries : entries.slice(0, MAX_VISIBLE_CHIPS);
-  const hidden = entries.length - visible.length;
+  const visible = expanded ? meetings : meetings.slice(0, MAX_VISIBLE_CHIPS);
+  const hidden = meetings.length - visible.length;
 
   return (
-    <div
-      className={`cal-cell${inMonth ? "" : " is-out"}${isToday ? " is-today" : ""}`}
-    >
-      <div className="cal-cell-date">
-        {dayNum === 1
-          ? atNoon(iso).toLocaleDateString("en-US", { month: "short", day: "numeric" })
-          : dayNum}
-      </div>
-      {visible.map(({ m, cont }) => (
-        <MeetingChip
-          key={`${m.id}-${iso}`}
-          m={m}
-          cont={cont}
-          multiVenue={multiVenue}
-          onOpen={onOpen}
-        />
+    <div className="cal-daychips" style={{ gridColumn: col, gridRow: row }}>
+      {visible.map((m) => (
+        <MeetingChip key={m.id} m={m} multiVenue={multiVenue} onOpen={onOpen} />
       ))}
       {hidden > 0 && (
         <button type="button" className="cal-more" onClick={onToggle}>
           +{hidden} more
         </button>
       )}
-      {expanded && entries.length > MAX_VISIBLE_CHIPS && (
+      {expanded && meetings.length > MAX_VISIBLE_CHIPS && (
         <button type="button" className="cal-more" onClick={onToggle}>
           show less
         </button>
@@ -267,19 +377,17 @@ function DayCell({
 
 function MeetingChip({
   m,
-  cont,
   multiVenue,
   onOpen,
 }: {
   m: MeetingListItem;
-  cont: boolean;
   multiVenue: boolean;
   onOpen: (m: MeetingListItem) => void;
 }) {
   return (
     <button
       type="button"
-      className={`cal-chip${cont ? " is-cont" : ""}`}
+      className="cal-chip"
       onClick={() => onOpen(m)}
       title={`${m.type_name} · ${fmtDateRange(m.meeting_date, m.end_date)}`}
     >

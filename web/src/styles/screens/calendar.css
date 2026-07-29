@@ -8,13 +8,15 @@
 .cal-toolbar .muted { margin-left: 4px; }
 
 .cal-grid {
-  display: grid;
-  grid-template-columns: repeat(5, 1fr);
   background: var(--bg-elev);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   overflow: hidden;
   margin-bottom: var(--pad-5);
+}
+.cal-dow-row {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
 }
 .cal-dow {
   font-family: var(--font-mono);
@@ -25,32 +27,81 @@
   padding: 8px 8px 6px;
   border-bottom: 1px solid var(--border);
 }
-.cal-cell {
+
+/* Each week is its own grid: row 1 dates, one row per span lane, then the
+   single-day chip stacks. A background layer spans all rows per column so
+   borders and washes stay continuous behind bars and chips. */
+.cal-week {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+}
+.cal-bg {
   min-height: 96px;
-  min-width: 0;
-  padding: 6px;
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
   border-top: 1px solid var(--border-soft);
   border-left: 1px solid var(--border-soft);
 }
-/* First column: children 6, 11, 16… (after the 5 dow cells). */
-.cal-cell:nth-child(5n + 6) { border-left: 0; }
+.cal-week > .cal-bg:first-child { border-left: 0; }
+.cal-bg.is-out { background: var(--bg-sunk); }
+.cal-bg.is-today {
+  box-shadow: inset 0 0 0 1px var(--accent);
+  background: color-mix(in oklab, var(--accent-tint) 45%, var(--bg-elev));
+}
+.cal-datecell {
+  padding: 6px 6px 0;
+  min-width: 0;
+}
 .cal-cell-date {
   font-family: var(--font-mono);
   font-size: 11px;
   color: var(--ink-soft);
 }
-.cal-cell.is-out { background: var(--bg-sunk); }
-.cal-cell.is-out .cal-cell-date { color: var(--muted-soft); }
-.cal-cell.is-today {
-  box-shadow: inset 0 0 0 1px var(--accent);
-  background: color-mix(in oklab, var(--accent-tint) 45%, var(--bg-elev));
-}
-.cal-cell.is-today .cal-cell-date {
+.cal-datecell.is-out .cal-cell-date { color: var(--muted-soft); }
+.cal-datecell.is-today .cal-cell-date {
   color: var(--accent);
   font-weight: 600;
+}
+.cal-daychips {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 3px 6px 6px;
+  min-width: 0;
+}
+
+/* Multi-day meetings: one bar across the covered columns. Same anatomy as
+   a chip; squared edges mark a segment continuing past the visible week. */
+.cal-span {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  margin: 1px 6px 2px;
+  font: inherit;
+  font-size: 11px;
+  text-align: left;
+  padding: 2px 7px;
+  cursor: pointer;
+  background: var(--bg);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+  color: var(--ink-soft);
+  transition: border-color 80ms, color 80ms;
+}
+.cal-span:hover {
+  border-color: var(--muted-soft);
+  color: var(--ink);
+}
+.cal-span.cont-l {
+  margin-left: 0;
+  border-left: 0;
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+.cal-span.cont-r {
+  margin-right: 0;
+  border-right: 0;
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
 }
 
 .cal-chip {
@@ -74,7 +125,6 @@
   border-color: var(--muted-soft);
   color: var(--ink);
 }
-.cal-chip.is-cont { border-style: dashed; }
 .cal-chip-dot {
   width: 6px;
   height: 6px;
@@ -122,7 +172,8 @@
 .cal-agenda-day.is-today { color: var(--accent); }
 
 [data-aesthetic="terminal"] .cal-grid { background: var(--bg-sunk); }
-[data-aesthetic="terminal"] .cal-chip { background: var(--bg-elev); }
+[data-aesthetic="terminal"] .cal-chip,
+[data-aesthetic="terminal"] .cal-span { background: var(--bg-elev); }
 
 @media (max-width: 900px) {
   .cal-grid { display: none; }

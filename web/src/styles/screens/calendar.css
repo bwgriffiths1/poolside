@@ -1,9 +1,16 @@
 /* Calendar screen */
+/* Month title + nav share one row — keeps the header short. */
+.cal-title-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+}
+.cal-title-row .page-title { margin: 0; }
 .cal-toolbar {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-bottom: var(--pad-4);
 }
 .cal-toolbar .muted { margin-left: 4px; }
 

@@ -671,3 +671,45 @@
   .briefing-card { grid-template-columns: 1fr; }
   .briefing-card-right { justify-content: flex-start; flex-wrap: wrap; }
 }
+
+/* Manage workbench */
+.manage-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: var(--pad-5);
+  margin-bottom: var(--pad-5);
+  padding-bottom: var(--pad-4);
+  border-bottom: 1px solid var(--border-soft);
+}
+.manage-head-title {
+  font-family: var(--font-serif);
+  font-size: 24px;
+  letter-spacing: -0.01em;
+  margin: 2px 0 6px;
+}
+[data-aesthetic="minimal"] .manage-head-title {
+  font-family: var(--font-sans);
+  font-weight: 600;
+  font-size: 20px;
+}
+[data-aesthetic="terminal"] .manage-head-title {
+  font-family: var(--font-mono);
+  font-size: 17px;
+  text-transform: uppercase;
+}
+
+/* Reader prev/next */
+.meeting-prevnext {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--pad-3);
+  margin-top: var(--pad-6);
+  padding-top: var(--pad-4);
+  border-top: 1px solid var(--border-soft);
+}
+.meeting-prevnext .btn { max-width: 48%; }
+@media (max-width: 640px) {
+  .meeting-prevnext { flex-direction: column; }
+  .meeting-prevnext .btn { max-width: none; }
+}

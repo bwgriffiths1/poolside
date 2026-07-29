@@ -476,7 +476,16 @@ export function Briefing() {
                 </button>
                 <button
                   className="btn btn-sm btn-ghost"
-                  onClick={() => navigate(`/meeting/${m.id}`)}
+                  onClick={() => {
+                    // Land on the matching agenda item when this is an
+                    // agenda-backed section; a stale item_id is a silent
+                    // no-op on the reader (best-effort by design).
+                    const anchor =
+                      s.kind === "agenda" && s.item_id
+                        ? `?item=${encodeURIComponent(s.item_id)}`
+                        : "";
+                    navigate(`/meeting/${m.id}${anchor}`);
+                  }}
                   title="Open in Meeting"
                 >
                   <Icon name="external" size={12} />

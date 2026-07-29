@@ -7,9 +7,17 @@ import { toast } from "../../lib/toast";
 import { fmtBytes } from "../../lib/format";
 import type { Attachment } from "../../types";
 
-export function FilesSection({ meetingId }: { meetingId: number }) {
+export function FilesSection({
+  meetingId,
+  readOnly = false,
+}: {
+  meetingId: number;
+  /** List + download only — the reader page suppresses upload/delete. */
+  readOnly?: boolean;
+}) {
   const qc = useQueryClient();
   const { canEdit } = useCan();
+  const showTools = canEdit && !readOnly;
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragOver, setDragOver] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -56,6 +64,9 @@ export function FilesSection({ meetingId }: { meetingId: number }) {
     e.target.value = ""; // allow re-selecting the same file
   }
 
+  // A reader page with nothing uploaded skips the empty "Files · 0" header.
+  if (readOnly && files.length === 0) return null;
+
   return (
     <>
       <div className="section-h" style={{ marginTop: 32 }}>
@@ -64,7 +75,7 @@ export function FilesSection({ meetingId }: { meetingId: number }) {
           {files.length} file{files.length === 1 ? "" : "s"}
         </span>
       </div>
-      {canEdit && (
+      {showTools && (
         <>
           <p className="muted text-xs" style={{ marginTop: -8, marginBottom: 12 }}>
             Upload your own files against this meeting — hand-written briefings,
@@ -133,7 +144,7 @@ export function FilesSection({ meetingId }: { meetingId: number }) {
               >
                 <Icon name="download" size={12} /> Download
               </button>
-              {canEdit && (
+              {showTools && (
                 <button
                   className="btn btn-sm btn-ghost"
                   disabled={remove.isPending}

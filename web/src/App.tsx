@@ -4,6 +4,7 @@ import { RequireRole } from "./components/RequireRole";
 import { Overview } from "./routes/Overview";
 import { Meetings } from "./routes/Meetings";
 import { Meeting } from "./routes/Meeting";
+import { MeetingManage } from "./routes/MeetingManage";
 import { Briefings } from "./routes/Briefings";
 import { Briefing } from "./routes/Briefing";
 import { Roundups } from "./routes/Roundups";
@@ -36,6 +37,7 @@ export function App() {
           <Route path="/overview" element={<Overview />} />
           <Route path="/meetings" element={<Meetings />} />
           <Route path="/meeting/:id" element={<Meeting />} />
+          <Route path="/meeting/:id/manage" element={<RequireRole min="editor"><MeetingManage /></RequireRole>} />
           <Route path="/briefings" element={<Briefings />} />
           <Route path="/briefing/:id" element={<Briefing />} />
           <Route path="/roundups" element={<Roundups />} />

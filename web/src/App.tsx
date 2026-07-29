@@ -2,6 +2,7 @@ import { HashRouter, Navigate, Route, Routes } from "react-router-dom";
 import { AppShell } from "./components/AppShell";
 import { RequireRole } from "./components/RequireRole";
 import { Overview } from "./routes/Overview";
+import { Calendar } from "./routes/Calendar";
 import { Meetings } from "./routes/Meetings";
 import { Meeting } from "./routes/Meeting";
 import { Briefings } from "./routes/Briefings";
@@ -34,6 +35,7 @@ export function App() {
         <Route element={<AppShell />}>
           <Route index element={<Navigate to="/overview" replace />} />
           <Route path="/overview" element={<Overview />} />
+          <Route path="/calendar" element={<Calendar />} />
           <Route path="/meetings" element={<Meetings />} />
           <Route path="/meeting/:id" element={<Meeting />} />
           <Route path="/briefings" element={<Briefings />} />

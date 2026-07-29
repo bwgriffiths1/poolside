@@ -1,0 +1,130 @@
+/* Calendar screen */
+.cal-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: var(--pad-4);
+}
+.cal-toolbar .muted { margin-left: 4px; }
+
+.cal-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  margin-bottom: var(--pad-5);
+}
+.cal-dow {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  padding: 8px 8px 6px;
+  border-bottom: 1px solid var(--border);
+}
+.cal-cell {
+  min-height: 96px;
+  min-width: 0;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  border-top: 1px solid var(--border-soft);
+  border-left: 1px solid var(--border-soft);
+}
+/* First column: children 8, 15, 22… (after the 7 dow cells). */
+.cal-cell:nth-child(7n + 8) { border-left: 0; }
+.cal-cell-date {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--ink-soft);
+}
+.cal-cell.is-out { background: var(--bg-sunk); }
+.cal-cell.is-out .cal-cell-date { color: var(--muted-soft); }
+.cal-cell.is-today {
+  box-shadow: inset 0 0 0 1px var(--accent);
+  background: color-mix(in oklab, var(--accent-tint) 45%, var(--bg-elev));
+}
+.cal-cell.is-today .cal-cell-date {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.cal-chip {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  width: 100%;
+  min-width: 0;
+  font: inherit;
+  font-size: 11px;
+  text-align: left;
+  padding: 2px 5px;
+  cursor: pointer;
+  background: var(--bg);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+  color: var(--ink-soft);
+  transition: border-color 80ms, color 80ms;
+}
+.cal-chip:hover {
+  border-color: var(--muted-soft);
+  color: var(--ink);
+}
+.cal-chip.is-cont { border-style: dashed; }
+.cal-chip-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--muted);
+}
+.cal-chip-dot.scheduled { background: var(--info); }
+.cal-chip-dot.materials { background: var(--warn); }
+.cal-chip-dot.summarized { background: var(--success); }
+.cal-chip-dot.updated { background: var(--accent); }
+.cal-chip-label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  flex-shrink: 0;
+}
+.cal-chip-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cal-more {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--muted);
+  background: transparent;
+  border: 0;
+  padding: 1px 5px;
+  text-align: left;
+  cursor: pointer;
+}
+.cal-more:hover { color: var(--accent); }
+
+/* Mobile: the 7-col grid never squeezes — swap to a stacked agenda. */
+.cal-agenda { display: none; }
+.cal-agenda-day {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin: var(--pad-4) 0 6px;
+}
+.cal-agenda-day.is-today { color: var(--accent); }
+
+[data-aesthetic="terminal"] .cal-grid { background: var(--bg-sunk); }
+[data-aesthetic="terminal"] .cal-chip { background: var(--bg-elev); }
+
+@media (max-width: 900px) {
+  .cal-grid { display: none; }
+  .cal-agenda { display: block; }
+}

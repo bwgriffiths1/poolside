@@ -1,9 +1,9 @@
-"""Full-text search across summary bodies.
+"""Full-text search across summary bodies and tracked FERC dockets.
 
-Thin route over api/services/search.py — the shared retrieval layer also
-used by /api/ask. The result rows resolve back to either a meeting briefing
-or an agenda item, both of which are reachable by URL from the command
-palette.
+Thin routes over api/services/search.py — the shared retrieval layer also
+used by /api/ask. Summary rows resolve back to a meeting briefing or an
+agenda item; docket rows resolve to a tracked docket — all reachable by URL
+from the command palette.
 """
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ from fastapi import APIRouter, Depends, Query
 
 from pipeline import db
 from ..auth import current_user
-from ..services.search import search_summary_hits
+from ..services.search import search_docket_hits, search_summary_hits
 
 router = APIRouter(prefix="/api/search", tags=["search"])
 
@@ -78,3 +78,27 @@ def search_summaries(
         presenter=presenter,
         status=status,
     )
+
+
+@router.get("/dockets")
+def search_dockets(
+    q: str = Query("", description="search terms; substring on docket metadata + websearch over summaries"),
+    limit: int = Query(10, ge=1, le=50),
+    _: dict = Depends(current_user),
+) -> list[dict[str, Any]]:
+    """Ranked hits across tracked FERC dockets.
+
+    Each result is shaped:
+        {
+          "entity_type":     "docket_meta" | "docket" | "docket_filing",
+          "entity_id":       int,
+          "docket_id":       int,          # navigate to /docket/{docket_id}
+          "docket_number":   str,
+          "title":           str | null,
+          "party_label":     str | null,
+          "accession_number": str | null,  # docket_filing hits only
+          "document_class":  str | null,
+          "snippet":         str,          # HTML-safe, <b> highlights
+        }
+    """
+    return search_docket_hits(q, limit=limit)

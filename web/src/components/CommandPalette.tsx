@@ -2,7 +2,11 @@ import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react"
 import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { Icon } from "./Icon";
-import { api, type SummarySearchHit } from "../lib/api";
+import {
+  api,
+  type DocketSearchHit,
+  type SummarySearchHit,
+} from "../lib/api";
 import { useMeetingsAll } from "../lib/queries";
 import type { MeetingListItem } from "../types";
 
@@ -13,9 +17,11 @@ interface CommandPaletteProps {
 
 const MAX_MEETING_RESULTS = 8;
 const MAX_SUMMARY_RESULTS = 8;
+const MAX_DOCKET_RESULTS = 4;
 
 type SelectableRow =
   | { kind: "meeting"; m: MeetingListItem }
+  | { kind: "docket"; hit: DocketSearchHit }
   | { kind: "summary"; hit: SummarySearchHit };
 
 export function CommandPalette({ open, onClose }: CommandPaletteProps) {
@@ -31,6 +37,12 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
   const summaryHits = useQuery({
     queryKey: ["search-summaries", debouncedQuery],
     queryFn: () => api.searchSummaries(debouncedQuery),
+    enabled: open && debouncedQuery.length >= 2,
+    staleTime: 30_000,
+  });
+  const docketHits = useQuery({
+    queryKey: ["search-dockets", debouncedQuery],
+    queryFn: () => api.searchDockets(debouncedQuery, MAX_DOCKET_RESULTS),
     enabled: open && debouncedQuery.length >= 2,
     staleTime: 30_000,
   });
@@ -63,13 +75,18 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
     return (summaryHits.data ?? []).slice(0, MAX_SUMMARY_RESULTS);
   }, [summaryHits.data]);
 
+  const docketMatches = useMemo<DocketSearchHit[]>(() => {
+    return (docketHits.data ?? []).slice(0, MAX_DOCKET_RESULTS);
+  }, [docketHits.data]);
+
   // Flat list used for keyboard navigation.
   const rows = useMemo<SelectableRow[]>(() => {
     return [
       ...meetingMatches.map<SelectableRow>((m) => ({ kind: "meeting", m })),
+      ...docketMatches.map<SelectableRow>((hit) => ({ kind: "docket", hit })),
       ...summaryMatches.map<SelectableRow>((hit) => ({ kind: "summary", hit })),
     ];
-  }, [meetingMatches, summaryMatches]);
+  }, [meetingMatches, docketMatches, summaryMatches]);
 
   useEffect(() => {
     setSelectedIndex(0);
@@ -80,6 +97,8 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
   const activate = (row: SelectableRow) => {
     if (row.kind === "meeting") {
       navigate(`/meeting/${row.m.id}`);
+    } else if (row.kind === "docket") {
+      navigate(`/docket/${row.hit.docket_id}`);
     } else {
       // Summaries route to the briefing reader for meeting-level hits, and
       // the meeting page for agenda-item hits — with ?item=<item_id> so the
@@ -166,6 +185,35 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
                   <span className="cmd-palette-title">{m.title}</span>
                   <span className="cmd-palette-meta">
                     {m.meeting_date} · {m.venue} · {m.type_short}
+                  </span>
+                </button>
+              );
+            })}
+
+            {docketMatches.length > 0 && (
+              <div className="cmd-palette-group">FERC dockets</div>
+            )}
+            {docketMatches.map((hit) => {
+              const i = runningIndex++;
+              const title = hit.party_label
+                ? `${hit.party_label}: ${hit.title || ""}`
+                : hit.title || hit.docket_number;
+              return (
+                <button
+                  key={`d-${hit.entity_type}-${hit.entity_id}`}
+                  type="button"
+                  role="option"
+                  aria-selected={i === selectedIndex}
+                  className={`cmd-palette-row ${i === selectedIndex ? "active" : ""}`}
+                  onMouseEnter={() => setSelectedIndex(i)}
+                  onClick={() => activate({ kind: "docket", hit })}
+                >
+                  <span className="cmd-palette-title">{title}</span>
+                  <span className="cmd-palette-meta">
+                    {hit.docket_number}
+                    {hit.entity_type === "docket" && " · state of play"}
+                    {hit.entity_type === "docket_filing" &&
+                      ` · ${hit.document_class || "filing"}`}
                   </span>
                 </button>
               );

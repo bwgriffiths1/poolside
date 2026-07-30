@@ -189,6 +189,20 @@ export const api = {
     return res.json();
   },
 
+  searchDockets: async (
+    q: string,
+    limit = 10,
+  ): Promise<DocketSearchHit[]> => {
+    if (!q.trim()) return [];
+    const qs = new URLSearchParams({ q: q.trim(), limit: String(limit) });
+    const res = await fetch(`${BASE}/search/dockets?${qs}`, {
+      credentials: "include",
+    });
+    if (res.status === 401) throw new Error("401 Unauthorized");
+    if (!res.ok) return [];
+    return res.json();
+  },
+
   listSearchTags: () =>
     get<{ name: string; tag_type: string }[]>(`/search/tags`, () => []),
 
@@ -1473,6 +1487,18 @@ export interface SummarySearchHit {
   organization: string | null;
   snippet: string;
   rank: number;
+}
+
+export interface DocketSearchHit {
+  entity_type: "docket_meta" | "docket" | "docket_filing";
+  entity_id: number;
+  docket_id: number;
+  docket_number: string;
+  title: string | null;
+  party_label: string | null;
+  accession_number: string | null;
+  document_class: string | null;
+  snippet: string;
 }
 
 export interface UsageTotals {

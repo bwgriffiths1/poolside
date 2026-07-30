@@ -5,7 +5,11 @@ import { Topbar } from "../components/Topbar";
 import { Icon } from "../components/Icon";
 import { Segmented } from "../components/Segmented";
 import { VenueTag, TypeTag } from "../components/Tag";
-import { api, type SummarySearchHit } from "../lib/api";
+import {
+  api,
+  type DocketSearchHit,
+  type SummarySearchHit,
+} from "../lib/api";
 import { qk, useMeetingsAll } from "../lib/queries";
 import type { MeetingListItem } from "../types";
 
@@ -120,6 +124,15 @@ export function Search() {
     staleTime: 5 * 60_000,
   });
 
+  // Tracked FERC dockets — a separate corpus, so the meeting-side filters
+  // (committee, tag, presenter, dates) deliberately don't apply to it.
+  const dockets = useQuery({
+    queryKey: ["search-dockets", q],
+    queryFn: () => api.searchDockets(q),
+    enabled: q.length >= 2,
+    staleTime: 30_000,
+  });
+
   // Meeting-haystack search is client-side (same as the palette + /meetings).
   const meetings = useMeetingsAll();
 
@@ -170,6 +183,17 @@ export function Search() {
 
   const openMeeting = (m: MeetingListItem) => navigate(`/meeting/${m.id}`);
 
+  const openDocketHit = (hit: DocketSearchHit) =>
+    navigate(`/docket/${hit.docket_id}`);
+
+  const docketLabel = (hit: DocketSearchHit): string => {
+    if (hit.entity_type === "docket") return "State of play";
+    if (hit.entity_type === "docket_filing") {
+      return hit.document_class || "Filing";
+    }
+    return "Docket";
+  };
+
   const openSummaryHit = (hit: SummarySearchHit) => {
     if (hit.entity_type === "meeting") {
       navigate(`/briefing/${hit.meeting_id}`);
@@ -217,8 +241,8 @@ export function Search() {
           <div className="page-eyebrow">Cross-meeting search</div>
           <h1 className="page-title">Search</h1>
           <p className="page-subtitle">
-            Match against meeting titles, tags, and the body of every summary
-            and briefing. Type a phrase and hit Enter.
+            Match against meeting titles, tags, the body of every summary and
+            briefing, and tracked FERC dockets. Type a phrase and hit Enter.
           </p>
         </div>
 
@@ -424,6 +448,71 @@ export function Search() {
                       <div className="search-row-main">
                         <div className="search-row-title">{m.title || m.type_name}</div>
                         <div className="muted text-xs">{m.location}</div>
+                      </div>
+                      <Icon name="chev-r" size={14} />
+                    </button>
+                  ))}
+                </div>
+              )}
+            </section>
+
+            <section style={{ marginBottom: 28 }}>
+              <h2 className="section-head">
+                FERC dockets{" "}
+                {dockets.isLoading ? (
+                  <span className="muted text-xs">· searching…</span>
+                ) : (
+                  (dockets.data?.length ?? 0) > 0 && (
+                    <span className="muted text-xs">
+                      · {dockets.data!.length}
+                    </span>
+                  )
+                )}
+              </h2>
+              {dockets.isLoading ? (
+                <div className="muted text-sm">Searching…</div>
+              ) : (dockets.data?.length ?? 0) === 0 ? (
+                <div className="muted text-sm">
+                  No tracked dockets match.
+                </div>
+              ) : (
+                <div className="search-list">
+                  {dockets.data!.map((hit) => (
+                    <button
+                      key={`${hit.entity_type}-${hit.entity_id}`}
+                      className="search-row"
+                      onClick={() => openDocketHit(hit)}
+                    >
+                      <div
+                        className="mono text-xs muted"
+                        style={{ flex: "0 0 96px" }}
+                      >
+                        {hit.docket_number}
+                      </div>
+                      <div style={{ flex: "0 0 auto", display: "flex", gap: 4 }}>
+                        <VenueTag>FERC</VenueTag>
+                        <TypeTag>{docketLabel(hit)}</TypeTag>
+                      </div>
+                      <div className="search-row-main">
+                        <div className="search-row-title">
+                          {hit.party_label
+                            ? `${hit.party_label}: ${hit.title || ""}`
+                            : hit.title || hit.docket_number}
+                          {hit.accession_number && (
+                            <span
+                              className="muted text-xs"
+                              style={{ marginLeft: 8, fontWeight: 400 }}
+                            >
+                              · {hit.accession_number}
+                            </span>
+                          )}
+                        </div>
+                        {hit.entity_type !== "docket_meta" && (
+                          <div
+                            className="search-row-snippet muted text-sm"
+                            dangerouslySetInnerHTML={{ __html: hit.snippet }}
+                          />
+                        )}
                       </div>
                       <Icon name="chev-r" size={14} />
                     </button>

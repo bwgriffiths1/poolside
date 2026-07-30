@@ -179,3 +179,115 @@ def retrieve_for_question(question: str, limit: int = 12,
                     seen.add(key)
                     hits.append(h)
     return hits
+
+
+# ── FERC dockets ─────────────────────────────────────────────────────────
+
+
+def _escape_snippet(text: str) -> str:
+    return html.escape(text or "", quote=False)
+
+
+def search_docket_hits(q: str, limit: int = 10) -> list[dict[str, Any]]:
+    """Ranked hits across TRACKED FERC dockets, two sources merged:
+
+    1. Metadata: case-insensitive substring on docket number / title /
+       party label / notes — so "PfP" hits a docket whose title carries the
+       acronym, and "ER26-925" always finds its docket, summaries or not.
+    2. Full text: the same tsvector the meeting search uses, over docket
+       state-of-play and filing summaries (current versions only), each hit
+       resolved back to its docket with an HTML-safe highlighted snippet.
+
+    Metadata hits sort first (an identifier match is what you meant); text
+    hits follow by rank. De-duped so a docket whose title AND state of play
+    match appears once, keeping the metadata row.
+    """
+    q = (q or "").strip()
+    if not q:
+        return []
+
+    out: list[dict[str, Any]] = []
+    seen_dockets: set[int] = set()
+
+    meta_sql = """
+        SELECT d.id AS docket_id, d.docket_number, d.title, d.party_label
+          FROM dockets d
+         WHERE d.docket_number ILIKE %(pat)s
+            OR COALESCE(d.title, '') ILIKE %(pat)s
+            OR COALESCE(d.party_label, '') ILIKE %(pat)s
+            OR COALESCE(d.notes, '') ILIKE %(pat)s
+         ORDER BY d.docket_number
+         LIMIT %(limit)s
+    """
+    text_sql = """
+        WITH current_versions AS (
+            SELECT DISTINCT ON (entity_type, entity_id)
+                entity_type, entity_id, detailed, one_line, detailed_tsv
+            FROM summary_versions
+            WHERE entity_type IN ('docket', 'docket_filing')
+              AND status IN ('draft', 'approved')
+              AND detailed_tsv @@ websearch_to_tsquery('english', %(q)s)
+            ORDER BY entity_type, entity_id,
+                CASE status WHEN 'approved' THEN 0 ELSE 1 END,
+                version DESC
+        )
+        SELECT
+            cv.entity_type,
+            cv.entity_id,
+            ts_rank_cd(cv.detailed_tsv, websearch_to_tsquery('english', %(q)s)) AS rank,
+            ts_headline(
+                'english',
+                COALESCE(cv.detailed, cv.one_line, ''),
+                websearch_to_tsquery('english', %(q)s),
+                'StartSel=@@HLS@@, StopSel=@@HLE@@, MaxFragments=1, MaxWords=22, MinWords=10, ShortWord=2'
+            ) AS snippet,
+            d.id              AS docket_id,
+            d.docket_number   AS docket_number,
+            d.title           AS title,
+            d.party_label     AS party_label,
+            f.accession_number AS accession_number,
+            f.document_class  AS document_class
+        FROM current_versions cv
+        LEFT JOIN docket_filings f
+               ON cv.entity_type = 'docket_filing' AND f.id = cv.entity_id
+        JOIN dockets d
+          ON d.id = CASE
+                       WHEN cv.entity_type = 'docket' THEN cv.entity_id
+                       ELSE f.docket_id
+                    END
+        ORDER BY rank DESC
+        LIMIT %(limit)s
+    """
+
+    with db._conn() as conn:
+        with db._cursor(conn) as cur:
+            cur.execute(meta_sql, {"pat": f"%{q}%", "limit": limit})
+            meta_rows = [dict(r) for r in cur.fetchall()]
+            cur.execute(text_sql, {"q": q, "limit": limit})
+            text_rows = [dict(r) for r in cur.fetchall()]
+
+    for r in meta_rows:
+        seen_dockets.add(r["docket_id"])
+        out.append({
+            "entity_type": "docket_meta",
+            "entity_id": r["docket_id"],
+            "docket_id": r["docket_id"],
+            "docket_number": r["docket_number"],
+            "title": r.get("title"),
+            "party_label": r.get("party_label"),
+            "accession_number": None,
+            "document_class": None,
+            "snippet": _escape_snippet(r.get("title") or r.get("party_label") or ""),
+        })
+
+    for r in text_rows:
+        # A docket already surfaced by metadata keeps that row; filing hits
+        # for other dockets each stand on their own.
+        if r["entity_type"] == "docket" and r["docket_id"] in seen_dockets:
+            continue
+        snippet = _escape_snippet(r.get("snippet") or "")
+        r["snippet"] = snippet.replace("@@HLS@@", "<b>").replace("@@HLE@@", "</b>")
+        r.pop("rank", None)
+        out.append(r)
+
+    return out[:limit]

@@ -1,72 +1,108 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Topbar } from "../components/Topbar";
 import { Icon } from "../components/Icon";
 import { Segmented } from "../components/Segmented";
 import { MeetingRow } from "../components/MeetingRow";
 import { useMeetingsAll } from "../lib/queries";
+import { addDays, localIso } from "../lib/dates";
 import type { MeetingListItem, MeetingStatus } from "../types";
 
-type Venue = "All" | "ISO-NE";
-type StatusFilter = "All" | MeetingStatus;
+type StatusFilter = "materials+" | "all" | MeetingStatus;
 type View = "list" | "card";
-type DateRange = "all" | "upcoming" | "30d" | "90d" | "year";
+type DateRange = "all" | "upcoming" | "past30" | "past90" | "pastyear";
+
+// The default view. Far-future rows are calendar stubs with no agenda and no
+// documents — they're the bulk of the table and there's nothing to read yet,
+// so the page opens on meetings that actually have materials. Overview and
+// Calendar are where you go to see what's merely scheduled.
+const WITH_MATERIALS: MeetingStatus[] = ["materials", "summarized", "updated"];
+
+const LOOKBACK_DAYS: Record<string, number> = {
+  past30: 30,
+  past90: 90,
+  pastyear: 365,
+};
 
 export function Meetings() {
   const navigate = useNavigate();
   const [view, setView] = useState<View>("list");
-  const [venueFilter, setVenueFilter] = useState<Venue>("All");
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>("All");
+  const [venueFilter, setVenueFilter] = useState<string>("All");
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("materials+");
   const [typeFilter, setTypeFilter] = useState<string>("All");
   const [dateRange, setDateRange] = useState<DateRange>("all");
   const [search, setSearch] = useState("");
 
   const { data: meetings = [] } = useMeetingsAll();
 
-  // All distinct type_short values for the type dropdown.
-  const types = useMemo(() => {
-    const seen = new Set<string>();
-    meetings.forEach((m) => seen.add(m.type_short));
-    return ["All", ...Array.from(seen).sort()];
-  }, [meetings]);
+  // Venue and committee options are derived from the data, so a new venue
+  // appears on its own instead of needing a hard-coded option (the old
+  // All | ISO-NE pair was a no-op once ISO-NE was the only venue shown).
+  const venues = ["All", ...Array.from(new Set(meetings.map((m) => m.venue))).sort()];
+  const types = ["All", ...Array.from(new Set(meetings.map((m) => m.type_short))).sort()];
 
-  const filtered = useMemo(() => {
-    const today = new Date().toISOString().slice(0, 10);
-    const cutoff = (() => {
-      const d = new Date();
-      if (dateRange === "30d") d.setDate(d.getDate() - 30);
-      else if (dateRange === "90d") d.setDate(d.getDate() - 90);
-      else if (dateRange === "year") d.setDate(d.getDate() - 365);
-      return d.toISOString().slice(0, 10);
-    })();
-    const q = search.trim().toLowerCase();
-    return meetings.filter((m) => {
-      if (venueFilter !== "All" && m.venue !== venueFilter) return false;
-      if (statusFilter !== "All" && m.status !== statusFilter) return false;
-      if (typeFilter !== "All" && m.type_short !== typeFilter) return false;
-      if (dateRange === "upcoming" && m.meeting_date < today) return false;
-      if (dateRange !== "all" && dateRange !== "upcoming" && m.meeting_date < cutoff) return false;
-      if (q) {
-        const hay = `${m.title} ${m.type_name} ${m.venue} ${m.type_short} ${m.location} ${m.tags.join(" ")}`.toLowerCase();
-        if (!hay.includes(q)) return false;
-      }
-      return true;
-    });
-  }, [meetings, venueFilter, statusFilter, typeFilter, dateRange, search]);
+  // Local dates — toISOString() is UTC and would flip "upcoming" an evening
+  // early; addDays() builds from date parts so DST can't shift the cutoff.
+  const now = new Date();
+  const todayIso = localIso(now);
+  const lookbackDays = LOOKBACK_DAYS[dateRange];
+  const cutoffIso = lookbackDays ? localIso(addDays(now, -lookbackDays)) : "";
 
-  const sorted = useMemo(
-    () =>
-      [...filtered].sort((a, b) =>
-        b.meeting_date.localeCompare(a.meeting_date)
-      ),
-    [filtered]
-  );
+  const q = search.trim().toLowerCase();
+  const filtered = meetings.filter((m) => {
+    if (venueFilter !== "All" && m.venue !== venueFilter) return false;
+    if (statusFilter === "materials+") {
+      if (!WITH_MATERIALS.includes(m.status)) return false;
+    } else if (statusFilter !== "all" && m.status !== statusFilter) {
+      return false;
+    }
+    if (typeFilter !== "All" && m.type_short !== typeFilter) return false;
+    if (dateRange === "upcoming" && m.meeting_date < todayIso) return false;
+    if (lookbackDays) {
+      // Bound BOTH ends — these used to leave the future unbounded, so
+      // "30 d" still dragged in every stub a year out.
+      if (m.meeting_date > todayIso || m.meeting_date < cutoffIso) return false;
+    }
+    if (q) {
+      const hay = `${m.title} ${m.type_name} ${m.venue} ${m.type_short} ${m.location} ${m.tags.join(" ")}`.toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    return true;
+  });
+
+  // Split at today, each half ordered nearest-to-now first: the two rows
+  // either side of the divider are "next up" and "most recent".
+  const upcoming = filtered
+    .filter((m) => m.meeting_date >= todayIso)
+    .sort((a, b) => a.meeting_date.localeCompare(b.meeting_date));
+  const past = filtered
+    .filter((m) => m.meeting_date < todayIso)
+    .sort((a, b) => b.meeting_date.localeCompare(a.meeting_date));
+
+  // A divider only earns its space when both halves have rows.
+  const showDividers = upcoming.length > 0 && past.length > 0;
 
   const openMeeting = (m: MeetingListItem) => navigate(`/meeting/${m.id}`);
 
-  // Per-status counts (for the segmented control labels)
-  const countBy = (s: MeetingStatus) =>
-    meetings.filter((m) => m.status === s).length;
+  const countBy = (s: MeetingStatus) => meetings.filter((m) => m.status === s).length;
+  const withMaterialsCount = meetings.filter((m) =>
+    WITH_MATERIALS.includes(m.status),
+  ).length;
+
+  const renderGroup = (list: MeetingListItem[]) =>
+    view === "list" ? (
+      <div className="mtg-list">
+        {list.map((m) => (
+          <MeetingRow key={m.id} m={m} onOpen={openMeeting} view="list" />
+        ))}
+      </div>
+    ) : (
+      <div className="mtg-cards">
+        {list.map((m) => (
+          <MeetingRow key={m.id} m={m} onOpen={openMeeting} view="card" />
+        ))}
+      </div>
+    );
 
   return (
     <>
@@ -84,29 +120,44 @@ export function Meetings() {
 
       <div className="page">
         <div className="page-header">
-          <div className="page-eyebrow">All meetings · ISO-NE</div>
+          <div className="page-eyebrow">All meetings</div>
           <h1 className="page-title">Meetings</h1>
           <p className="page-subtitle">
-            Every meeting in the database — filterable by venue, type, status,
-            and date. Showing {sorted.length} of {meetings.length}.
+            Searchable archive of every meeting on file — filter by venue,
+            committee, status, and date. Showing {filtered.length} of{" "}
+            {meetings.length}
+            {statusFilter === "materials+" && (
+              <>
+                {" "}
+                — those with materials posted.{" "}
+                <button
+                  type="button"
+                  className="link-btn"
+                  onClick={() => setStatusFilter("all")}
+                >
+                  Show all
+                </button>
+              </>
+            )}
+            {statusFilter !== "materials+" && "."}
           </p>
         </div>
 
         <div className="filter-bar" style={{ marginBottom: 16 }}>
           <div className="row" style={{ gap: 6, flexWrap: "wrap" }}>
-            <Segmented
-              value={venueFilter}
-              onChange={setVenueFilter}
-              options={[
-                { value: "All", label: "All" },
-                { value: "ISO-NE", label: "ISO-NE" },
-              ]}
-            />
+            {venues.length > 2 && (
+              <Segmented
+                value={venueFilter}
+                onChange={setVenueFilter}
+                options={venues.map((v) => ({ value: v, label: v }))}
+              />
+            )}
             <Segmented
               value={statusFilter}
               onChange={setStatusFilter}
               options={[
-                { value: "All", label: `All (${meetings.length})` },
+                { value: "materials+", label: `Materials + (${withMaterialsCount})` },
+                { value: "all", label: `All (${meetings.length})` },
                 { value: "scheduled", label: `Scheduled (${countBy("scheduled")})` },
                 { value: "materials", label: `Materials (${countBy("materials")})` },
                 { value: "summarized", label: `Summarized (${countBy("summarized")})` },
@@ -158,9 +209,9 @@ export function Meetings() {
             options={[
               { value: "all", label: "All time" },
               { value: "upcoming", label: "Upcoming" },
-              { value: "30d", label: "30 d" },
-              { value: "90d", label: "90 d" },
-              { value: "year", label: "1 yr" },
+              { value: "past30", label: "Past 30 d" },
+              { value: "past90", label: "Past 90 d" },
+              { value: "pastyear", label: "Past year" },
             ]}
           />
           <div className="spacer" />
@@ -202,20 +253,31 @@ export function Meetings() {
           </div>
         </div>
 
-        {sorted.length === 0 ? (
+        {filtered.length === 0 ? (
           <div className="empty">No meetings match these filters.</div>
-        ) : view === "list" ? (
-          <div className="mtg-list">
-            {sorted.map((m) => (
-              <MeetingRow key={m.id} m={m} onOpen={openMeeting} view="list" />
-            ))}
-          </div>
         ) : (
-          <div className="mtg-cards">
-            {sorted.map((m) => (
-              <MeetingRow key={m.id} m={m} onOpen={openMeeting} view="card" />
-            ))}
-          </div>
+          <>
+            {upcoming.length > 0 && (
+              <>
+                {showDividers && (
+                  <div className="mtg-split">
+                    Upcoming <span className="count">{upcoming.length}</span>
+                  </div>
+                )}
+                {renderGroup(upcoming)}
+              </>
+            )}
+            {past.length > 0 && (
+              <>
+                {showDividers && (
+                  <div className="mtg-split">
+                    Past <span className="count">{past.length}</span>
+                  </div>
+                )}
+                {renderGroup(past)}
+              </>
+            )}
+          </>
         )}
 
         <div style={{ height: 64 }} />

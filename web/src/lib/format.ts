@@ -1,3 +1,5 @@
+import type { MeetingListItem } from "../types";
+
 // Date / display helpers shared across screens.
 
 export function fmtDateRange(iso: string, end?: string): string {
@@ -60,4 +62,34 @@ export function fmtBytes(n: number): string {
   if (n < 1024) return `${n} B`;
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(0)} KB`;
   return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+// Which string identifies this meeting in a list?
+//
+// For ISO-NE the committee name IS the identity — every MC row is "Markets
+// Committee", and `title` ("NEPOOL Markets Committee Meeting") only adds
+// boilerplate. For PJM the whole venue is one workstream, so `type_name` is
+// identical on every row and the session name in `title` ("CIFP–RBP /
+// Connect and Manage - Stage 3") is the only thing telling them apart.
+//
+// So: prefer `title` when it carries information beyond the committee name,
+// else fall back to `type_name`. Normalizing away punctuation and the filler
+// words that differ between the fields keeps near-duplicates from counting
+// as new information.
+function normalizeForCompare(s: string): string {
+  return s
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\b(nepool|iso|ne|meeting|committee|subcommittee)\b/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+export function displayTitle(m: MeetingListItem): string {
+  const title = (m.title || "").trim();
+  if (!title) return m.type_name;
+  const t = normalizeForCompare(title);
+  const tn = normalizeForCompare(m.type_name);
+  if (!t || t === tn || tn.includes(t) || t.includes(tn)) return m.type_name;
+  return title;
 }

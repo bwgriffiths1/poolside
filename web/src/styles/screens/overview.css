@@ -27,6 +27,41 @@
   flex-wrap: wrap;
 }
 
+/* Upcoming/Past divider — Meetings page splits its flat list at today.
+   (.mtg-* rows are shared between Overview and Meetings.) */
+.mtg-split {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: var(--pad-5) 0 var(--pad-3);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.mtg-split:first-of-type { margin-top: 0; }
+.mtg-split .count { color: var(--muted-soft); }
+.mtg-split::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--border-soft);
+}
+
+/* Inline text button that reads as a link (filter escape hatches). */
+.link-btn {
+  background: transparent;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  color: var(--accent);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.link-btn:hover { color: var(--ink); }
+
 /* List rows */
 .mtg-list {
   border: 1px solid var(--border);

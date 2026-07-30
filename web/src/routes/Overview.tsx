@@ -9,6 +9,7 @@ import { api, type DocketListItem } from "../lib/api";
 import { qk, useCan, useMe } from "../lib/queries";
 import {
   dayNumber,
+  displayTitle,
   fmtDateRange,
   fmtShortDate,
   formatRel,
@@ -265,7 +266,7 @@ function WeekRow({
         <TypeTag>{m.type_short}</TypeTag>
       </div>
       <div className="wk-row-title">
-        <div className="title-line">{m.type_name}</div>
+        <div className="title-line">{displayTitle(m)}</div>
         <div className="meta-line">
           {m.location}
           {multiDay && <> · {fmtDateRange(m.meeting_date, m.end_date)}</>}
@@ -314,7 +315,7 @@ function NextWeekRow({
       </span>
       <VenueTag>{m.venue}</VenueTag>
       <TypeTag>{m.type_short}</TypeTag>
-      <span className="wk-next-title">{m.type_name}</span>
+      <span className="wk-next-title">{displayTitle(m)}</span>
       <span className="wk-next-status">{STATUS_WORDS[m.status]}</span>
     </button>
   );

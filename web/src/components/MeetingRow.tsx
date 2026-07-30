@@ -1,7 +1,7 @@
 import { Pill } from "./Pill";
 import { Tag, VenueTag, TypeTag } from "./Tag";
 import { Icon } from "./Icon";
-import { fmtDateRange, monthLabel, dayNumber } from "../lib/format";
+import { displayTitle, fmtDateRange, monthLabel, dayNumber } from "../lib/format";
 import type { MeetingListItem } from "../types";
 
 interface MeetingRowProps {
@@ -11,6 +11,12 @@ interface MeetingRowProps {
 }
 
 export function MeetingRow({ m, onOpen, view }: MeetingRowProps) {
+  // Location is empty on some venues (PJM) — join so there's no dangling
+  // " · " separator in front of the date.
+  const metaLine = [m.location, fmtDateRange(m.meeting_date, m.end_date)]
+    .filter(Boolean)
+    .join(" · ");
+
   if (view === "list") {
     return (
       <button className="mtg-row" onClick={() => onOpen(m)}>
@@ -23,10 +29,8 @@ export function MeetingRow({ m, onOpen, view }: MeetingRowProps) {
           <TypeTag>{m.type_short}</TypeTag>
         </div>
         <div className="mtg-row-title">
-          <div className="title-line">{m.type_name}</div>
-          <div className="meta-line">
-            {m.location} · {fmtDateRange(m.meeting_date, m.end_date)}
-          </div>
+          <div className="title-line">{displayTitle(m)}</div>
+          <div className="meta-line">{metaLine}</div>
         </div>
         <div className="mtg-row-stats">
           {m.doc_count > 0 && (
@@ -70,9 +74,9 @@ export function MeetingRow({ m, onOpen, view }: MeetingRowProps) {
         </div>
         <Pill status={m.status} />
       </div>
-      <div className="mtg-card-title">{m.type_name}</div>
+      <div className="mtg-card-title">{displayTitle(m)}</div>
       <div className="mtg-card-date">{fmtDateRange(m.meeting_date, m.end_date)}</div>
-      <div className="mtg-card-loc text-xs muted">{m.location}</div>
+      {m.location && <div className="mtg-card-loc text-xs muted">{m.location}</div>}
       <div className="mtg-card-meta">
         {m.doc_count > 0 && (
           <span>

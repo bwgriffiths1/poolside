@@ -12,9 +12,7 @@ import { WatchToggle } from "../components/meeting/WatchToggle";
 import { SummarizeJobBanner } from "../components/meeting/SummarizeJobBanner";
 import { FilesSection } from "../components/meeting/FilesSection";
 import { useSummarizeJob } from "../hooks/useSummarizeJob";
-import { api } from "../lib/api";
 import { useBriefing, useCan, useMeeting, useMeetingsAll } from "../lib/queries";
-import { toast } from "../lib/toast";
 import { fmtDateRange } from "../lib/format";
 import { useTrackView } from "../hooks/useTrackView";
 import type { MeetingListItem } from "../types";
@@ -220,20 +218,15 @@ export function Meeting() {
               </div>
             </div>
             <div className="briefing-card-right">
-              <button
+              {/* Plain same-origin link (Content-Disposition download) —
+                  the fetch→blob ritual crashed Safari on the docket export. */}
+              <a
                 className="btn btn-sm"
-                onClick={async (e) => {
-                  e.stopPropagation();
-                  try {
-                    await api.downloadBriefingDocx(meetingId);
-                  } catch (err) {
-                    console.error("Download failed", err);
-                    toast.error("Could not download briefing — see console for details.");
-                  }
-                }}
+                href={`/api/meetings/${meetingId}/briefing.docx`}
+                onClick={(e) => e.stopPropagation()}
               >
                 <Icon name="download" /> Download .docx
-              </button>
+              </a>
               <button
                 className="btn btn-sm btn-accent"
                 onClick={() => navigate(`/briefing/${m.id}`)}

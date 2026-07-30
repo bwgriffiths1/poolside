@@ -76,13 +76,22 @@ def export_briefing_docx(meeting_id: int) -> Response:
     })
     adapters.attach_briefing_docs(briefing, meeting_id)
     venue_short = meeting.get("venue_short")
+    type_name = meeting.get("type_name") or "Committee"
+    type_short = meeting.get("type_short") or type_name
+    # Venue-qualify the cover masthead ("PJM Operating Committee", not just
+    # "Operating Committee" — two ISOs both have an OC). The footer gets the
+    # compact venue + short code instead: it's a one-line tabbed layout that
+    # a full CIFP-length committee name overflows.
+    committee = f"{venue_short} {type_name}" if venue_short else type_name
+    footer_label = f"{venue_short} {type_short}" if venue_short else type_short
     docx_bytes = render_briefing_docx(
         briefing,
-        committee=meeting.get("type_name") or "Committee",
+        committee=committee,
         meeting_dates=[str(meeting.get("meeting_date", ""))],
         materials_url=venue_links.materials_url(
             venue_short, meeting.get("external_id")
         ),
+        footer_label=footer_label,
     )
 
     ext_id = meeting.get("external_id") or meeting_id

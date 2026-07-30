@@ -289,19 +289,15 @@ export function Briefing() {
                 <Icon name="edit" /> Edit
               </button>
             )}
-            <button
+            {/* Plain same-origin link: the browser downloads natively via
+                Content-Disposition. No fetch/blob/revokeObjectURL dance —
+                that pattern crashed Safari on the docket export. */}
+            <a
               className="btn btn-sm"
-              onClick={async () => {
-                try {
-                  await api.downloadBriefingDocx(meetingId);
-                } catch (err) {
-                  console.error("Download failed", err);
-                  toast.error("Could not download briefing — see console for details.");
-                }
-              }}
+              href={`/api/meetings/${meetingId}/briefing.docx`}
             >
               <Icon name="download" /> Download .docx
-            </button>
+            </a>
             {canEdit && (
               <>
                 <button

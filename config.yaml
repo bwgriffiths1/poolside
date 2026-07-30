@@ -50,6 +50,31 @@ pjm:
     slug: cifp-rbp
     url: https://www.pjm.com/committees-and-groups/cifp-rbp
     active: true
+  - name: Markets and Reliability Committee
+    short: MRC
+    slug: mrc
+    url: https://www.pjm.com/committees-and-groups/committees/mrc
+    active: true
+  - name: Market Implementation Committee
+    short: MIC
+    slug: mic
+    url: https://www.pjm.com/committees-and-groups/committees/mic
+    active: true
+  - name: Operating Committee
+    short: OC
+    slug: oc
+    url: https://www.pjm.com/committees-and-groups/committees/oc
+    active: true
+  - name: Liaison Committee
+    short: LC
+    slug: lc
+    url: https://www.pjm.com/committees-and-groups/committees/lc
+    active: true
+  # More exist under /committees-and-groups/committees (see the index):
+  # mc (Members), pc (Planning), teac, rmc, fc, aac, mmuac, nc, toa-ac,
+  # srrtep-{ma,s,w}. Same page markup — adding one is another block here.
+  # NB PJM's "MC" (Members Committee) would visually collide with ISO-NE's
+  # MC (Markets Committee) in type_short chips; pick the short with care.
 
 npc_combined:
   # Section types to mark as ignored (stored but not summarized)

@@ -311,6 +311,59 @@ def discover_pjm() -> dict[str, Any]:
     return {"discovered": {"PJM": new_meetings}, "meetings": detail}
 
 
+def backfill_pjm_agendas(since: date) -> dict[str, Any]:
+    """Parse agendas for legacy PJM meetings that discovery created outside
+    the refresh window.
+
+    PJM committee pages list the whole current year, so discovery back-creates
+    meetings with their document rows — but the refresh cron only walks
+    [today-3, today+21], so anything older never gets its agenda parsed or
+    docs assigned. This runs the same per-meeting refresh_with_agenda the
+    cron uses (doc pull is idempotent; agenda parse is one small-model call
+    per meeting; no summaries) over every PJM meeting on/after `since` that
+    has documents but no agenda items. Newest first, so the meetings most
+    likely to be read fill in first.
+    """
+    cfg = _load_config()
+    candidates = db.list_venue_meetings_missing_agendas("PJM", since)
+    results: list[dict[str, Any]] = []
+    parsed_count = 0
+    for m in candidates:
+        label = f"{m.get('type_short', '')} {m.get('meeting_date', '')}"
+        try:
+            res = orchestrator.refresh_with_agenda(m["id"], cfg)
+            parse_step = next(
+                (s for s in res.get("steps", [])
+                 if s.get("step") == "parse_agenda"), {},
+            )
+            if parse_step.get("parsed"):
+                parsed_count += 1
+            results.append({
+                "meeting_id": m["id"],
+                "label": label,
+                "parsed": bool(parse_step.get("parsed")),
+                "n_items": parse_step.get("n_items", 0),
+                "reason": parse_step.get("reason"),
+            })
+            log.info(
+                "PJM backfill %s: parsed=%s items=%s reason=%s",
+                label, parse_step.get("parsed"),
+                parse_step.get("n_items"), parse_step.get("reason"),
+            )
+        except Exception as e:
+            log.exception("PJM backfill failed for meeting %s: %s", m["id"], e)
+            results.append({
+                "meeting_id": m["id"], "label": label,
+                "parsed": False, "n_items": 0, "error": str(e),
+            })
+    return {
+        "since": since.isoformat(),
+        "candidates": len(candidates),
+        "parsed": parsed_count,
+        "results": results,
+    }
+
+
 def refresh_upcoming_meetings() -> dict[str, Any]:
     """For each meeting within [today-3, today+21] not at 'approved',
     fetch latest docs + auto-assign.

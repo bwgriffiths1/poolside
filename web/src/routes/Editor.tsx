@@ -9,7 +9,12 @@ import { qk } from "../lib/queries";
 import { toast } from "../lib/toast";
 import { Markdown } from "../lib/markdown";
 
-type EntityType = "meeting" | "agenda_item" | "docket" | "docket_filing";
+type EntityType =
+  | "meeting"
+  | "agenda_item"
+  | "docket"
+  | "docket_filing"
+  | "roundup";
 type ViewMode = "split" | "source" | "preview";
 
 export function Editor() {
@@ -18,7 +23,10 @@ export function Editor() {
   const qc = useQueryClient();
 
   const entityType = (
-    type === "meeting" || type === "docket" || type === "docket_filing"
+    type === "meeting" ||
+    type === "docket" ||
+    type === "docket_filing" ||
+    type === "roundup"
       ? type
       : "agenda_item"
   ) as EntityType;
@@ -78,6 +86,10 @@ export function Editor() {
       if (data?.docket_id != null) {
         qc.invalidateQueries({ queryKey: qk.docket(data.docket_id) });
         qc.invalidateQueries({ queryKey: qk.dockets });
+      }
+      if (entityType === "roundup") {
+        qc.invalidateQueries({ queryKey: qk.roundup(entityId) });
+        qc.invalidateQueries({ queryKey: qk.roundups });
       }
       setDirty(false);
     },
@@ -184,9 +196,17 @@ export function Editor() {
 
     e.preventDefault();
     // Image paste is backed by editor_images, which is meeting-bound —
-    // docket summaries are text-only for now.
-    if (entityType === "docket" || entityType === "docket_filing") {
-      toast.error("Image paste isn't supported for docket summaries yet.");
+    // docket and roundup summaries are text-only for now.
+    if (
+      entityType === "docket" ||
+      entityType === "docket_filing" ||
+      entityType === "roundup"
+    ) {
+      toast.error(
+        `Image paste isn't supported for ${
+          entityType === "roundup" ? "roundup" : "docket"
+        } summaries yet.`,
+      );
       return;
     }
     const file = imageItem.getAsFile();
@@ -246,11 +266,14 @@ export function Editor() {
 
   const isDocketEntity =
     entityType === "docket" || entityType === "docket_filing";
-  // Where "back" leads: the owning meeting, or the owning docket page.
+  const isRoundup = entityType === "roundup";
+  // Where "back" leads: the owning meeting, docket, or roundup page.
   const backTo = data
     ? isDocketEntity
       ? `/docket/${data.docket_id}`
-      : `/meeting/${data.meeting_id}`
+      : isRoundup
+        ? `/roundup/${data.roundup_id ?? entityId}`
+        : `/meeting/${data.meeting_id}`
     : null;
   const entityLabel =
     entityType === "meeting"
@@ -259,7 +282,9 @@ export function Editor() {
         ? "State of Play"
         : entityType === "docket_filing"
           ? "Filing"
-          : "Item";
+          : isRoundup
+            ? "Roundup"
+            : "Item";
 
   return (
     <>
@@ -269,7 +294,9 @@ export function Editor() {
             ? { label: "Briefings", to: "/briefings" }
             : isDocketEntity
               ? { label: "FERC eLibrary", to: "/elibrary" }
-              : { label: "Meetings", to: "/meetings" },
+              : isRoundup
+                ? { label: "Roundups", to: "/roundups" }
+                : { label: "Meetings", to: "/meetings" },
           data && backTo
             ? {
                 label: `${entityLabel}: ${data.parent_label}`,
@@ -316,7 +343,9 @@ export function Editor() {
                     ? "Docket state of play"
                     : entityType === "docket_filing"
                       ? "Filing summary"
-                      : "Agenda item summary"}
+                      : isRoundup
+                        ? "Monthly roundup"
+                        : "Agenda item summary"}
               </div>
               <h1 className="editor-title">{data.parent_label}</h1>
               <div className="row" style={{ gap: 16, marginTop: 12, flexWrap: "wrap" }}>

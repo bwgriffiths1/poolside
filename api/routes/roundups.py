@@ -12,7 +12,7 @@ import threading
 from datetime import date
 from typing import Any
 
-from fastapi import APIRouter, Body, Depends, HTTPException
+from fastapi import APIRouter, Body, Depends, HTTPException, Response
 from pydantic import BaseModel
 
 from pipeline import db
@@ -81,6 +81,24 @@ def get_roundup(roundup_id: int) -> schemas.Roundup:
         raise HTTPException(status_code=404, detail="Roundup not found")
     sources = db.get_roundup_meetings(roundup_id)
     return adapters.roundup_row(row, sources=sources)
+
+
+@router.get("/{roundup_id}/docx")
+def export_roundup_docx(roundup_id: int) -> Response:
+    """The roundup as .docx in the briefing's editorial design, rendered from
+    the current summary version — instant, no LLM."""
+    from pipeline.roundup_docx import generate_roundup_docx_bytes
+
+    try:
+        data, filename = generate_roundup_docx_bytes(roundup_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    return Response(
+        content=data,
+        media_type=("application/vnd.openxmlformats-officedocument"
+                    ".wordprocessingml.document"),
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 class GenerateRoundupBody(BaseModel):

@@ -39,7 +39,25 @@ export function Meetings() {
   // appears on its own instead of needing a hard-coded option (the old
   // All | ISO-NE pair was a no-op once ISO-NE was the only venue shown).
   const venues = ["All", ...Array.from(new Set(meetings.map((m) => m.venue))).sort()];
-  const types = ["All", ...Array.from(new Set(meetings.map((m) => m.type_short))).sort()];
+
+  // Committee options are scoped to the venue filter — a PJM view shouldn't
+  // offer ISO-NE committees. With no venue selected, the dropdown groups by
+  // venue so it's clear which ISO each committee belongs to.
+  const typesByVenue = new Map<string, string[]>();
+  for (const m of meetings) {
+    const list = typesByVenue.get(m.venue) ?? [];
+    if (!list.includes(m.type_short)) list.push(m.type_short);
+    typesByVenue.set(m.venue, list);
+  }
+  typesByVenue.forEach((list) => list.sort());
+  const groupedVenues = Array.from(typesByVenue.keys()).sort();
+  const visibleTypes =
+    venueFilter === "All"
+      ? Array.from(new Set(meetings.map((m) => m.type_short))).sort()
+      : (typesByVenue.get(venueFilter) ?? []);
+  // A committee picked under one venue filter may not exist under the next —
+  // treat a vanished selection as "All" instead of silently matching nothing.
+  const effectiveType = visibleTypes.includes(typeFilter) ? typeFilter : "All";
 
   // Local dates — toISOString() is UTC and would flip "upcoming" an evening
   // early; addDays() builds from date parts so DST can't shift the cutoff.
@@ -56,7 +74,7 @@ export function Meetings() {
     } else if (statusFilter !== "all" && m.status !== statusFilter) {
       return false;
     }
-    if (typeFilter !== "All" && m.type_short !== typeFilter) return false;
+    if (effectiveType !== "All" && m.type_short !== effectiveType) return false;
     if (dateRange === "upcoming" && m.meeting_date < todayIso) return false;
     if (lookbackDays) {
       // Bound BOTH ends — these used to leave the future unbounded, so
@@ -193,15 +211,26 @@ export function Meetings() {
         <div className="filter-bar" style={{ marginBottom: 16, gap: 12 }}>
           <select
             className="select"
-            value={typeFilter}
+            value={effectiveType}
             onChange={(e) => setTypeFilter(e.target.value)}
             style={{ width: 160 }}
           >
-            {types.map((t) => (
-              <option key={t} value={t}>
-                {t === "All" ? "All committees" : t}
-              </option>
-            ))}
+            <option value="All">All committees</option>
+            {venueFilter === "All" && groupedVenues.length > 1
+              ? groupedVenues.map((v) => (
+                  <optgroup key={v} label={v}>
+                    {(typesByVenue.get(v) ?? []).map((t) => (
+                      <option key={`${v}:${t}`} value={t}>
+                        {t}
+                      </option>
+                    ))}
+                  </optgroup>
+                ))
+              : visibleTypes.map((t) => (
+                  <option key={t} value={t}>
+                    {t}
+                  </option>
+                ))}
           </select>
           <Segmented
             value={dateRange}

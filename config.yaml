@@ -35,10 +35,13 @@ committees:
   active: true
 
 pjm:
-  # PJM committees tracked by pipeline/pjm_scraper.py. Deliberately NOT part
-  # of the top-level committees[] list: PUT /api/admin/config auto-creates
-  # meeting_types under ISO-NE, and PJM discovery is button-driven from the
-  # /pjm demo page (no cron) until the main-UI integration pass.
+  # PJM committees tracked by pipeline/pjm_scraper.py, polled by the daily
+  # discover cron (discover_all_venues → discover_pjm) and by the button on
+  # /pjm. Deliberately NOT part of the top-level committees[] list, which is
+  # ISO-NE-only: PUT /api/admin/config rewrites that key and auto-creates
+  # meeting_types under ISO-NE. Nothing writes `pjm` to app_config, so this
+  # block is the single source of truth in every environment — adding a PJM
+  # committee means editing this file and deploying.
   # `slug` feeds the pjm-{slug}-{yyyymmdd} external-id namespace and must
   # stay stable once meetings exist.
   committees:

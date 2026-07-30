@@ -1,8 +1,10 @@
+import { useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Topbar } from "../components/Topbar";
 import { Icon } from "../components/Icon";
 import { TypeTag } from "../components/Tag";
+import { VersionHistory } from "../components/VersionHistory";
 import { api } from "../lib/api";
 import { qk, useCan } from "../lib/queries";
 import { fmtDateRange } from "../lib/format";
@@ -41,6 +43,7 @@ export function Roundup() {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const { canEdit } = useCan();
+  const [showVersions, setShowVersions] = useState(false);
 
   const {
     data: r,
@@ -61,6 +64,10 @@ export function Roundup() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: qk.roundup(rid) });
       qc.invalidateQueries({ queryKey: qk.roundups });
+      qc.invalidateQueries({ queryKey: qk.summary("roundup", rid) });
+      qc.invalidateQueries({
+        queryKey: qk.summaryVersions("roundup", rid),
+      });
     },
   });
 
@@ -100,7 +107,8 @@ export function Roundup() {
     if (
       window.confirm(
         `Regenerate the ${r.month_label} roundup? This re-runs the model over ` +
-          `${r.sources.length || "the month's"} briefings and overwrites the current report.`,
+          `${r.sources.length || "the month's"} briefings and replaces the ` +
+          `current report (it stays restorable under Versions).`,
       )
     ) {
       regenerate.mutate();
@@ -121,26 +129,56 @@ export function Roundup() {
           { label: r.month_label },
         ]}
         actions={
-          canEdit && (
-            <>
+          <>
+            {r.report_md && (
+              // Plain same-origin link: the browser downloads natively via
+              // Content-Disposition (the fetch→blob dance crashed Safari).
+              <a
+                className="btn btn-ghost btn-sm"
+                href={`/api/roundups/${rid}/docx`}
+                title="Word export of this roundup"
+              >
+                <Icon name="download" size={12} /> Word
+              </a>
+            )}
+            {r.report_md && (
               <button
                 className="btn btn-ghost btn-sm"
-                disabled={generating}
-                onClick={onRegenerate}
+                onClick={() => setShowVersions(!showVersions)}
+                title="Browse and restore previous versions of this roundup"
               >
-                <Icon name="refresh" size={12} />
-                {r.status === "complete" ? "Regenerate" : "Generate"}
+                <Icon name="refresh" size={12} /> Versions
               </button>
+            )}
+            {canEdit && r.report_md && !generating && (
               <button
                 className="btn btn-ghost btn-sm"
-                disabled={generating || del.isPending}
-                onClick={onDelete}
+                onClick={() => navigate(`/edit/roundup/${rid}`)}
               >
-                <Icon name="trash" size={12} />
-                Delete
+                <Icon name="edit" size={12} /> Edit
               </button>
-            </>
-          )
+            )}
+            {canEdit && (
+              <>
+                <button
+                  className="btn btn-ghost btn-sm"
+                  disabled={generating}
+                  onClick={onRegenerate}
+                >
+                  <Icon name="refresh" size={12} />
+                  {r.status === "complete" ? "Regenerate" : "Generate"}
+                </button>
+                <button
+                  className="btn btn-ghost btn-sm"
+                  disabled={generating || del.isPending}
+                  onClick={onDelete}
+                >
+                  <Icon name="trash" size={12} />
+                  Delete
+                </button>
+              </>
+            )}
+          </>
         }
       />
 
@@ -166,6 +204,21 @@ export function Roundup() {
               </button>
             ))}
           </div>
+        )}
+
+        {showVersions && (
+          <section style={{ margin: "16px 0 24px" }}>
+            <div className="b-eyebrow">Version history</div>
+            <VersionHistory
+              entityType="roundup"
+              entityId={rid}
+              onRestored={() => {
+                setShowVersions(false);
+                qc.invalidateQueries({ queryKey: qk.roundup(rid) });
+                qc.invalidateQueries({ queryKey: qk.roundups });
+              }}
+            />
+          </section>
         )}
 
         {regenerate.isError && (

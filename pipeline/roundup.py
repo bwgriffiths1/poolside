@@ -11,7 +11,9 @@ Pipeline:
   2. Excerpt the latest prior complete roundup for [PRIOR CONTEXT]
   3. Build prompt from monthly_roundup_prompt.md
   4. One LLM call (model_config "roundup_model", else "meeting_model")
-  5. Store result + token usage on the monthly_roundups row
+  5. Store the report as an approved summary_versions row (entity_type
+     'roundup' — the docket state-of-play pattern, so the editor/version
+     history/restore work); token usage + status live on monthly_roundups
 
 Status lives on the row (deep_dive_reports pattern):
   draft → generating → complete | error
@@ -206,10 +208,25 @@ def run_monthly_roundup(
         if not result.strip():
             raise ValueError("LLM returned an empty roundup")
 
+        # The report body is a summary version (docket state-of-play pattern):
+        # the new version is created then approved, so a prior version — user
+        # edits included — stays in history and remains restorable. The row
+        # keeps status/telemetry only; report_md is a legacy read fallback.
+        version = db.create_summary_version(
+            entity_type="roundup",
+            entity_id=roundup_id,
+            one_line=None,
+            detailed=result,
+            model_id=model,
+            is_manual=False,
+            status="draft",
+            created_by="system",
+        )
+        db.approve_summary_version(version["id"])
+
         db.update_monthly_roundup(
             roundup_id,
             status="complete",
-            report_md=result,
             model_id=model,
             error_message=None,
             input_tokens=int(totals.get("input_tokens", 0)),

@@ -961,7 +961,8 @@ export type SummaryEntityType =
   | "meeting"
   | "agenda_item"
   | "docket"
-  | "docket_filing";
+  | "docket_filing"
+  | "roundup";
 
 // ── FERC eLibrary dockets ──────────────────────────────────────────────
 
@@ -1071,6 +1072,7 @@ export interface SummaryPayload {
   entity_id: number;
   meeting_id: number | null;
   docket_id?: number | null;
+  roundup_id?: number | null;
   parent_label: string;
   one_line: string;
   detailed: string;

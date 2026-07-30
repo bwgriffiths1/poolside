@@ -1701,18 +1701,46 @@ def claim_monthly_roundup(roundup_id: int, progress_text: str = "",
             return dict(row) if row else None
 
 
+# The roundup report body lives in summary_versions (entity_type='roundup',
+# entity_id=roundup id) so the rich-text editor, version history, and restore
+# work on roundups exactly as on briefings. Reads overlay the current version
+# onto the legacy report_md column, which still covers pre-versioning rows.
+_ROUNDUP_BODY_LATERAL = """
+    LEFT JOIN LATERAL (
+        SELECT sv.detailed
+          FROM summary_versions sv
+         WHERE sv.entity_type = 'roundup' AND sv.entity_id = r.id
+           AND sv.status IN ('approved', 'draft')
+         ORDER BY CASE sv.status WHEN 'approved' THEN 0 ELSE 1 END,
+                  sv.version DESC
+         LIMIT 1
+    ) rb ON TRUE
+"""
+
+
+def _overlay_roundup_body(row: dict) -> dict:
+    """Replace report_md with the current summary-version body when one exists
+    (the `current_body` column selected alongside _ROUNDUP_BODY_LATERAL)."""
+    body = row.pop("current_body", None)
+    if body is not None:
+        row["report_md"] = body
+    return row
+
+
 def get_monthly_roundup(roundup_id: int) -> dict | None:
     """Fetch one roundup row with venue context joined in."""
     with _conn() as conn:
         with _cursor(conn) as cur:
-            cur.execute("""
-                SELECT r.*, v.short_name AS venue_short, v.name AS venue_name
+            cur.execute(f"""
+                SELECT r.*, rb.detailed AS current_body,
+                       v.short_name AS venue_short, v.name AS venue_name
                   FROM monthly_roundups r
                   JOIN venues v ON v.id = r.venue_id
+                  {_ROUNDUP_BODY_LATERAL}
                  WHERE r.id = %s
             """, (roundup_id,))
             row = cur.fetchone()
-            return dict(row) if row else None
+            return _overlay_roundup_body(dict(row)) if row else None
 
 
 def get_roundup_by_month(venue_id: int, month) -> dict | None:
@@ -1733,42 +1761,53 @@ def list_monthly_roundups(venue_short: str) -> list[dict]:
     rows are few and the list endpoint strips it)."""
     with _conn() as conn:
         with _cursor(conn) as cur:
-            cur.execute("""
-                SELECT r.*, v.short_name AS venue_short, v.name AS venue_name
+            cur.execute(f"""
+                SELECT r.*, rb.detailed AS current_body,
+                       v.short_name AS venue_short, v.name AS venue_name
                   FROM monthly_roundups r
                   JOIN venues v ON v.id = r.venue_id
+                  {_ROUNDUP_BODY_LATERAL}
                  WHERE v.short_name = %s
                  ORDER BY r.month DESC
             """, (venue_short,))
-            return [dict(r) for r in cur.fetchall()]
+            return [_overlay_roundup_body(dict(r)) for r in cur.fetchall()]
 
 
 def get_latest_prior_roundup(venue_id: int, month, within_months: int = 3) -> dict | None:
     """Most recent COMPLETE roundup before `month` (within a few months), for
     the [PRIOR CONTEXT] section. Tolerates gaps — e.g. June's roundup can lean
-    on April's if May was never generated."""
+    on April's if May was never generated. The body reflects the current
+    summary version, so user edits feed forward into the next month's prompt."""
     with _conn() as conn:
         with _cursor(conn) as cur:
-            cur.execute("""
-                SELECT r.*, v.short_name AS venue_short, v.name AS venue_name
+            cur.execute(f"""
+                SELECT r.*, rb.detailed AS current_body,
+                       v.short_name AS venue_short, v.name AS venue_name
                   FROM monthly_roundups r
                   JOIN venues v ON v.id = r.venue_id
+                  {_ROUNDUP_BODY_LATERAL}
                  WHERE r.venue_id = %s
                    AND r.month < %s
                    AND r.month >= %s::date - make_interval(months => %s)
                    AND r.status = 'complete'
-                   AND COALESCE(r.report_md, '') <> ''
+                   AND (COALESCE(r.report_md, '') <> '' OR rb.detailed IS NOT NULL)
                  ORDER BY r.month DESC
                  LIMIT 1
             """, (venue_id, month, month, within_months))
             row = cur.fetchone()
-            return dict(row) if row else None
+            return _overlay_roundup_body(dict(row)) if row else None
 
 
 def delete_monthly_roundup(roundup_id: int) -> bool:
-    """Delete a roundup and its provenance links (cascade). True if removed."""
+    """Delete a roundup and its provenance links (cascade). True if removed.
+    Cleans up the roundup's summary_versions rows too — those don't FK back
+    to monthly_roundups (same shape as delete_docket)."""
     with _conn() as conn:
         with _cursor(conn) as cur:
+            cur.execute("""
+                DELETE FROM summary_versions
+                 WHERE entity_type = 'roundup' AND entity_id = %s
+            """, (roundup_id,))
             cur.execute("DELETE FROM monthly_roundups WHERE id = %s",
                         (roundup_id,))
             return cur.rowcount > 0

@@ -12,16 +12,20 @@ from typing import Any, Literal
 from fastapi import APIRouter, Body, Depends, HTTPException
 
 from pipeline import db
-from .. import lifecycle
+from .. import adapters, lifecycle
 from ..auth import current_user
 
 router = APIRouter(tags=["summaries"])
 
-EntityType = Literal["meeting", "agenda_item", "docket", "docket_filing"]
+EntityType = Literal["meeting", "agenda_item", "docket", "docket_filing",
+                     "roundup"]
+
+_ENTITY_TYPES = ("meeting", "agenda_item", "docket", "docket_filing",
+                 "roundup")
 
 
 def _validate_entity_type(t: str) -> EntityType:
-    if t not in ("meeting", "agenda_item", "docket", "docket_filing"):
+    if t not in _ENTITY_TYPES:
         raise HTTPException(status_code=400, detail=f"Unknown entity_type: {t}")
     return t  # type: ignore[return-value]
 
@@ -35,6 +39,7 @@ def get_summary(entity_type: str, entity_id: int) -> dict[str, Any]:
     parent_label = ""
     meeting_id: int | None = None
     docket_id: int | None = None
+    roundup_id: int | None = None
     if et == "meeting":
         m = db.get_meeting(entity_id)
         if m is None:
@@ -60,6 +65,13 @@ def get_summary(entity_type: str, entity_id: int) -> dict[str, Any]:
         parent_label = (f"{f.get('accession_number','')}: "
                         f"{(f.get('description') or '')[:80]}")
         docket_id = f["docket_id"]
+    elif et == "roundup":
+        r = db.get_monthly_roundup(entity_id)
+        if r is None:
+            raise HTTPException(status_code=404, detail="Roundup not found")
+        parent_label = (f"{r.get('venue_short','')} Roundup — "
+                        f"{adapters._month_label(r.get('month'))}")
+        roundup_id = entity_id
 
     s = db.get_current_summary(et, entity_id) or {}
     return {
@@ -67,6 +79,7 @@ def get_summary(entity_type: str, entity_id: int) -> dict[str, Any]:
         "entity_id": entity_id,
         "meeting_id": meeting_id,
         "docket_id": docket_id,
+        "roundup_id": roundup_id,
         "parent_label": parent_label,
         "one_line": s.get("one_line") or "",
         "detailed": s.get("detailed") or "",
@@ -114,6 +127,9 @@ def save_summary(
     elif et == "docket_filing":
         if db.get_docket_filing(entity_id) is None:
             raise HTTPException(status_code=404, detail="Filing not found")
+    elif et == "roundup":
+        if db.get_monthly_roundup(entity_id) is None:
+            raise HTTPException(status_code=404, detail="Roundup not found")
 
     row = db.save_manual_summary(
         entity_type=et,
@@ -210,6 +226,9 @@ def restore_version(
     elif et == "docket_filing":
         if db.get_docket_filing(entity_id) is None:
             raise HTTPException(status_code=404, detail="Filing not found")
+    elif et == "roundup":
+        if db.get_monthly_roundup(entity_id) is None:
+            raise HTTPException(status_code=404, detail="Roundup not found")
 
     # Verify the version belongs to this entity
     with db._conn() as conn:

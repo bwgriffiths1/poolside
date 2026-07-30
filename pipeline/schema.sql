@@ -150,6 +150,8 @@ CREATE TABLE IF NOT EXISTS entity_tags (
 -- -----------------------------------------------------------------------------
 -- 9. Summary versions  — versioned summaries for any entity
 --    entity_type: "meeting" | "agenda_item" | "document"
+--                 | "docket" | "docket_filing" (migration 014)
+--                 | "roundup" (migration 020)
 --    status:      "stub" | "draft" | "approved" | "superseded"
 --    version:     increments per (entity_type, entity_id); starts at 1
 -- -----------------------------------------------------------------------------

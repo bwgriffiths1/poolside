@@ -50,6 +50,11 @@ pjm:
     slug: cifp-rbp
     url: https://www.pjm.com/committees-and-groups/cifp-rbp
     active: true
+  - name: Critical Issue Fast Path - Large Load Additions
+    short: CIFP-LLA
+    slug: cifp-lla
+    url: https://www.pjm.com/committees-and-groups/cifp-lla
+    active: true
   - name: Markets and Reliability Committee
     short: MRC
     slug: mrc

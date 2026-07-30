@@ -188,6 +188,34 @@ def find_overlapping_meetings(meeting_type_id: int, start_date: str,
             return [dict(r) for r in cur.fetchall()]
 
 
+def list_venue_meetings_missing_agendas(venue_short: str, since) -> list[dict]:
+    """Meetings of a venue on/after `since` that have documents but no parsed
+    agenda, newest first. This is the retroactive-discovery gap: the refresh
+    cron only walks [-3,+21] days, so meetings discovered already in the past
+    (PJM committee pages list the whole current year; newly added committees
+    arrive with their history) sit at 'materials' with no agenda forever
+    unless a backfill runs."""
+    with _conn() as conn:
+        with _cursor(conn) as cur:
+            cur.execute("""
+                SELECT m.id, m.meeting_date, m.end_date, m.title,
+                       m.external_id, mt.short_name AS type_short,
+                       (SELECT COUNT(*) FROM documents d
+                         WHERE d.meeting_id = m.id) AS doc_count
+                  FROM meetings m
+                  JOIN meeting_types mt ON mt.id = m.meeting_type_id
+                  JOIN venues v         ON v.id = mt.venue_id
+                 WHERE v.short_name = %s
+                   AND m.meeting_date >= %s
+                   AND EXISTS (SELECT 1 FROM documents d
+                                WHERE d.meeting_id = m.id)
+                   AND NOT EXISTS (SELECT 1 FROM agenda_items ai
+                                    WHERE ai.meeting_id = m.id)
+                 ORDER BY m.meeting_date DESC, m.id
+            """, (venue_short, since))
+            return [dict(r) for r in cur.fetchall()]
+
+
 def extend_meeting_span(meeting_id: int, start_date: str, end_date: str | None,
                         add_event_ids: list[str] | None = None) -> dict:
     """Widen a meeting's span to include [start_date, end_date] and merge in

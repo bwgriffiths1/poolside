@@ -818,6 +818,7 @@ def render_briefing_docx(
     committee: str,
     meeting_dates: list[str],
     materials_url: str | None = None,
+    footer_label: str | None = None,
 ) -> bytes:
     """
     Render a parsed briefing AST to the NEPOOL-branded v2 .docx design and
@@ -833,6 +834,12 @@ def render_briefing_docx(
 
     `materials_url` is the venue's event page (see pipeline/venue_links.py);
     it renders under the cover header when given.
+
+    `footer_label` is a compact stand-in for `committee` in the running
+    footer (e.g. "PJM CIFP-RBP") — the footer is one line with center/right
+    tab stops, and a full committee name like "Critical Issue Fast Path -
+    Reliability Backstop Procurement" overflows its tab and wrecks the
+    layout. Falls back to `committee` when omitted.
     """
     import io
 
@@ -878,7 +885,8 @@ def render_briefing_docx(
     pr = fp.add_run(); pr.font.name = _LABEL; pr.font.size = brand.SZ_FOOTER; pr.font.color.rgb = _GRAY_TEXT
     _v2_page_number(pr)
     fp.add_run("\t")
-    _v2_run(fp, f"{date_str} \u2022 {committee}", size=brand.SZ_FOOTER, color=_GRAY_TEXT, font=_LABEL)
+    _v2_run(fp, f"{date_str} \u2022 {footer_label or committee}",
+            size=brand.SZ_FOOTER, color=_GRAY_TEXT, font=_LABEL)
     _v2_pborder(fp, "top", 6, _CYAN_HEX, space=4)
 
     if doc.paragraphs:

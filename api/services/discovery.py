@@ -24,12 +24,14 @@ def _load_config() -> dict:
 
 
 def discover_all_venues() -> dict[str, Any]:
-    """Scrape configured ISO-NE committee calendars; create stub rows for
-    any unknown meetings. Returns the count of new meetings per venue.
+    """Scrape every venue's calendars; create stub rows for any unknown
+    meetings. Returns the count of new meetings per venue.
 
-    ISO-NE is the only venue with a live scraper. To add another venue,
-    give it a discovery block here, a scraper module in pipeline/, and a
-    prompt set — see the 2026-07 architecture review for the adapter shape.
+    Two venues have live scrapers: ISO-NE (calendar pages → stubs, docs
+    arrive via refresh) and PJM (committee pages → meetings + docs in one
+    pass; see discover_pjm). To add another, give it a discovery block
+    here, a scraper module in pipeline/, and a prompt set — see the 2026-07
+    architecture review for the adapter shape.
     """
     cfg = _load_config()
     results: dict[str, int] = {}
@@ -64,6 +66,16 @@ def discover_all_venues() -> dict[str, Any]:
             "discover: 0 events parsed across all committees — "
             "NOT stamping last_scraped_at (drift alarm will fire after 48h)"
         )
+
+    # PJM. Isolated in its own try so a PJM-side failure (markup change,
+    # network) can't discard the ISO-NE results we just gathered — the
+    # per-venue count simply stays 0 and the exception is logged.
+    try:
+        results.update(discover_pjm().get("discovered", {}))
+    except Exception as e:
+        log.exception("PJM discover failed: %s", e)
+        results.setdefault("PJM", 0)
+
     return {"discovered": results}
 
 
@@ -195,9 +207,8 @@ def _stamp_venue_scrape(venue_short: str) -> None:
 def discover_pjm() -> dict[str, Any]:
     """Scrape configured PJM committee pages; upsert meetings + documents.
 
-    Deliberately NOT part of discover_all_venues(): the daily cron stays
-    ISO-NE-only while PJM is demo-phase, and this is button-driven from
-    POST /api/pjm/discover.
+    Called by discover_all_venues() (so the daily cron keeps PJM current)
+    and directly by POST /api/pjm/discover for an on-demand run.
 
     Unlike the ISO-NE calendar path (stubs only; docs arrive via refresh),
     one PJM committee-page fetch carries the full materials list, so

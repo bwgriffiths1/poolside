@@ -3,239 +3,22 @@ import { useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Topbar } from "../components/Topbar";
 import { Icon } from "../components/Icon";
-import { Tag } from "../components/Tag";
 import { VersionHistory } from "../components/VersionHistory";
-import { api, type DocketFiling } from "../lib/api";
+import { ShareLinkModal } from "../components/ShareLinkModal";
+import {
+  FilingRow,
+  authorLine,
+  classLabel,
+  fmtDate,
+} from "../components/docket/FilingRow";
+import { api } from "../lib/api";
 import { qk, useCan } from "../lib/queries";
 import { toast } from "../lib/toast";
 import { Markdown, inlineMd } from "../lib/markdown";
+import { extractTakeaways, splitByH2 } from "../lib/stateOfPlay";
 import { useDocketJob } from "../hooks/useDocketJob";
 import { useScrollSpy } from "../hooks/useScrollSpy";
 import { useTrackView } from "../hooks/useTrackView";
-
-function fmtDate(iso: string | null | undefined): string {
-  if (!iso) return "—";
-  const d = new Date(`${iso}T00:00:00`);
-  if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  });
-}
-
-function fmtBytes(n: number | null): string {
-  if (!n) return "";
-  if (n > 1_000_000) return `${(n / 1_000_000).toFixed(1)} MB`;
-  return `${Math.round(n / 1000)} KB`;
-}
-
-function authorLine(f: DocketFiling): string {
-  const authors = f.filing_parties
-    .filter((p) => p.type === "AUTHOR")
-    .map((p) => p.org);
-  return authors.join("; ");
-}
-
-/** Split the state-of-play markdown at its `## ` headings so each section
- *  can carry a scroll-spy ref and a rail entry. Returns the pre-heading
- *  preamble (usually empty) plus one {id, title, md} per section. */
-function splitByH2(md: string | null | undefined): {
-  preamble: string;
-  sections: { id: string; title: string; md: string }[];
-} {
-  if (!md) return { preamble: "", sections: [] };
-  const lines = md.split("\n");
-  const sections: { id: string; title: string; md: string }[] = [];
-  const preamble: string[] = [];
-  let cur: { id: string; title: string; buf: string[] } | null = null;
-  const seen = new Map<string, number>();
-  for (const line of lines) {
-    const m = /^##\s+(.+?)\s*$/.exec(line);
-    if (m) {
-      if (cur) {
-        sections.push({ id: cur.id, title: cur.title, md: cur.buf.join("\n") });
-      }
-      const title = m[1].trim();
-      let slug =
-        "s-" +
-        (title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") ||
-          "section");
-      const n = (seen.get(slug) ?? 0) + 1;
-      seen.set(slug, n);
-      if (n > 1) slug += `-${n}`;
-      cur = { id: slug, title, buf: [line] };
-    } else if (cur) {
-      cur.buf.push(line);
-    } else {
-      preamble.push(line);
-    }
-  }
-  if (cur) {
-    sections.push({ id: cur.id, title: cur.title, md: cur.buf.join("\n") });
-  }
-  return { preamble: preamble.join("\n").trim(), sections };
-}
-
-/** Compact class chip label — the full taxonomy strings are long. The two
- *  anchor roles override: the initial filing and FERC's orders are the
- *  documents the docket pivots on. */
-function classLabel(f: DocketFiling): string {
-  if (f.role === "initial") return "Initial Filing";
-  if (f.role === "order") return "Order";
-  const c = f.document_class || "?";
-  const map: Record<string, string> = {
-    "Application/Petition/Request": "Filing",
-    "Comments/Protest": "Comments",
-    "Order/Opinion": "Order",
-    "ALJ Issuance": "ALJ",
-    "Pleading/Motion": "Motion",
-    Intervention: "Intervention",
-    Notice: "Notice",
-  };
-  return map[c] || c;
-}
-
-/** Sections with more files than this collapse behind "+N more" —
- *  SectionDocs' behavior, kept in sync by taste rather than import. */
-const FILES_VISIBLE = 4;
-
-/** A filing's files as briefing-style material rows (b-section-docs look),
- *  each a live download through the FERC passthrough. */
-function FilingFiles({ f }: { f: DocketFiling }) {
-  const [expanded, setExpanded] = useState(false);
-  if (!f.files.length) return null;
-  const hidden = expanded ? 0 : Math.max(0, f.files.length - FILES_VISIBLE);
-  const shown = hidden ? f.files.slice(0, FILES_VISIBLE) : f.files;
-
-  return (
-    <div className="b-section-docs el-files-top">
-      <div className="b-section-docs-label">
-        <Icon name="paperclip" size={11} /> Files
-      </div>
-      <ul>
-        {shown.map((x) => (
-          <li key={x.id}>
-            <a
-              className={`b-doc-row${x.included ? "" : " el-doc-excluded"}`}
-              href={`/api/dockets/files/${x.id}/download`}
-              title={
-                "Download from FERC (takes 15-60s to start)" +
-                (x.included ? "" : " — excluded from summarization")
-              }
-            >
-              <span className="b-doc-ext">
-                {(x.file_type || "?").toUpperCase()}
-              </span>
-              <span className="b-doc-name">
-                {x.file_desc || x.orig_file_name}
-              </span>
-              <span className="el-file-meta mono">
-                {x.page_count && x.page_count > 1 ? `${x.page_count}pp · ` : ""}
-                {fmtBytes(x.file_size)}
-              </span>
-              <Icon name="download" size={11} className="b-doc-link-icon" />
-            </a>
-          </li>
-        ))}
-      </ul>
-      {hidden > 0 && (
-        <button className="b-doc-more" onClick={() => setExpanded(true)}>
-          +{hidden} more
-        </button>
-      )}
-    </div>
-  );
-}
-
-function FilingRow({ f }: { f: DocketFiling }) {
-  const navigate = useNavigate();
-  const { canEdit } = useCan();
-  const [open, setOpen] = useState(false);
-  const expandable = !!(f.summary_detailed || f.files.length);
-  const date = f.filed_date || f.issued_date;
-
-  return (
-    <div className={`el-filing${open ? " open" : ""}`}>
-      <button
-        className="el-filing-head"
-        onClick={() => expandable && setOpen(!open)}
-        style={{ cursor: expandable ? "pointer" : "default" }}
-      >
-        <div className="el-filing-date mono">{fmtDate(date)}</div>
-        <div className="el-filing-main">
-          <div className="el-filing-toprow">
-            {f.role ? (
-              <span className="el-chip-anchor">{classLabel(f)}</span>
-            ) : (
-              <Tag>{classLabel(f)}</Tag>
-            )}
-            {f.ferc_cite && <span className="el-cite mono">{f.ferc_cite}</span>}
-            {f.comments_due_date && (
-              <span className="el-due">
-                comments due {fmtDate(f.comments_due_date)}
-              </span>
-            )}
-            {f.summary_status == null && f.treatment !== "skip" && (
-              <span className="el-pending">not summarized</span>
-            )}
-          </div>
-          {authorLine(f) && (
-            <div className="el-filing-party">{authorLine(f)}</div>
-          )}
-          <div className="el-filing-desc">
-            {f.summary_one_line || f.description}
-          </div>
-        </div>
-        <div className="ru-row-chev">
-          {expandable && (
-            <Icon name="chev-r" size={14} className={open ? "rot-90" : ""} />
-          )}
-        </div>
-      </button>
-
-      {open && (
-        <div className="el-filing-body">
-          <FilingFiles f={f} />
-          {f.summary_one_line && f.description && (
-            <div className="el-filing-origdesc">{f.description}</div>
-          )}
-          {f.summary_detailed && (
-            <article className="el-filing-summary">
-              <Markdown source={f.summary_detailed} />
-            </article>
-          )}
-          <div className="el-filing-actions">
-            <a
-              className="btn btn-ghost btn-sm"
-              href={f.elibrary_url}
-              target="_blank"
-              rel="noreferrer"
-            >
-              <Icon name="external" size={12} /> Doc info
-            </a>
-            <a
-              className="btn btn-ghost btn-sm"
-              href={f.filelist_url}
-              target="_blank"
-              rel="noreferrer"
-            >
-              <Icon name="list" size={12} /> File list
-            </a>
-            {canEdit && f.summary_detailed && (
-              <button
-                className="btn btn-ghost btn-sm"
-                onClick={() => navigate(`/edit/docket_filing/${f.id}`)}
-              >
-                <Icon name="edit" size={12} /> Edit summary
-              </button>
-            )}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
 
 export function Docket() {
   const { id } = useParams();
@@ -248,6 +31,7 @@ export function Docket() {
   const [showHistory, setShowHistory] = useState(false);
   const [showInterventions, setShowInterventions] = useState(false);
   const [showAdmin, setShowAdmin] = useState(false);
+  const [showShare, setShowShare] = useState(false);
   // Header edit — titleDraft is null when not editing, else the tagline draft.
   // partyDraft rides alongside it (the venue/party prefix) so one editor and
   // one Save cover both fields the cover subtitle is built from.
@@ -326,30 +110,11 @@ export function Docket() {
   // State-of-play sections, split at `## ` so each is a jump target.
   const sop = useMemo(() => splitByH2(d?.brief?.detailed), [d?.brief?.detailed]);
 
-  // "Key Takeaways" gets the briefing page's numbered-band treatment above
-  // the State of Play — pull its bullets out of the markdown when the
-  // section exists and is a plain bullet list (analyst rewrites fall back
-  // to normal rendering).
-  const { takeaways, bodySections } = useMemo(() => {
-    const kt = sop.sections.find(
-      (s) => s.title.toLowerCase().replace(/[^a-z ]/g, "").trim() ===
-        "key takeaways",
-    );
-    if (!kt) return { takeaways: null, bodySections: sop.sections };
-    const bullets = kt.md
-      .split("\n")
-      .slice(1) // drop the ## heading line
-      .map((ln) => ln.trim())
-      .filter((ln) => ln && !/^-{3,}$/.test(ln)) // drop blanks + --- rules
-      .map((ln) => /^[-*]\s+(.*)$/.exec(ln)?.[1]);
-    if (!bullets.length || bullets.some((b) => b == null)) {
-      return { takeaways: null, bodySections: sop.sections };
-    }
-    return {
-      takeaways: bullets as string[],
-      bodySections: sop.sections.filter((s) => s !== kt),
-    };
-  }, [sop.sections]);
+  // "Key Takeaways" band above the State of Play — see extractTakeaways.
+  const { takeaways, bodySections } = useMemo(
+    () => extractTakeaways(sop.sections),
+    [sop.sections],
+  );
 
   // "On this page" rail — briefing-page mechanics (useScrollSpy over .main).
   const refs = useRef<Record<string, HTMLElement | null>>({});
@@ -424,6 +189,15 @@ export function Docket() {
             {canEdit && (
               <button
                 className="btn btn-ghost btn-sm"
+                onClick={() => setShowShare(true)}
+                title="Generate a public link to share this docket without login"
+              >
+                <Icon name="link" size={12} /> Share
+              </button>
+            )}
+            {canEdit && (
+              <button
+                className="btn btn-ghost btn-sm"
                 disabled={del.isPending || !!jobActive}
                 onClick={() => {
                   if (
@@ -441,6 +215,16 @@ export function Docket() {
           </>
         }
       />
+
+      {canEdit && showShare && (
+        <ShareLinkModal
+          label="docket"
+          queryKey={qk.docketShareTokens(did)}
+          list={() => api.listDocketShareLinks(did)}
+          create={(days) => api.createDocketShareLink(did, days)}
+          onClose={() => setShowShare(false)}
+        />
+      )}
 
       <div className="el-layout">
         <aside className="briefing-side">
@@ -785,7 +569,7 @@ export function Docket() {
                     refs.current[`f${f.id}`] = el;
                   }}
                 >
-                  <FilingRow f={f} />
+                  <FilingRow f={f} canEdit={canEdit} />
                 </div>
               ))}
             </div>
@@ -803,7 +587,7 @@ export function Docket() {
               {showAdmin && (
                 <div className="el-filings" style={{ marginTop: 8 }}>
                   {administrative.map((f) => (
-                    <FilingRow key={f.id} f={f} />
+                    <FilingRow key={f.id} f={f} canEdit={canEdit} />
                   ))}
                 </div>
               )}
@@ -822,7 +606,7 @@ export function Docket() {
               {showInterventions && (
                 <div className="el-filings" style={{ marginTop: 8 }}>
                   {interventions.map((f) => (
-                    <FilingRow key={f.id} f={f} />
+                    <FilingRow key={f.id} f={f} canEdit={canEdit} />
                   ))}
                 </div>
               )}

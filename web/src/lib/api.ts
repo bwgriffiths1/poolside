@@ -415,6 +415,21 @@ export const api = {
     if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
     return res.json();
   },
+  listDocketShareLinks: (docket_id: number) =>
+    get<ShareToken[]>(`/dockets/${docket_id}/share`, () => []),
+  createDocketShareLink: async (
+    docket_id: number,
+    expires_days?: number | null,
+  ): Promise<ShareToken> => {
+    const res = await fetch(`${BASE}/dockets/${docket_id}/share`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ expires_days: expires_days ?? null }),
+    });
+    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+    return res.json();
+  },
   revokeShareLink: async (token_id: number): Promise<{ revoked: boolean }> => {
     const res = await fetch(`${BASE}/share-tokens/${token_id}`, {
       method: "DELETE",
@@ -1252,7 +1267,8 @@ export interface BriefingApproval {
 export interface ShareToken {
   id: number;
   token: string;
-  meeting_id: number;
+  meeting_id: number | null;
+  docket_id: number | null;
   created_by: number | null;
   created_at: string;
   expires_at: string | null;
@@ -1447,7 +1463,8 @@ export interface InitiativeDetail {
   brief: InitiativeBrief | null;
 }
 
-export interface PublicShareResponse {
+export interface PublicShareMeeting {
+  kind: "meeting";
   venue: string;
   type_short: string;
   type_name: string;
@@ -1455,6 +1472,11 @@ export interface PublicShareResponse {
   external_id: string;
   briefing: Briefing;
 }
+
+/** Docket share payload — the docket-detail shape plus the discriminator. */
+export type PublicShareDocket = DocketDetail & { kind: "docket" };
+
+export type PublicShareResponse = PublicShareMeeting | PublicShareDocket;
 
 export interface SummarySearchHit {
   entity_type: "meeting" | "agenda_item";

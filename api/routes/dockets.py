@@ -166,11 +166,12 @@ def list_dockets(_: dict = Depends(current_user)) -> list[dict[str, Any]]:
     return [_docket_row(r) for r in db.list_dockets()]
 
 
-@router.get("/dockets/{docket_id}")
-def get_docket(docket_id: int, _: dict = Depends(current_user)) -> dict[str, Any]:
+def docket_detail_payload(docket_id: int) -> dict[str, Any] | None:
+    """Full docket payload — one builder shared by the authed detail
+    endpoint and the public share render so the shapes can't drift."""
     docket = db.get_docket(docket_id)
     if not docket:
-        raise HTTPException(status_code=404, detail="Docket not found")
+        return None
     filings = db.list_docket_filings(docket_id)
     files_by_filing: dict[int, list[dict]] = {}
     for x in db.list_docket_filing_files(docket_id):
@@ -182,6 +183,14 @@ def get_docket(docket_id: int, _: dict = Depends(current_user)) -> dict[str, Any
                     for f in filings],
         "intervenors": _intervenors(filings),
     }
+
+
+@router.get("/dockets/{docket_id}")
+def get_docket(docket_id: int, _: dict = Depends(current_user)) -> dict[str, Any]:
+    payload = docket_detail_payload(docket_id)
+    if payload is None:
+        raise HTTPException(status_code=404, detail="Docket not found")
+    return payload
 
 
 class UpdateDocketBody(BaseModel):
@@ -286,19 +295,13 @@ _MIME_BY_EXT = {
 }
 
 
-@router.get("/dockets/files/{file_row_id}/download")
-def download_filing_file(
-    file_row_id: int,
-    _: dict = Depends(current_user),
-) -> Response:
-    """Passthrough download of one eLibrary file.
+def serve_filing_file(row: dict) -> Response:
+    """Passthrough download of one eLibrary file (row from
+    db.get_docket_filing_file). Shared with the public share route.
 
     We deliberately store no bytes (only extracted text), so this re-fetches
     from FERC on each click — expect a 15-60s wait before the download
     starts; the client's retry budget rides out the origin's 520 streaks."""
-    row = db.get_docket_filing_file(file_row_id)
-    if not row:
-        raise HTTPException(status_code=404, detail="File not found")
     try:
         data = FercClient().download_file(row["file_id"])
     except FercClientError as e:
@@ -311,6 +314,17 @@ def download_filing_file(
         media_type=_MIME_BY_EXT.get(ext, "application/octet-stream"),
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+@router.get("/dockets/files/{file_row_id}/download")
+def download_filing_file(
+    file_row_id: int,
+    _: dict = Depends(current_user),
+) -> Response:
+    row = db.get_docket_filing_file(file_row_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="File not found")
+    return serve_filing_file(row)
 
 
 @router.post("/docket-jobs/{job_id}/cancel")

@@ -51,6 +51,7 @@ export const qk = {
   dockets: ["dockets"] as const,
   docket: (id: number) => ["docket", id] as const,
   docketJob: (id: number | null) => ["docket-job", id] as const,
+  docketShareTokens: (id: number) => ["docket-share-tokens", id] as const,
 
   myPrefs: ["my-prefs"] as const,
 

@@ -111,6 +111,8 @@ export function Overview() {
   const weekEndIso = localIso(addDays(monday, 6));
   const nextWeekStartIso = localIso(addDays(monday, 7));
   const nextWeekEndIso = localIso(addDays(monday, 13));
+  const lastWeekStartIso = localIso(addDays(monday, -7));
+  const lastWeekEndIso = localIso(addDays(monday, -1));
 
   // A meeting belongs to a week if its date span overlaps it, so a two-day
   // meeting straddling the weekend shows in both weeks.
@@ -131,6 +133,13 @@ export function Overview() {
         .filter((m) => inWeek(m, nextWeekStartIso, nextWeekEndIso))
         .sort(byDate),
     [meetings, nextWeekStartIso, nextWeekEndIso],
+  );
+  const lastWeek = useMemo(
+    () =>
+      meetings
+        .filter((m) => inWeek(m, lastWeekStartIso, lastWeekEndIso))
+        .sort(byDate),
+    [meetings, lastWeekStartIso, lastWeekEndIso],
   );
 
   const summarizedThisMonth = meetings.filter(
@@ -218,6 +227,22 @@ export function Overview() {
         ) : (
           <div className="wk-next-list">
             {nextWeek.map((m) => (
+              <NextWeekRow key={m.id} m={m} onOpen={openMeeting} />
+            ))}
+          </div>
+        )}
+
+        <div className="section-h">
+          <h2>Last week</h2>
+          <span className="meta">
+            {weekLabel(lastWeekStartIso, lastWeekEndIso)}
+          </span>
+        </div>
+        {lastWeek.length === 0 ? (
+          <div className="wk-quiet">No meetings last week.</div>
+        ) : (
+          <div className="wk-next-list">
+            {lastWeek.map((m) => (
               <NextWeekRow key={m.id} m={m} onOpen={openMeeting} />
             ))}
           </div>

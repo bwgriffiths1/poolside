@@ -14,8 +14,10 @@ export function useScrollSpy(
   const [active, setActive] = useState(initial);
 
   useEffect(() => {
+    // Authed pages scroll inside .main; the public share pages scroll the
+    // window itself. getBoundingClientRect is viewport-relative either way.
     const main = document.querySelector(".main") as HTMLElement | null;
-    if (!main) return;
+    const scroller: HTMLElement | Window = main ?? window;
 
     const update = () => {
       let current = initial;
@@ -28,11 +30,11 @@ export function useScrollSpy(
       setActive(current);
     };
 
-    main.addEventListener("scroll", update, { passive: true });
+    scroller.addEventListener("scroll", update, { passive: true });
     window.addEventListener("resize", update);
     update();
     return () => {
-      main.removeEventListener("scroll", update);
+      scroller.removeEventListener("scroll", update);
       window.removeEventListener("resize", update);
     };
   }, [ids, refs, initial, offset]);

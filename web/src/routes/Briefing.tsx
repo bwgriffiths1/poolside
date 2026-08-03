@@ -8,9 +8,10 @@ import { BlockRenderer } from "../components/briefing/BlockRenderer";
 import { DocCards, SectionDocs } from "../components/briefing/SectionDocs";
 import { MeetingLinks } from "../components/meeting/MeetingLinks";
 import { VersionHistory } from "../components/VersionHistory";
+import { ShareLinkModal } from "../components/ShareLinkModal";
 import { useScrollSpy } from "../hooks/useScrollSpy";
 import { useReadingProgress } from "../hooks/useReadingProgress";
-import { api, type ShareToken } from "../lib/api";
+import { api } from "../lib/api";
 import { qk, useBriefing, useCan, useMeeting } from "../lib/queries";
 import { toast } from "../lib/toast";
 import { inlineMd } from "../lib/markdown";
@@ -332,7 +333,10 @@ export function Briefing() {
 
       {canEdit && showShare && (
         <ShareLinkModal
-          meetingId={meetingId}
+          label="briefing"
+          queryKey={qk.shareTokens(meetingId)}
+          list={() => api.listShareLinks(meetingId)}
+          create={(days) => api.createShareLink(meetingId, days)}
           onClose={() => setShowShare(false)}
         />
       )}
@@ -623,163 +627,5 @@ export function Briefing() {
         </article>
       </div>
     </>
-  );
-}
-
-// ─── Share modal ────────────────────────────────────────────────────────
-
-function ShareLinkModal({
-  meetingId,
-  onClose,
-}: {
-  meetingId: number;
-  onClose: () => void;
-}) {
-  const qc = useQueryClient();
-  const tokens = useQuery({
-    queryKey: qk.shareTokens(meetingId),
-    queryFn: () => api.listShareLinks(meetingId),
-  });
-  const create = useMutation({
-    mutationFn: (expires_days: number | null) =>
-      api.createShareLink(meetingId, expires_days),
-    onSuccess: () => qc.invalidateQueries({ queryKey: qk.shareTokens(meetingId) }),
-    onError: (e: Error) => toast.error(`Create failed: ${e.message}`),
-  });
-  const revoke = useMutation({
-    mutationFn: (token_id: number) => api.revokeShareLink(token_id),
-    onSuccess: () => qc.invalidateQueries({ queryKey: qk.shareTokens(meetingId) }),
-  });
-
-  const [expiry, setExpiry] = useState<"30" | "90" | "never">("30");
-
-  const onCreate = () => {
-    const days = expiry === "never" ? null : Number(expiry);
-    create.mutate(days);
-  };
-
-  const baseUrl = () => {
-    // Use the same origin the user is on; hash router → /#/share/<token>.
-    return `${window.location.origin}/#/share`;
-  };
-
-  const isActive = (t: ShareToken): boolean => {
-    if (t.revoked_at) return false;
-    if (t.expires_at && new Date(t.expires_at).getTime() < Date.now()) return false;
-    return true;
-  };
-
-  const copy = async (t: ShareToken) => {
-    const url = `${baseUrl()}/${t.token}`;
-    try {
-      await navigator.clipboard.writeText(url);
-    } catch {
-      // Fallback: prompt — better than silent failure.
-      window.prompt("Copy this link:", url);
-    }
-  };
-
-  return (
-    <div
-      className="cmd-palette-backdrop"
-      onMouseDown={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
-    >
-      <div className="share-modal" role="dialog" aria-label="Share briefing">
-        <div className="share-modal-head">
-          <h3 style={{ margin: 0, fontSize: 14 }}>Share this briefing</h3>
-          <span style={{ flex: 1 }} />
-          <button className="btn btn-sm btn-ghost" onClick={onClose}>
-            <Icon name="x" size={12} />
-          </button>
-        </div>
-
-        <p className="muted text-sm" style={{ margin: "8px 0 14px" }}>
-          A share link opens this briefing without requiring login. Anyone
-          with the URL can read it until you revoke or it expires.
-        </p>
-
-        <div className="row" style={{ gap: 8, marginBottom: 14 }}>
-          <label className="field-label" style={{ marginBottom: 0 }}>
-            Expires
-          </label>
-          <select
-            className="select"
-            value={expiry}
-            onChange={(e) => setExpiry(e.target.value as "30" | "90" | "never")}
-            style={{ width: 140 }}
-          >
-            <option value="30">30 days</option>
-            <option value="90">90 days</option>
-            <option value="never">Never</option>
-          </select>
-          <span style={{ flex: 1 }} />
-          <button
-            className="btn btn-sm btn-accent"
-            onClick={onCreate}
-            disabled={create.isPending}
-          >
-            <Icon name="plus" size={12} />{" "}
-            {create.isPending ? "Creating…" : "Create link"}
-          </button>
-        </div>
-
-        {tokens.isLoading ? (
-          <div className="muted text-sm">Loading…</div>
-        ) : (tokens.data ?? []).length === 0 ? (
-          <div className="muted text-sm">No share links yet.</div>
-        ) : (
-          <div className="share-list">
-            {(tokens.data ?? []).map((t) => (
-              <div
-                key={t.id}
-                className={`share-row ${isActive(t) ? "" : "inactive"}`}
-              >
-                <div className="share-row-main">
-                  <div className="share-row-url mono text-xs">
-                    {baseUrl()}/{t.token.slice(0, 10)}…
-                  </div>
-                  <div className="muted text-xs" style={{ marginTop: 2 }}>
-                    Created {new Date(t.created_at).toLocaleDateString()} ·{" "}
-                    {t.revoked_at
-                      ? "revoked"
-                      : t.expires_at
-                      ? `expires ${new Date(t.expires_at).toLocaleDateString()}`
-                      : "no expiry"}
-                  </div>
-                </div>
-                {isActive(t) ? (
-                  <>
-                    <button
-                      className="btn btn-sm btn-ghost"
-                      onClick={() => copy(t)}
-                      title="Copy URL"
-                    >
-                      <Icon name="copy" size={12} /> Copy
-                    </button>
-                    <button
-                      className="btn btn-sm btn-ghost"
-                      onClick={() => {
-                        if (confirm("Revoke this share link?")) {
-                          revoke.mutate(t.id);
-                        }
-                      }}
-                      title="Revoke"
-                    >
-                      <Icon name="trash" size={12} />
-                    </button>
-                  </>
-                ) : (
-                  <span className="muted text-xs">
-                    {t.revoked_at ? "Revoked" : "Expired"}
-                  </span>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-    </div>
   );
 }

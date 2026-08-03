@@ -104,6 +104,7 @@ a:hover { text-decoration: underline; }
   margin-top: auto;
   padding: var(--pad-4) var(--pad-5);
   border-top: 1px solid var(--border);
+  position: relative; /* anchors .notif-popover */
 }
 .user-chip {
   display: flex;
@@ -140,7 +141,6 @@ a:hover { text-decoration: underline; }
 .user-logout:hover { background: var(--bg-sunk); color: var(--ink); }
 
 /* Notification bell — lives in the user-chip footer */
-.notif-bell-wrap { position: relative; }
 .notif-bell {
   width: 28px;
   height: 28px;
@@ -171,11 +171,13 @@ a:hover { text-decoration: underline; }
   text-align: center;
   font-family: var(--font-mono);
 }
+/* Anchored to .sidebar-foot, not the bell — right-aligning a 320px panel
+   to the 28px bell would push it off the viewport's left edge. */
 .notif-popover {
   position: absolute;
   bottom: calc(100% + 8px);
-  right: 0;
-  width: 320px;
+  left: 10px;
+  width: min(320px, 100vw - 20px);
   max-height: 60vh;
   background: var(--bg-elev);
   border: 1px solid var(--border);

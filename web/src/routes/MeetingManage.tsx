@@ -7,6 +7,7 @@ import { VenueTag, TypeTag } from "../components/Tag";
 import { Icon } from "../components/Icon";
 import { MaterialAssignment } from "../components/MaterialAssignment";
 import { AddAgendaItem } from "../components/agenda/AddAgendaItem";
+import { AgendaManageList } from "../components/agenda/AgendaManageList";
 import { SummarizeRunner } from "../components/meeting/SummarizeRunner";
 import { SummarizeJobBanner } from "../components/meeting/SummarizeJobBanner";
 import { FilesSection } from "../components/meeting/FilesSection";
@@ -171,9 +172,11 @@ export function MeetingManage() {
           </span>
         </div>
         <p className="muted text-xs" style={{ marginTop: -8, marginBottom: 12 }}>
-          Per-item edits, re-runs, and item materials live on the{" "}
-          <Link to={`/meeting/${m.id}`}>meeting page</Link>.
+          Rename, renumber, or delete items here — deleting an item sends its
+          assigned documents back to unassigned. Summary edits, re-runs, and
+          item materials live on the <Link to={`/meeting/${m.id}`}>meeting page</Link>.
         </p>
+        <AgendaManageList meetingId={meetingId} agenda={detail.agenda} />
         <AddAgendaItem meetingId={meetingId} />
 
         <FilesSection meetingId={meetingId} />

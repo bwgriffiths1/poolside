@@ -265,13 +265,14 @@ export const api = {
 
   updateAgendaItem: (
     row_id: number,
+    // null clears a field (stored as SQL NULL); undefined leaves it unchanged.
     body: {
       title?: string;
-      item_id?: string;
-      presenter?: string;
-      org?: string;
-      time_slot?: string;
-      vote_status?: string;
+      item_id?: string | null;
+      presenter?: string | null;
+      org?: string | null;
+      time_slot?: string | null;
+      vote_status?: string | null;
     }
   ) => mutate(`/agenda-items/${row_id}`, "PATCH", body),
 

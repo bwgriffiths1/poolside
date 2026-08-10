@@ -84,11 +84,12 @@ export function AgendaRow({
   const save = useMutation({
     mutationFn: async (draft: AgendaDraft) => {
       await api.updateAgendaItem(item.id, {
-        title: draft.title,
-        item_id: draft.item_id || undefined,
-        presenter: draft.presenter || undefined,
-        time_slot: draft.time_slot || undefined,
-        vote_status: draft.vote_status || undefined,
+        title: draft.title.trim(),
+        // null (not undefined) so clearing a field actually persists.
+        item_id: draft.item_id.trim() || null,
+        presenter: draft.presenter.trim() || null,
+        time_slot: draft.time_slot.trim() || null,
+        vote_status: draft.vote_status.trim() || null,
       });
       // The summary lives in its own entity — save it only when the quick-edit
       // actually changed it, so we don't mint a new manual version per save.
@@ -315,15 +316,24 @@ export function AgendaRow({
                     No summary yet for this item.
                   </span>
                   {canEdit && (
-                    <button
-                      className="btn btn-sm btn-accent"
-                      onClick={() => resummarize.mutate()}
-                      disabled={resummarize.isPending}
-                      title="Generate an AI summary for this item using its assigned documents and any child-item summaries."
-                    >
-                      <Icon name="spark" size={12} />{" "}
-                      {resummarize.isPending ? "Summarizing…" : "Summarize this item"}
-                    </button>
+                    <>
+                      <button
+                        className="btn btn-sm"
+                        onClick={onEdit}
+                        title="Rename, renumber, or delete this agenda item."
+                      >
+                        <Icon name="edit" size={12} /> Edit item
+                      </button>
+                      <button
+                        className="btn btn-sm btn-accent"
+                        onClick={() => resummarize.mutate()}
+                        disabled={resummarize.isPending}
+                        title="Generate an AI summary for this item using its assigned documents and any child-item summaries."
+                      >
+                        <Icon name="spark" size={12} />{" "}
+                        {resummarize.isPending ? "Summarizing…" : "Summarize this item"}
+                      </button>
+                    </>
                   )}
                 </div>
               )}
@@ -452,7 +462,7 @@ function AgendaEditForm({
       <div className="row" style={{ marginTop: 12, gap: 8 }}>
         <button
           className="btn btn-sm btn-accent"
-          disabled={saving}
+          disabled={saving || !draft.title.trim()}
           onClick={() => onSave(draft)}
         >
           <Icon name="check" size={12} />{" "}

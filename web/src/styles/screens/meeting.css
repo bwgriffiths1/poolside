@@ -294,7 +294,39 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 8px;
   padding: var(--pad-3) 0;
+}
+
+/* Manage-page agenda editor (AgendaManageList) */
+.agenda-manage-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.agenda-manage-row {
+  display: grid;
+  grid-template-columns: 56px minmax(0, 1fr) auto auto;
+  gap: 10px;
+  align-items: center;
+  padding: 4px 10px;
+  background: var(--bg-elev);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+}
+.agenda-manage-num {
+  font-size: 12px;
+  color: var(--ink-soft);
+}
+.agenda-manage-actions {
+  display: inline-flex;
+  gap: 4px;
+}
+.agenda-manage-edit {
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: var(--pad-3) var(--pad-4);
 }
 
 .initiative-chip {

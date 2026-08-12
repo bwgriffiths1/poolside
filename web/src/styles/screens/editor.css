@@ -118,21 +118,39 @@
   grid-template-columns: 1fr;
 }
 
+/* A textarea can't size itself to its content, so a hidden ::after replica
+   of the source text gives the wrapper its height. Every declaration that
+   affects text layout must stay identical on replica and textarea, or the
+   heights drift and the bottom lines get clipped. Scrolling then happens at
+   the page level in every view mode — never inside the textarea. */
+.editor-grow {
+  display: grid;
+}
+.editor-grow::after {
+  content: attr(data-replica) " ";
+  visibility: hidden;
+}
+.editor-grow::after,
 .editor-textarea {
-  width: 100%;
+  grid-area: 1 / 1 / 2 / 2;
   min-height: calc(100vh - 360px);
-  background: var(--bg-elev);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: var(--pad-5) var(--pad-6);
   font-family: var(--font-mono);
   font-size: 13.5px;
   line-height: 1.7;
-  color: var(--ink);
-  resize: none;
   white-space: pre-wrap;
   word-break: normal;
+  overflow-wrap: break-word;
   tab-size: 2;
+}
+.editor-textarea {
+  width: 100%;
+  background: var(--bg-elev);
+  color: var(--ink);
+  resize: none;
+  overflow: hidden;
 }
 .editor-textarea:focus {
   outline: none;

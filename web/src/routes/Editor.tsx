@@ -427,22 +427,24 @@ export function Editor() {
 
             <div className={`editor-pane editor-${view}`}>
               {(view === "source" || view === "split") && (
-                <textarea
-                  ref={textareaRef}
-                  className="editor-textarea"
-                  value={body}
-                  onChange={(e) => {
-                    setBody(e.target.value);
-                    setDirty(true);
-                  }}
-                  onPaste={onPaste}
-                  spellCheck={true}
-                  placeholder={
-                    "# Start writing your summary in markdown…\n\n" +
-                    "Use the toolbar above for headings, callouts, tables.\n" +
-                    "Paste a screenshot from your clipboard to insert an image."
-                  }
-                />
+                <div className="editor-grow" data-replica={body}>
+                  <textarea
+                    ref={textareaRef}
+                    className="editor-textarea"
+                    value={body}
+                    onChange={(e) => {
+                      setBody(e.target.value);
+                      setDirty(true);
+                    }}
+                    onPaste={onPaste}
+                    spellCheck={true}
+                    placeholder={
+                      "# Start writing your summary in markdown…\n\n" +
+                      "Use the toolbar above for headings, callouts, tables.\n" +
+                      "Paste a screenshot from your clipboard to insert an image."
+                    }
+                  />
+                </div>
               )}
               {(view === "preview" || view === "split") && (
                 <div className="editor-preview">

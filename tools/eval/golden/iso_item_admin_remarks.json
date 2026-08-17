@@ -1,0 +1,67 @@
+{
+ "schema": 1,
+ "case_id": "iso_item_admin_remarks",
+ "kind": "iso_item",
+ "description": "PAC Chair's Opening Remarks \u2014 thin admin item, 1 doc, ~2k chars",
+ "fetched_at": "2026-08-17T16:38:59.068372+00:00",
+ "content_sha256": "312221fbec17854cb2efd88f321eff15b0495745bfe8720645e3274bf2b54fdf",
+ "payload": {
+  "meeting": {
+   "id": 144,
+   "meeting_type_id": 13,
+   "external_id": "160141",
+   "title": "Planning Advisory Committee Meeting",
+   "meeting_date": "2026-07-28",
+   "end_date": null,
+   "meeting_number": null,
+   "location": "WebEx",
+   "status": "complete",
+   "notes": null,
+   "created_at": "2026-05-29 06:00:02.460807+00:00",
+   "lifecycle_status": "summarized",
+   "agenda_doc_hash": "2c3c475e9cf6c9b5b3e34403571368fec013666d30c56b4ab953fdcb37f2121f",
+   "last_scraped_at": null,
+   "agenda_parsed_at": "2026-07-23 08:00:09.536419+00:00",
+   "external_ids": [
+    "160141"
+   ],
+   "type_short": "PAC",
+   "type_name": "Planning Advisory Committee",
+   "venue_short": "ISO-NE",
+   "venue_name": "ISO New England"
+  },
+  "items": [
+   {
+    "id": 865,
+    "meeting_id": 144,
+    "parent_id": null,
+    "item_id": "1",
+    "prefix": "a01",
+    "title": "Chair's Opening Remarks",
+    "depth": 0,
+    "seq": 0,
+    "auto_sub": false,
+    "presenter": null,
+    "org": null,
+    "vote_status": null,
+    "wmpp_id": null,
+    "time_slot": "9:00 \u2013 9:05",
+    "notes": null,
+    "created_at": "2026-07-23 08:00:09.390751+00:00",
+    "inactive": false
+   }
+  ],
+  "docs_by_item": {
+   "865": [
+    {
+     "id": 1447,
+     "filename": "a00_2026_07_28_pac_agenda.pdf",
+     "file_type": ".pdf",
+     "ceii_skipped": false,
+     "ignored": false,
+     "raw_content": "[Page 1]\nISO-NE PUBLIC \n1 of 2 \n \n*Please note agenda times and topic order are an approximation and subject to change. \n \n \n \n \nAgenda  \nPlanning Advisory Committee (PAC)  \nTuesday, July 28, 2026 \n \nTime: 9:00 A.M. \u2013 4:45 P.M. \nLocation: WebEx Teleconference & Audio Link  \nWebEx Password: pac \n \nDescription \nTime Allotted \n1.0 \nCHAIR\u2019S OPENING REMARKS  \n9:00 \u2013 9:05 \n2.0 \n2036 NEW ENGLAND SHORT CIRCUIT NEEDS ASSESSMENT \n(Aqeel Ahmed, ISO New England) \n9:05 \u2013 9:45  \n3.0 \nTRANSMISSION OWNER ASSET MANAGEMENT  \nReview of Transmission Owner-developed asset-management or asset-\ncondition project throughout the New England transmission system. \n9:45 \u2013 11:40 \n3.1 \nO-15N 69 kV Line Asset Condition Replacement \n(Rafael Panos, National Grid) \n \n3.2 \n394/397 345 kV Lines Asset Condition Replacement \n(Rafael Panos, National Grid) \n \n3.3 \nHighland Substation Rebuild & Synchronous Condenser Addition \nCost Update \n(Devin Carrier, Central Maine Power Company) \n \n3.4 \n345 kV Breaker Replacements: Fitzwilliam (NH), Scovill Rock (CT), \nLudlow (MA) \n(Paul Melzen, Eversource) \n \n3.5 \nLine 191 Optical Ground Wire (OPGW) Replacement Project \n(Dave Burnham, Eversource)\n\n[Page 2]\nISO-NE PUBLIC \n2 of 2 \n \n*Please note agenda times and topic order are an approximation and subject to change. \n \n \n \n4.0 \nASSET CONDITION REVIEWER UPDATE \n(Fatou Dieng, ISO New England) \n11:40 \u2013 12:00  \nLUNCH \n12:00 \u2013 12:30 \n5.0 \nINTERIM ASSET CONDITION REVIEWER \nIndependent asset condition review of selected Transmission Owner-\ndeveloped asset-condition projects throughout the New England \ntransmission system under an interim review process. \n12:30 \u2013 1:30  \n5.1 \nInterim Asset Condition Reviewer \u2013  Eversource 1670/1771 \nReplacement Project \n(Fatou Dieng, ISO New England) \n \n5.2 \nInterim Asset Condition Reviewer \u2013  Eversource 325/331/344 \nRebuild Project \n(Fatou Dieng, ISO New England) \n \n6.0 \nTO LSP PUBLIC POLICY MEMOS \n(Aaron Hanenkratt, National Grid) \n1:30 \u2013 1:45 \n7.0 \n2025 LTTP RFP \u2013 PRELIMINARY PREFERRED SOLUTION \n(Steven Judd, ISO New England) \n1:45 \u2013 4:45  \n8.0 \nCLOSING REMARKS/ADJOURN \n4:45"
+    }
+   ]
+  }
+ }
+}

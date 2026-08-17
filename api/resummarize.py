@@ -24,8 +24,10 @@ from typing import Any
 from pipeline import db
 from pipeline.summarizer import (
     get_committee_prompts,
+    load_doc_summary_prompt,
+    load_image_config,
     load_model_config,
-    load_prompt,
+    resolve_meeting_folder,
     run_item_doc_summary,
     run_item_rollup,
     summarize_item_docs_text,
@@ -72,6 +74,11 @@ def resummarize_agenda_item(item_id: int) -> dict[str, Any]:
     venue_short = meeting.get("venue_short") or "ISO-NE"
     type_short = meeting.get("type_short") or "MC"
 
+    # Mirror the full runner's image behavior — a Re-run on an image-enabled
+    # deployment used to silently produce image-less summaries.
+    img_enabled = load_image_config().get("enabled", False)
+    meeting_folder = resolve_meeting_folder(meeting) if img_enabled else None
+
     cfg = load_model_config()
     client = make_client()
 
@@ -91,13 +98,12 @@ def resummarize_agenda_item(item_id: int) -> dict[str, Any]:
 
         own_text = None
         if docs:
-            doc_summary_prompt = load_prompt("doc_summary_prompt") or (
-                "Summarise the following document(s) for an energy market analyst.\n\n"
-                "Document(s): {filename}\n\n{text}"
-            )
             own_text = summarize_item_docs_text(
-                item, client, cfg["document_model"], doc_summary_prompt,
+                item, client, cfg["document_model"], load_doc_summary_prompt(),
                 max_tokens=cfg.get("document_max_tokens", 4096),
+                extract_images=img_enabled,
+                meeting_folder=meeting_folder,
+                meeting=meeting,
             )
             if own_text:
                 children_with_summaries.append((
@@ -132,6 +138,7 @@ def resummarize_agenda_item(item_id: int) -> dict[str, Any]:
             model=cfg["item_model"],
             agenda_item_prompt=agenda_item_prompt,
             max_tokens=cfg.get("item_max_tokens", 4096),
+            meeting=meeting,
         )
         if ok:
             lifecycle.bump_lifecycle(item["meeting_id"])
@@ -146,10 +153,6 @@ def resummarize_agenda_item(item_id: int) -> dict[str, Any]:
 
     # Path B: leaf with documents → Level 1 from doc text
     if docs:
-        doc_summary_prompt = load_prompt("doc_summary_prompt") or (
-            "Summarise the following document(s) for an energy market analyst.\n\n"
-            "Document(s): {filename}\n\n{text}"
-        )
         log.info(
             "L1 doc summary for item %s — %d docs, model=%s",
             item.get("item_id"), len(docs), cfg["document_model"],
@@ -158,10 +161,11 @@ def resummarize_agenda_item(item_id: int) -> dict[str, Any]:
             item=item,
             client=client,
             model=cfg["document_model"],
-            doc_summary_prompt=doc_summary_prompt,
+            doc_summary_prompt=load_doc_summary_prompt(),
             max_tokens=cfg.get("document_max_tokens", 4096),
-            extract_images=False,
-            meeting_folder=None,
+            extract_images=img_enabled,
+            meeting_folder=meeting_folder,
+            meeting=meeting,
         )
         if ok:
             lifecycle.bump_lifecycle(item["meeting_id"])

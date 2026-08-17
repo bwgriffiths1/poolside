@@ -3,10 +3,6 @@ Markets Committee meeting.
 
 Agenda Item: {item_id} — {title}
 
-[PRIOR CONTEXT]
-None available. (This section will be populated with prior-meeting context
-in a future version of this tool.)
-
 The document summaries below cover supporting materials for this agenda item.
 Synthesize them into a single coherent summary. Where multiple documents address
 the same item from different perspectives (e.g., a memorandum and a presentation),
@@ -46,7 +42,11 @@ summary.
 
 Tone: formal and analytical. Omit general commentary and open questions unless
 a specific unresolved issue was flagged by ISO-NE staff or raised in a working
-group referral. Target 150–300 words.
+group referral.
+Scale length to the substance of the materials: a thin or administrative
+item deserves under 100 words; a major design proposal with multiple
+substantive documents can justify 600 or more. Never pad — length should
+track decision-relevant content, not a quota.
 
 If images are provided alongside the document summaries below, they are key
 figures selected from the underlying documents. You may reference up to 2 of

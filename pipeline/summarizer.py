@@ -75,6 +75,14 @@ _EFFORT_BY_FAMILY = (
 
 _EFFORT_LEVELS = {"low", "medium", "high", "xhigh", "max"}
 
+# Context guards for the L1 doc-group call (FERC parity — see
+# docket_ingest._MAX_CHARS_PER_FILE/_FILING). A single text-heavy 300-page
+# PDF can blow past the model window; caps keep one runaway document from
+# starving its siblings in the combined prompt. Overridable via
+# summarization.max_chars_per_doc / summarization.max_chars_per_item.
+_MAX_CHARS_PER_DOC = 150_000
+_MAX_CHARS_PER_ITEM = 600_000
+
 
 # ---------------------------------------------------------------------------
 # Anthropic client
@@ -104,6 +112,21 @@ def _load_model_config() -> dict:
         return {**defaults, **appconfig.get_model_config()}
     except Exception:
         return defaults
+
+
+def _load_char_caps() -> tuple[int, int]:
+    """(per-doc, per-item) input character caps for the L1 doc-group call —
+    summarization.max_chars_per_doc / max_chars_per_item, code defaults when
+    unset (mirrors the ferc.* cap keys on the docket side)."""
+    per_doc, per_item = _MAX_CHARS_PER_DOC, _MAX_CHARS_PER_ITEM
+    try:
+        from pipeline import appconfig
+        s = appconfig.get_config().get("summarization", {}) or {}
+        per_doc = int(s.get("max_chars_per_doc") or per_doc)
+        per_item = int(s.get("max_chars_per_item") or per_item)
+    except Exception:
+        pass
+    return per_doc, per_item
 
 
 # Inline fallback when neither a DB override nor prompts/doc_summary_prompt.md
@@ -1083,11 +1106,27 @@ def _summarize_item_docs(
     text_parts = []
     all_images: list[dict] = []
     img_cfg = _load_image_config()
+    per_doc_cap, per_item_cap = _load_char_caps()
+    total_chars = 0
+    item_label = item.get("item_id") or item["title"]
 
-    for doc in usable:
+    for i, doc in enumerate(usable):
+        if total_chars >= per_item_cap:
+            # FERC-parity guard: stop before this doc. Image extraction stops
+            # too — captions for text the model never saw would be unanchored.
+            text_parts.append("…(further documents omitted for length)")
+            logger.warning(
+                "Item %s: per-item input cap %d chars reached — %d of %d doc(s) omitted",
+                item_label, per_item_cap, len(usable) - i, len(usable))
+            break
         text = _get_text_for_doc(doc)
         if text:
+            if len(text) > per_doc_cap:
+                logger.warning("Item %s: %s truncated %d → %d chars",
+                               item_label, doc["filename"], len(text), per_doc_cap)
+                text = text[:per_doc_cap].rsplit("\n", 1)[0] + "\n…(truncated)"
             text_parts.append(f"### [{doc['filename']}]\n\n{text}")
+            total_chars += len(text)
 
         # Image extraction (opt-in)
         if extract_images:
@@ -1108,7 +1147,6 @@ def _summarize_item_docs(
 
     combined_text      = "\n\n---\n\n".join(text_parts)
     combined_filenames = ", ".join(d["filename"] for d in usable if d["filename"])
-    item_label         = item.get("item_id") or item["title"]
 
     # Build metadata context block and prepend to the document text
     meta_block = _item_metadata_block(item, meeting)
@@ -2284,6 +2322,25 @@ def _approx_tokens_from_chars(n_chars: int) -> int:
     return max(1, n_chars // _CHARS_PER_TOKEN)
 
 
+def _estimate_docs_chars(usable: list[dict], per_doc_cap: int,
+                         per_item_cap: int) -> tuple[int, int]:
+    """(capped input chars, docs without cached text) for one doc-group call —
+    mirrors _summarize_item_docs' truncation so estimates track what the
+    model will actually see."""
+    chars = 0
+    without = 0
+    for d in usable:
+        if chars >= per_item_cap:
+            break
+        raw = d.get("raw_content") or ""
+        if raw:
+            chars += min(len(raw), per_doc_cap)
+        else:
+            without += 1
+            chars += min(_DOC_TOKENS_WHEN_UNEXTRACTED * _CHARS_PER_TOKEN, per_doc_cap)
+    return chars, without
+
+
 def estimate_summarization_cost(meeting_id: int, mode: str = "all") -> dict:
     """Walk the meeting the same way `run_meeting_summarization` would and
     return a pre-flight cost estimate.
@@ -2331,6 +2388,7 @@ def estimate_summarization_cost(meeting_id: int, mode: str = "all") -> dict:
     doc_summary_prompt = _load_doc_summary_prompt()
 
     cfg = _load_model_config()
+    per_doc_cap, per_item_cap = _load_char_caps()
     doc_model = cfg["document_model"]
     item_model = cfg["item_model"]
     mtg_model = cfg["meeting_model"]
@@ -2379,15 +2437,9 @@ def estimate_summarization_cost(meeting_id: int, mode: str = "all") -> dict:
             if not usable:
                 continue
 
-            in_chars = len(doc_summary_prompt)
-            for d in usable:
-                raw = d.get("raw_content") or ""
-                if raw:
-                    in_chars += len(raw)
-                else:
-                    docs_without_text += 1
-                    in_chars += _DOC_TOKENS_WHEN_UNEXTRACTED * _CHARS_PER_TOKEN
-            in_tok = _approx_tokens_from_chars(in_chars)
+            doc_chars, missing = _estimate_docs_chars(usable, per_doc_cap, per_item_cap)
+            docs_without_text += missing
+            in_tok = _approx_tokens_from_chars(len(doc_summary_prompt) + doc_chars)
             out_tok = int(doc_max * _OUTPUT_RATIO_OF_MAX)
             cost = compute_cost(doc_model, in_tok, out_tok)
             breakdown.append({
@@ -2423,15 +2475,9 @@ def estimate_summarization_cost(meeting_id: int, mode: str = "all") -> dict:
                 and (d.get("file_type") or "").lower() in SUMMARIZE_EXTENSIONS
             ]
             if own_usable:
-                own_in_chars = len(doc_summary_prompt)
-                for d in own_usable:
-                    raw = d.get("raw_content") or ""
-                    if raw:
-                        own_in_chars += len(raw)
-                    else:
-                        docs_without_text += 1
-                        own_in_chars += _DOC_TOKENS_WHEN_UNEXTRACTED * _CHARS_PER_TOKEN
-                own_in_tok = _approx_tokens_from_chars(own_in_chars)
+                own_chars, missing = _estimate_docs_chars(own_usable, per_doc_cap, per_item_cap)
+                docs_without_text += missing
+                own_in_tok = _approx_tokens_from_chars(len(doc_summary_prompt) + own_chars)
                 own_out_tok = int(doc_max * _OUTPUT_RATIO_OF_MAX)
                 cost = compute_cost(doc_model, own_in_tok, own_out_tok)
                 breakdown.append({

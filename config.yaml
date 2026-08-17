@@ -123,6 +123,11 @@ summarization:
   # calls run at once. 1 = sequential; clamped to 1..8 in code. Level 3
   # (the briefing) is always a single call.
   parallel_workers: 3
+  # L1 input guards (characters) for the per-item document-group call —
+  # FERC parity (see ferc.max_chars_per_file/_filing above). Per-doc
+  # truncation plus a per-item total; code defaults shown.
+  # max_chars_per_doc: 150000
+  # max_chars_per_item: 600000
   # Models + token budgets live in prompts/model_config.json (editable in
   # the UI, stored as a DB override — see pipeline/appconfig.py).
   images:

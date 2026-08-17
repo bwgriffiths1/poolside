@@ -200,6 +200,9 @@ def test_parent_with_own_docs_but_no_child_summaries_keeps_doc_summary(world):
     parent_chain = fakedb.versions[("agenda_item", 1)]
     assert len(parent_chain) == 1
     assert parent_chain[0]["detailed"] == "SUM(L1 item 2)"
+    # The fake LLM emits no TLDR line — split_tldr must degrade to None
+    # without touching the body.
+    assert parent_chain[0]["one_line"] is None
 
 
 def test_item_ids_filter_reaches_parent_directly(world):

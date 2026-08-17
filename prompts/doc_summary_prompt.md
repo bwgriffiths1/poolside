@@ -7,6 +7,12 @@ Mark a section "N/A" only when it is genuinely not applicable to this document.
 ---
 
 [FORMATTING RULES — follow exactly]
+- Begin your response with exactly one line: `TLDR: <one sentence, at most
+  30 words, stating the most decision-relevant point of this material — what
+  is proposed, decided, or reported, and its market consequence>` followed by
+  a blank line. Write exactly ONE TLDR line for the whole response, even when
+  several documents are provided — it must capture the set as a whole, not
+  just the first document. Then the structured summary below.
 - Write dollar amounts as plain text: "$44/MWh" not `$44/MWh`. Never use dollar
   signs as math delimiters. If a sentence would place two dollar amounts where
   the text between them could be parsed as LaTeX (i.e., "$X ... $Y"), rewrite

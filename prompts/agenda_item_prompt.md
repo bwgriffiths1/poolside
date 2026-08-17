@@ -33,6 +33,12 @@ Address the following:
   dates) from regulatory milestones (filing, approval) and tariff effective
   dates. Omit this bullet if nothing is known.
 
+Begin your response with exactly one line:
+`TLDR: <one sentence, at most 30 words, stating this item's most
+decision-relevant development — what changed or was decided and why it
+matters to a market participant>` followed by a blank line, then the
+summary.
+
 Tone: formal and analytical. Target 150–300 words.
 
 ---

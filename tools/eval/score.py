@@ -74,6 +74,22 @@ def _parse_json_reply(text: str) -> dict:
         return json.loads(re.sub(r'\\(?!["\\/bfnrtu])', "", blob))
 
 
+def _extract_pairwise(reply: str) -> dict:
+    """Field-level extraction for the tiny pairwise schema — judges routinely
+    put unescaped quotes inside `rationale`, which breaks strict JSON."""
+    import re
+    m = re.search(r'"winner"\s*:\s*"(A|B|tie)"', reply)
+    if not m:
+        raise ValueError(f"no winner field in pairwise reply: {reply[:200]!r}")
+    margin = re.search(r'"margin"\s*:\s*"(slight|clear)"', reply)
+    rationale = re.search(r'"rationale"\s*:\s*"(.+?)"\s*\}', reply, re.DOTALL)
+    return {
+        "winner": m.group(1),
+        "margin": margin.group(1) if margin else None,
+        "rationale": rationale.group(1) if rationale else None,
+    }
+
+
 def _case_source(case_id: str, run_rec: dict, cap: int) -> str:
     """The text the primary output should be judged against."""
     golden = json.loads((GOLDEN_DIR / f"{case_id}.json").read_text(encoding="utf-8"))
@@ -170,18 +186,24 @@ def _pairwise_case(client, model: str, case_id: str, rec_a: dict, rec_b: dict,
         reply = summarizer.call_llm(client, model, prompt, max_tokens=4096,
                                     label=f"pairwise {case_id}")
         try:
-            v = _parse_json_reply(reply)
-            winner = v.get("winner", "tie")
-            verdicts.append({"winner": mapping.get(winner, "tie"),
+            v = _extract_pairwise(reply)
+            verdicts.append({"winner": mapping.get(v["winner"], "tie"),
                              "margin": v.get("margin"),
                              "rationale": v.get("rationale")})
         except Exception as exc:
             verdicts.append({"error": str(exc)})
-    winners = {v.get("winner") for v in verdicts}
+    valid = [v["winner"] for v in verdicts if "winner" in v]
+    winners = set(valid)
+    if not valid:
+        verdict = "error"
+    elif len(winners) == 1:
+        verdict = valid[0]
+    else:
+        verdict = "split"
     return {
         "orders": verdicts,
-        "consistent": len(winners) == 1 and "tie" not in winners,
-        "verdict": verdicts[0].get("winner") if len(winners) == 1 else "split",
+        "consistent": len(valid) == 2 and len(winners) == 1 and "tie" not in winners,
+        "verdict": verdict,
     }
 
 

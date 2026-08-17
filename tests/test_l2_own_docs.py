@@ -93,6 +93,7 @@ def world(monkeypatch):
     monkeypatch.setattr(summarizer, "_call_llm", fake_call_llm)
     monkeypatch.setattr(summarizer, "_load_image_config", lambda: {"enabled": False})
     monkeypatch.setattr(summarizer, "_load_parallel_workers", lambda: 1)
+    monkeypatch.setattr(summarizer, "_load_char_caps", lambda: (150_000, 600_000))
     monkeypatch.setattr(summarizer, "_load_model_config", lambda: {
         "document_model": "claude-haiku-4-5-20251001",
         "item_model": "claude-haiku-4-5-20251001",

@@ -34,6 +34,12 @@ Address the following:
 - **Schedule**: Note forecast finalization dates, CELT publication timeline,
   PSPC handoff dates, or FCA dependencies. Omit if nothing is known.
 
+Begin your response with exactly one line:
+`TLDR: <one sentence, at most 30 words, stating this item's most
+decision-relevant development — what changed or was decided and why it
+matters to a market participant>` followed by a blank line, then the
+summary.
+
 Tone: formal and analytical. Target 150–300 words.
 
 ---

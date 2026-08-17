@@ -766,6 +766,17 @@ def _clean_output(text: str) -> str:
     return re.sub(r"(?<!\\)\$", r"\\$", text)
 
 
+def split_tldr(text: str) -> tuple[str | None, str]:
+    """Prompts open with 'TLDR: <one sentence>' — split it into one_line.
+    (None, body) when the model didn't comply, so the body is never lost.
+    Shared by the ISO L1/L2/L3 persist sites and pipeline/docket_ingest."""
+    m = re.match(r"\s*\**TLDR:?\**\s*:?\s*(.+?)\s*\n+(.*)", text or "",
+                 flags=re.DOTALL | re.IGNORECASE)
+    if not m:
+        return None, (text or "").strip()
+    return m.group(1).strip(), m.group(2).strip()
+
+
 # ---------------------------------------------------------------------------
 # LLM call helper
 # ---------------------------------------------------------------------------
@@ -1059,10 +1070,11 @@ def _run_item_doc_summary(
     if detailed is None:
         return False
 
+    one_line, detailed = split_tldr(detailed)
     db.create_summary_version(
         entity_type="agenda_item",
         entity_id=item["id"],
-        one_line=None,
+        one_line=one_line,
         detailed=detailed,
         model_id=model,
         is_manual=False,
@@ -1572,11 +1584,12 @@ def _run_item_rollup(
                              label=f"L2 item {item_label}")
 
     detailed = _replace_keep_images_inline(detailed, all_images)
+    one_line, detailed = split_tldr(detailed)
 
     db.create_summary_version(
         entity_type="agenda_item",
         entity_id=item["id"],
-        one_line=None,
+        one_line=one_line,
         detailed=detailed,
         model_id=model,
         is_manual=False,
@@ -1814,11 +1827,12 @@ def _run_meeting_briefing(
                              label=f"L3 meeting {meeting_id}")
 
     detailed = _replace_keep_images_inline(detailed, all_images)
+    one_line, detailed = split_tldr(detailed)
 
     db.create_summary_version(
         entity_type="meeting",
         entity_id=meeting_id,
-        one_line=None,
+        one_line=one_line,
         detailed=detailed,
         model_id=model,
         is_manual=False,
@@ -2149,6 +2163,13 @@ def run_meeting_summarization(
                 meeting=meeting,
             )
 
+            # Split the TLDR once here: the persist branch stores it as the
+            # parent's one_line; the embed branch feeds the rollup the body
+            # only (a literal TLDR line in rollup input invites echoing).
+            own_one: str | None = None
+            if own_text:
+                own_one, own_text = split_tldr(own_text)
+
             if own_text and not child_summaries:
                 # No child content yet — the own-docs summary IS the item's
                 # summary (same outcome the old parent L1 pass produced,
@@ -2156,7 +2177,7 @@ def run_meeting_summarization(
                 db.create_summary_version(
                     entity_type="agenda_item",
                     entity_id=parent["id"],
-                    one_line=None,
+                    one_line=own_one,
                     detailed=own_text,
                     model_id=doc_model,
                     is_manual=False,

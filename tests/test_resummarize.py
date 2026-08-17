@@ -158,6 +158,26 @@ def test_path_a_threads_images_meeting_and_pseudo_child(harness):
     assert pseudo[0][1]["detailed"] == "OWN-TEXT"
 
 
+def test_path_a_strips_tldr_from_embedded_own_docs(harness):
+    """The rollup prompt gets the own-docs body only — a literal TLDR line in
+    rollup input invites the model to echo it mid-body."""
+    caps = harness(
+        FakeDB(
+            [PARENT, CHILD],
+            docs_by_item={10: [_doc("parent-memo.pdf")]},
+            summaries={("agenda_item", 11): {"detailed": "C1-SUMMARY"}},
+        ),
+    )
+    caps["own_docs"].ret = "TLDR: the gist\n\nBODY-ONLY"
+    result = rz.resummarize_agenda_item(10)
+    assert result["ok"] is True
+
+    (_, rollup_kwargs), = caps["rollup"].calls
+    pseudo = [(c, s) for c, s in rollup_kwargs["child_summaries"]
+              if c.get("title") == "Materials filed directly under this item"]
+    assert pseudo[0][1]["detailed"] == "BODY-ONLY"
+
+
 def test_path_a_requires_some_input(harness):
     harness(FakeDB([PARENT, CHILD]))  # children exist, none summarized, no docs
     result = rz.resummarize_agenda_item(10)

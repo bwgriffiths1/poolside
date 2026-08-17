@@ -40,6 +40,7 @@ from pipeline.summarizer import (
     load_model_config,
     load_prompt,
     make_client,
+    split_tldr,
 )
 
 logger = logging.getLogger(__name__)
@@ -582,13 +583,10 @@ def _filing_meta_block(filing: dict) -> str:
     return "[FILING METADATA]\n" + "\n".join(bits)
 
 
-def _split_tldr(text: str) -> tuple[str | None, str]:
-    """Prompts open with 'TLDR: <one sentence>' — split it into one_line."""
-    m = re.match(r"\s*\**TLDR:?\**\s*:?\s*(.+?)\s*\n+(.*)", text or "",
-                 flags=re.DOTALL | re.IGNORECASE)
-    if not m:
-        return None, (text or "").strip()
-    return m.group(1).strip(), m.group(2).strip()
+# Moved to pipeline/summarizer.py as split_tldr — the ISO L1/L2/L3 persist
+# sites use it too. The private alias keeps existing imports working
+# (tests/test_docket_ingest.py imports the private name).
+_split_tldr = split_tldr
 
 
 def summarize_filing(filing: dict, ferc: FercClient, client, cfg: dict,

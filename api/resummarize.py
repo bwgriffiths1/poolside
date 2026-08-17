@@ -30,6 +30,7 @@ from pipeline.summarizer import (
     resolve_meeting_folder,
     run_item_doc_summary,
     run_item_rollup,
+    split_tldr,
     summarize_item_docs_text,
     make_client,
 )
@@ -105,6 +106,10 @@ def resummarize_agenda_item(item_id: int) -> dict[str, Any]:
                 meeting_folder=meeting_folder,
                 meeting=meeting,
             )
+            if own_text:
+                # Rollup input gets the body only — a literal TLDR line in
+                # the prompt invites the model to echo it mid-body.
+                _, own_text = split_tldr(own_text)
             if own_text:
                 children_with_summaries.append((
                     {"item_id": item.get("item_id"),

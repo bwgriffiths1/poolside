@@ -38,6 +38,12 @@ Address the following:
   vote dates) from regulatory milestones (FERC filing, FERC approval) and
   tariff effective dates. Omit this bullet if nothing is known.
 
+Begin your response with exactly one line:
+`TLDR: <one sentence, at most 30 words, stating this item's most
+decision-relevant development — what changed or was decided and why it
+matters to a market participant>` followed by a blank line, then the
+summary.
+
 Tone: formal and analytical. Omit general commentary and open questions unless
 a specific unresolved issue was flagged by ISO-NE staff or raised in a working
 group referral. Target 150–300 words.

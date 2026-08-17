@@ -30,6 +30,12 @@ Address the following:
   response date, a referenced stakeholder process. Omit this bullet if
   nothing is known.
 
+Begin your response with exactly one line:
+`TLDR: <one sentence, at most 30 words, stating this item's most
+decision-relevant development — what changed or was decided and why it
+matters to a market participant>` followed by a blank line, then the
+summary.
+
 Tone: formal and analytical. Target 80–200 words — LC items rarely support
 more, and padding is worse than brevity.
 

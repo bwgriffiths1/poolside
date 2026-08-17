@@ -38,6 +38,12 @@ Address the following:
   testing windows, seasonal preparation dates) and regulatory milestones
   (FERC filings). Omit this bullet if nothing is known.
 
+Begin your response with exactly one line:
+`TLDR: <one sentence, at most 30 words, stating this item's most
+decision-relevant development — what changed or was decided and why it
+matters to a market participant>` followed by a blank line, then the
+summary.
+
 Tone: formal and analytical. Omit general commentary and open questions unless
 a specific unresolved issue was flagged by PJM staff, the Independent Market
 Monitor, or a stakeholder in the materials. Target 150–300 words.

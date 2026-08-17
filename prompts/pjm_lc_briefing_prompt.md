@@ -39,6 +39,12 @@ Prioritize items in this order:
 [FORMAT INSTRUCTIONS]
 Produce the briefing in this exact structure:
 
+Begin your response with exactly one line:
+`TLDR: <one sentence, at most 30 words, stating the meeting's single most
+decision-relevant development>` followed by a blank line. The TLDR is stored
+separately as the meeting's headline — do not repeat it verbatim in the Key
+Takeaways. Then produce the structure below.
+
 ---
 
 ## Key Takeaways

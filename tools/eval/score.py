@@ -24,6 +24,7 @@ import sys
 from pathlib import Path
 
 import pipeline.summarizer as summarizer
+from tools.eval.cases import CASES
 
 EVAL_DIR = Path(__file__).resolve().parent
 GOLDEN_DIR = EVAL_DIR / "golden"
@@ -62,7 +63,15 @@ def _parse_json_reply(text: str) -> dict:
     start, end = text.find("{"), text.rfind("}")
     if start == -1 or end <= start:
         raise ValueError(f"no JSON object in judge reply: {text[:200]!r}")
-    return json.loads(text[start:end + 1])
+    blob = text[start:end + 1]
+    try:
+        return json.loads(blob)
+    except json.JSONDecodeError:
+        # call_llm's _clean_output escapes $ as \$ (and models sometimes emit
+        # other Markdown-style escapes like \-) — none are valid JSON escapes.
+        # Drop the backslash from any invalid escape sequence and retry.
+        import re
+        return json.loads(re.sub(r'\\(?!["\\/bfnrtu])', "", blob))
 
 
 def _case_source(case_id: str, run_rec: dict, cap: int) -> str:
@@ -179,6 +188,7 @@ def _pairwise_case(client, model: str, case_id: str, rec_a: dict, rec_b: dict,
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--run", required=True, help="run id under tools/eval/runs/")
+    ap.add_argument("--cases", help="comma-separated case ids (default: all in the run)")
     ap.add_argument("--judge", action="store_true")
     ap.add_argument("--pairwise", help="second run id to duel against")
     ap.add_argument("--judge-model", default="claude-opus-5")
@@ -186,11 +196,17 @@ def main() -> None:
     args = ap.parse_args()
 
     run_dir = RUNS_DIR / args.run
+    # Only registered case records — run dirs also hold manifest/scores files.
     recs = {p.stem: json.loads(p.read_text(encoding="utf-8"))
-            for p in sorted(run_dir.glob("*.json")) if p.stem != "manifest"
-            and p.stem != "scores"}
+            for p in sorted(run_dir.glob("*.json")) if p.stem in CASES}
     if not recs:
         sys.exit(f"No case results in {run_dir}")
+    if args.cases:
+        wanted = args.cases.split(",")
+        missing = [c for c in wanted if c not in recs]
+        if missing:
+            sys.exit(f"Not in this run: {missing}")
+        recs = {c: recs[c] for c in wanted}
 
     scores: dict = {"run": args.run, "mechanical": {}, "judge": {},
                     "pairwise": {}}
@@ -223,8 +239,7 @@ def main() -> None:
     if args.pairwise:
         other_dir = RUNS_DIR / args.pairwise
         others = {p.stem: json.loads(p.read_text(encoding="utf-8"))
-                  for p in sorted(other_dir.glob("*.json"))
-                  if p.stem not in ("manifest", "scores")}
+                  for p in sorted(other_dir.glob("*.json")) if p.stem in CASES}
         shared = sorted(set(recs) & set(others))
         print(f"\nPairwise vs '{args.pairwise}' on {len(shared)} case(s) "
               f"(a={args.run}, b={args.pairwise})…")

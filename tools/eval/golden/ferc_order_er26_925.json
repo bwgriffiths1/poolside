@@ -1,0 +1,247 @@
+{
+ "schema": 1,
+ "case_id": "ferc_order_er26_925",
+ "kind": "ferc_filing",
+ "description": "ER26-925 order \u2014 1 file, ~37k chars (opus tier)",
+ "fetched_at": "2026-08-17T16:39:03.463638+00:00",
+ "content_sha256": "77a708221d4253b55ba5497e61660395c43190a9278723c662b7bcfee7213669",
+ "payload": {
+  "filing": {
+   "id": 37,
+   "docket_id": 3,
+   "accession_number": "20260330-3059",
+   "category": "Issuance",
+   "document_class": "Order/Opinion",
+   "document_type": "Commission Order/Opinion",
+   "description": "Order Accepting Tariff Revisions re ISO New England Inc. under ER26-925.",
+   "sub_docket": "ER26-925-000",
+   "filed_date": "2026-03-30",
+   "issued_date": "2026-03-30",
+   "posted_date": "2026-03-30",
+   "comments_due_date": null,
+   "response_due_date": null,
+   "ferc_cite": "194FERC61,249",
+   "fed_reg_num": null,
+   "filing_parties": [],
+   "treatment": "full",
+   "is_docless": false,
+   "raw_hit": {
+    "score": 85.35,
+    "summary": null,
+    "category": "Issuance",
+    "availCode": "P",
+    "filedDate": "03/30/2026",
+    "libraries": [
+     "Electric"
+    ],
+    "reference": "{C886EB0E-5BD4-C7CA-844A-9D40ABD00000}-{DD8BDEBE-F44A-C9C0-950A-9D40ABD00000}",
+    "classTypes": [
+     {
+      "documentType": "Commission Order/Opinion",
+      "documentClass": "Order/Opinion"
+     }
+    ],
+    "documentId": "C886EB0E-5BD4-C7CA-844A-9D40ABD00000",
+    "issuedDate": "03/30/2026",
+    "postedDate": "03/30/2026",
+    "description": "Order Accepting Tariff Revisions re ISO New England Inc. under ER26-925.",
+    "familyValue": "None",
+    "affiliations": [
+     {
+      "afType": "AUTHOR",
+      "lastName": "*",
+      "affiliation": "COMMISSIONERS AND IMMEDIATE STAFF (THE COMMISSION)",
+      "firstInitial": "*",
+      "middleInitial": ""
+     },
+     {
+      "afType": "AUTHOR",
+      "lastName": "Reese",
+      "affiliation": "SECRETARY OF THE COMMISSION - FERC",
+      "firstInitial": "D",
+      "middleInitial": "A"
+     }
+    ],
+    "transmittals": [
+     {
+      "fileId": "DD8BDEBE-F44A-C9C0-950A-9D40ABD00000",
+      "fileDesc": "Notational Order",
+      "fileName": "ER26-925-000.docx",
+      "fileSize": 92505,
+      "fileType": "DOCX",
+      "fileFormat": "Standard",
+      "transmittalFk": null
+     }
+    ],
+    "docketNumbers": [
+     "ER26-925-000"
+    ],
+    "acesssionNumber": "20260330-3059"
+   },
+   "raw_docinfo": {
+    "ID": null,
+    "Order": [],
+    "Volume": [],
+    "Doc_Num": [],
+    "Exhibit": [],
+    "File_ID": 0,
+    "IsChild": false,
+    "Library": [
+     "Electric"
+    ],
+    "Opinion": [],
+    "QC_Date": null,
+    "Category": "Issuance",
+    "ChildDoc": [],
+    "Fed_Cite": [],
+    "IsParent": false,
+    "MimeType": null,
+    "FN_Doc_ID": 0,
+    "Ferc_Cite": [
+     "194FERC61,249"
+    ],
+    "Page_Type": null,
+    "ParentDoc": [],
+    "Scan_Date": null,
+    "eLcDocket": [
+     {
+      "Docket_ID": null,
+      "Docket_Type": "On Document",
+      "Docket_Number": "ER26-925",
+      "Docket_Prefix": null,
+      "Accession_Number": "20260330-3059",
+      "Legacy_Docket_ID": 0,
+      "SubDocket_Number": "000",
+      "Docket_List_Order": 1,
+      "Legacy_Update_Date": "0001-01-01T00:00:00"
+     }
+    ],
+    "Batch_Name": null,
+    "Class_Type": [],
+    "DocumentId": "00000000-0000-0000-0000-000000000000",
+    "Filed_Date": "2026-03-30T00:00:00",
+    "Page_Count": 0,
+    "Date_Pulled": null,
+    "Description": "Order Accepting Tariff Revisions re ISO New England Inc. under ER26-925.",
+    "Docket_Flag": false,
+    "Docket_List": [],
+    "Fed_Reg_Num": null,
+    "Fee_Amt_Cur": 0.0,
+    "Issued_Date": "2026-03-30T00:00:00",
+    "Lead_Docket": null,
+    "Page_Format": null,
+    "Page_Number": 0,
+    "Posted_Date": "2026-03-30T17:43:07.203",
+    "QC_Operator": null,
+    "Source_Type": null,
+    "Status_Flag": null,
+    "EFiling_Flag": false,
+    "Fed_Reg_Date": null,
+    "HotItem_Flag": false,
+    "MFA_End_Roll": 0,
+    "Release_Date": null,
+    "Rep_End_Date": null,
+    "eLcClassType": [
+     {
+      "Type": "Commission Order/Opinion",
+      "Class": "Order/Opinion",
+      "Library": null,
+      "Category": null,
+      "Accession_Number": null
+     }
+    ],
+    "Deletion_Flag": false,
+    "DocumentTitle": null,
+    "Document_Date": "2026-03-30T00:00:00",
+    "File_Size_Num": 0,
+    "Image_QC_Note": null,
+    "Legacy_Source": null,
+    "MFA_End_Frame": 0,
+    "Official_Flag": true,
+    "Scan_Operator": null,
+    "Accession_Date": "2026-03-30T17:34:47.68",
+    "File_Type_Code": null,
+    "MFA_Begin_Roll": 0,
+    "Orig_File_Name": null,
+    "Published_Date": null,
+    "Rep_Begin_Date": null,
+    "eLcAffiliation": [
+     {
+      "Last_Name": "Reese",
+      "Temp_Flag": null,
+      "First_Initial": "D",
+      "Effective_Date": "0001-01-01T00:00:00",
+      "Middle_Initial": "A",
+      "Accession_Number": null,
+      "Correspondent_Type": "author",
+      "Non_Effective_Date": "0001-01-01T00:00:00",
+      "Affiliation_Organization": "SECRETARY OF THE COMMISSION - FERC"
+     },
+     {
+      "Last_Name": "*",
+      "Temp_Flag": null,
+      "First_Initial": "*",
+      "Effective_Date": "0001-01-01T00:00:00",
+      "Middle_Initial": "",
+      "Accession_Number": null,
+      "Correspondent_Type": "author",
+      "Non_Effective_Date": "0001-01-01T00:00:00",
+      "Affiliation_Organization": "COMMISSIONERS AND IMMEDIATE STAFF (THE COMMISSION)"
+     }
+    ],
+    "Data_Entry_User": null,
+    "FileDescription": null,
+    "File_List_Order": 0,
+    "MFA_Begin_Frame": 0,
+    "Operator_Pulled": null,
+    "TransmittalType": null,
+    "Accession_Number": "20260330-3059",
+    "Accession_Series": 3059,
+    "Affiliation_List": [],
+    "Replacement_Flag": false,
+    "TransmittalBatch": [],
+    "Aperture_Card_Num": 0,
+    "Availability_Code": null,
+    "Availability_Mode": "P",
+    "Comments_Due_Date": null,
+    "Response_Due_Date": null,
+    "Docket_Change_Flag": false,
+    "Exhibit_Certi_Date": null,
+    "Lead_Docket_Prefix": null,
+    "Legacy_Document_Id": 0,
+    "Legacy_Update_Date": null,
+    "MFA_Page_Count_Num": 0,
+    "Non_Duplicate_Flag": false,
+    "Staff_Release_Flag": false,
+    "First_received_Date": "2026-03-30T17:34:47.68",
+    "InternalLib_Library": null,
+    "Non_Decisional_Flag": false,
+    "Public_Release_Flag": null,
+    "Legacy_Transmittal_Id": 0,
+    "Data_Verification_User": null,
+    "Legacy_Update_Login_ID": null,
+    "Document_Component_Flag": false,
+    "Parent_Accession_Number": null,
+    "Affiliation_Organization": [
+     "SECRETARY OF THE COMMISSION - FERC",
+     "COMMISSIONERS AND IMMEDIATE STAFF (THE COMMISSION)"
+    ]
+   },
+   "created_at": "2026-07-23 00:51:20.715538+00:00",
+   "role": "order",
+   "docket_number": "ER26-925"
+  },
+  "files": [
+   {
+    "id": 45,
+    "file_id": "DD8BDEBE-F44A-C9C0-950A-9D40ABD00000",
+    "file_desc": "Notational Order",
+    "orig_file_name": "ER26-925-000.docx",
+    "file_type": "docx",
+    "file_list_order": 1,
+    "included": true,
+    "raw_content": "194 FERC \u00b6 61,249\n\nUNITED STATES OF AMERICA\n\nFEDERAL ENERGY REGULATORY COMMISSION\n\nBefore Commissioners:  Laura V. Swett, Chairman;\n\nDavid Rosner, Lindsay S. See,\n\nJudy W. Chang, and David LaCerte.\n\nORDER ACCEPTING TARIFF REVISIONS\n\n(Issued March 30, 2026)\n\nOn December 30, 2025, pursuant to section 205 of the Federal Power Act (FPA), ISO New England Inc. (ISO-NE), joined by New England Power Pool (NEPOOL) Participants Committee (together, Filing Parties), submitted revisions to the ISO-NE Transmission, Markets and Services Tariff (Tariff), which, primarily, replace the Forward Capacity Market (FCM) with a prompt capacity market in which an Annual Capacity Auction (ACA) would be held approximately one month before the relevant Capacity Commitment Period.  As discussed below, we accept the proposed Tariff revisions, referred to herein as the Capacity Auction Reforms \u2013 Prompt Deactivation (CAR-PD) proposal, effective March 31, 2026, as requested.\n\nBackground\n\nISO-NE\u2019s Forward Capacity Market\n\nISO-NE currently procures capacity through its FCM.  In the FCM, ISO-NE runs Forward Capacity Auctions (FCA) every year, approximately three years and four months in advance of the relevant Capacity Commitment Period for that FCA.  Prior to running the FCA, ISO-NE establishes each resource\u2019s Qualified Capacity, or how much capacity a resource is expected to deliver over the Capacity Commitment Period.  In addition, for each FCA, ISO-NE calculates an Installed Capacity Requirement to determine the amount of capacity the region needs to procure in the FCA to meet the one-day-in-ten resource adequacy requirement for the Capacity Commitment Period.  ISO-NE develops a demand curve to reflect the region\u2019s willingness to pay for capacity that corresponds with capacity\u2019s marginal reliability value and specifies prices to incent competitive new entry if the region has less capacity than is needed.  The most recent FCA, FCA 18, was held in 2024 for the 2027-2028 Capacity Commitment Period.\n\nThe FCA is a descending clock auction conducted in a series of rounds.  The FCM separates resources into Existing Capacity Resources, which have previously cleared an FCA, and New Capacity Resources, which have never previously cleared an FCA.  New Capacity Resources do not have a must-offer requirement and may submit capacity offers for the quantity and price they are willing to sell capacity in each round of the auction.  Existing Capacity Resources have a must-offer requirement to bid into the auction as price-takers, unless they submit a de-list bid to temporarily or permanently de-list their capacity from the market.  There are multiple types of de-list bids that can be submitted in the FCA, all of which specify the lowest price that an Existing Capacity Resource is willing to receive to provide capacity in the Capacity Commitment Period associated with that FCA.  If a de-list bid clears the auction, that resource either temporarily or permanently exits the FCM, and does not receive a Capacity Supply Obligation for that Capacity Commitment Period.\n\nISO-NE runs rounds of the FCA until the supply curve intersects with the demand curve.  Resources with supply offers or de-list bids below the Capacity Clearing Price receive a Capacity Supply Obligation, in return for which they receive monthly Capacity Base Payments.  In addition, resources with a Capacity Supply Obligation may receive additional payments or charges, known as Capacity Performance Payments, depending on their performance during capacity scarcity events during the Capacity Commitment Period when they hold a Capacity Supply Obligation.\n\nIn addition to the FCA, resources may take on or shed Capacity Supply Obligations through annual and monthly reconfiguration auctions, or through bilateral transactions that ISO-NE oversees on a monthly basis.  The FCM holds three annual reconfiguration auctions for each FCA, one for each year following the FCA and up until the Capacity Commitment Period for that FCA, and monthly reconfiguration auctions prior to each month within a Capacity Commitment Period.\n\nISO-NE\u2019s Capacity Auction Reform (CAR) Stakeholder Process\n\nISO-NE began working with stakeholders in 2021 to evaluate possible changes \nto the way it accredits capacity in the FCM.  However, these discussions led to the conclusion that broader reforms to ISO-NE\u2019s capacity market construct may be necessary, given challenges associated with the region\u2019s constrained natural gas delivery system.  Consequently, ISO-NE and NEPOOL began a broader review of potential capacity market reforms in November 2023 and submitted a filing to the Commission to delay FCA 19 by one year (Initial Delay Filing) to provide ISO-NE and stakeholders with sufficient time to explore potential broader reforms.  Following acceptance of the Initial Delay Filing, ISO-NE conducted a broader capacity market reforms assessment, which concluded that, alongside developing marginal reliability impact-based capacity accreditation reforms, the region should shift to a prompt and seasonal capacity market starting with the 2028-2029 Capacity Commitment Period, which would correlate to the relevant Capacity Commitment Period for FCA 19.  In order to give the region time to develop these reforms, and with stakeholder support, ISO-NE then submitted a filing to the Commission to further delay FCA 19 by two years (Further Delay Filing), which the Commission accepted on May 20, 2024.  In the Further Delay Filing, ISO-NE outlined that it was planning to submit its package of capacity market reforms in a series of two filings: the first in late 2025 or early 2026 to introduce a prompt auction with accompanying retirement reforms, and the second in late 2026 or early 2027 to implement a seasonal market with accompanying capacity accreditation reforms (CAR-SA Filing).\n\nFiling\n\nOverview of the CAR-PD Filing\n\nFiling Parties explain that the CAR-PD proposal\u2019s primary change is that it replaces the FCM with a prompt capacity market in which Annual Capacity Auctions (ACA) are held approximately one month before the Capacity Commitment Period (i.e., the annual period between June 1 and May 31).  In addition, Filing Parties explain that, unlike under the FCM, all resources participating in the prompt capacity market must be in full commercial operation and have demonstrated their ability to deliver capacity to the region prior to the ACA.  Filing Parties state that this change will result in the elimination of several rules under the FCM associated with ensuring that resources are in fact commercial at the time of the Capacity Commitment Period for which they hold a Capacity Supply Obligation.  Further, Filing Parties state that the replacement of the FCM with a prompt annual capacity market will eliminate the need to administer resource-intensive annual reconfiguration auctions.\n\nFurther, Filing Parties explain that the descending-clock auction under the FCM will be replaced with a simplified sealed-bid auction.  Finally, Filing Parties state that the proposed revisions will replace the FCM retirement process, in which resources submit Permanent De-List Bids or Retirement De-List Bids  into the FCA four years in advance of retirement, with the requirement that resources wishing to deactivate must submit a Deactivation Notification one-year prior to the holding of the ACA.  Filing Parties explain that unlike the use of de-list bids in the FCA, the proposed Deactivation Notification process is a wholly separate process from the ACA itself.\n\nFiling Parties argue that the Commission has given regional transmission organizations (RTO) significant leeway in the development of capacity markets and note that the Commission accepted prompt capacity markets in other RTOs as just and reasonable.  Further, Filing Parties argue that this is an opportune time to implement the proposed CAR-PD reforms because the region has sufficient capacity for the near future, but forecasted demand growth over the next decade is less clear.  Filing Parties state that reserve margins are currently predicted to decline from 15% today to 8% in 2034, in large part due to increased demand from public policies incentivizing heating and transportation electrification.\n\nOverview of Prompt Capacity Market Design and Tariff Revisions\n\nFiling Parties explain that the transition to the prompt capacity market will require significant changes to capacity market timelines, resource qualification, the conduct of the auction, and post-auction trading activities, alongside smaller changes to market power mitigation and accreditation processes.\n\nFiling Parties state that the resource qualification process will begin with the Qualification Data Submission Deadline in February and finish with the Capacity Demonstration Deadline in April.  Following the resource qualification process, Filing Parties explain that the ACA will take place in early May directly preceding the June 1 start of each Capacity Commitment Period, with resources submitting Capacity Offers to provide capacity.  Filing Parties further explain that the CAR-PD proposal extends the current capacity must-offer requirement from all existing resources to all resources that are commercial and have Capacity Network Resource Interconnection Service (CNRIS), as represented by their established Capacity Network Resource (CNR) Capability.\n\nFiling Parties explain that eliminating the distinction between new and existing resources results in a shorter qualification process.  Further, Filing Parties argue that the move to a prompt capacity market will result in more accurate Qualified Capacity values for resource accreditation.  Specifically, Filing Parties state that they propose to allow for the use of actual performance data instead of engineering-based estimates to determine Qualified Capacity values for most resources that have not previously received a Capacity Supply Obligation.  Furthermore, Filing Parties state that resources that have previously received a Capacity Supply Obligation will have their Qualified Capacity values calculated annually using more up-to-date data.\n\nIn addition, Filing Parties explain that requiring resources to be commercial in order to participate in the ACA means that ISO-NE can eliminate all processes related to monitoring or holding financial assurance for resources that have received a Capacity Supply Obligation but are not yet commercial (with the exception of a transition mechanism for those non-commercial resources that have already received a Capacity Supply Obligation under the FCM), which will reduce administrative burdens and barriers to entry.  Further, Filing Parties argue that the requirement that resources be commercial to participate in the ACA will reduce supply uncertainty, as in practice, many non-commercial resources that had received a Capacity Supply Obligation under the FCM were not operational in time for the Capacity Commitment Period for which they had obtained that Capacity Supply Obligation.  Filing Parties state that this phenomena, known as \u201cphantom entry,\u201d negatively impacts the region\u2019s ability to meet its resource adequacy requirements and can raise capacity prices if the risk of not achieving commercial operation may be included in capacity offers.\n\nFiling Parties state that the prompt capacity market retains many of the same market power mitigation measures, with resources that have not previously received a Capacity Supply Obligation subject to buyer-side market power review, and all resources (both new and existing) subject to seller-side market power review, whereby Capacity Offers over a certain threshold price (i.e., the Capacity Offer Price Threshold) are subject to review and potential mitigation.  Filing Parties explain that the Capacity Offer Price Threshold, is a direct adaptation of the FCM\u2019s Dynamic De-List Bid Threshold, and that the methodology for determining the Capacity Offer Price Threshold is the same as the methodology used to determine the Dynamic De-List Bid Threshold.  Filing Parties explain that in order to calculate the Capacity Offer Price Threshold for the first ACA,  ISO-NE will use the FCA 18 Rest-of-Pool Capacity Zone clearing price for the calculation, treating FCA 18 as the immediately preceding ACA.  Given the four-year gap between FCA 18 and the first ACA, Filing Parties commit to evaluating the Capacity Offer Price Threshold that it will calculate in late 2027 to ensure it does not pose a risk of improper mitigation in the ACA.  Filing Parties explain that the only changes to market power mitigation processes in the prompt capacity market relate to timing.  Specifically, Filing Parties state, given the shorter time frame between the auction and the Capacity Commitment Period in the prompt capacity market, resources will be able to request buyer-side market power review as early as three and a half years prior to the ACA in order to receive early feedback on their proposed offers.  Filing Parties explain that, due to the compressed auction schedule, a new cost recovery mechanism is added to allow market participants that believe that their offer was improperly mitigated to seek relief from the Commission.\n\nFiling Parties explain that no substantive changes are being made to how supply and demand are reflected in the auction.  Specifically, Filing Parties state that Qualified Capacity will be determined in substantively the same way and that the prompt capacity market will retain the same three core components to determine demand:  (1) the Installed Capacity Requirement; (2) the use of Marginal Reliability Impact-based sloped demand curves; and (3) the calculation of Cost of New Entry (CONE) and Net Cost of New Entry (Net CONE) for capacity resources.  However, Filing Parties note that, under the prompt capacity market, the Installed Capacity Requirement will be calculated using load forecasts developed much closer in time to the relevant Capacity Commitment Period.  Filing Parties argue that this will reduce the possibility that load forecasts prove to be inaccurate, which can result in the auction clearing more or less capacity than is actually needed to meet the region\u2019s reliability needs.\n\nFiling Parties also state that performance and settlement rules will not change.  Specifically, Filing Parties state that those resources that receive a Capacity Supply Obligation will continue to be subject to the must-offer requirement to submit daily offers into the Day-Ahead Energy Market and that resources with Capacity Supply Obligations will continue to receive monthly Capacity Base Payments, as well as Capacity Performance Payments under the Pay for Performance Rules.\n\nFiling Parties argue that the move to a prompt capacity market will not in itself drive capacity market clearing prices up or down relative to prices under the FCM.  Filing Parties explain that the avoidable costs that can be included in ACA capacity offers may be different than those that can currently be included in FCA capacity offers.  For example, the Copland and Geissler Testimonies explain that many capital expenditures will now be considered sunk in the prompt capacity market and, therefore, may not be included in capacity offers.  Copland and Geissler explain, however, that this change will not necessarily result in a systematic decrease in capacity offers and clearing prices.  First, they note that only one year of amortized capital costs may be included in an FCA capacity offer, which means that the remaining capital costs are no longer considered avoidable costs if the resource clears the FCA, significantly limiting the amount of capital expenditures that can be included in FCA capacity offers.  Moreover, they note that market participants may still ensure that one year of amortized capital expenditures are included in their capacity offers in the prompt market by postponing investments until after the ACA, thereby making those investment costs avoidable.  Further, Geissler and Copland state that certain capital expenditures, such as urgent repairs to existing resources, may be considered avoidable costs in the ACA but would not be considered avoidable in the FCM if there was not a need for urgent repairs at the time of the FCA.  Additionally, they explain that several other factors will impact the level of avoidable costs in capacity offers, including Pay-for-Performance costs and revenues, as well as risk premiums.\n\nOverview of Deactivation Notification Framework\n\nFiling Parties explain that, with the move to a prompt capacity market, they also propose to implement reforms to shift from a resource retirement framework to a notification-based deactivation framework (Deactivation Notification framework).  Filing Parties state that this framework builds on the retirement-based framework under the FCM, including the market power and reliability review processes, which are largely retained.  However, unlike under the FCM, where retirements are carried out through de-list bids submitted as part of the pre-auction qualification process more than four years prior to the Capacity Commitment Period of the planned retirement, Filing Parties explain that, under the Deactivation Notification framework, deactivations will be carried out through a separate notification process that occurs twelve months before the Capacity Commitment Period during which the planned deactivation would take place.\n\nFiling Parties explain that it had three design objectives when moving to the Deactivation Notification framework:  (1) enabling efficient deactivation decisions; (2) facilitating a cost-effective response to such deactivation decisions; and (3) simplicity.  Filing Parties argue that the twelve-month notification horizon provides market participants that are considering retirement with better information and optionality about when to decide on deactivation given that deactivation decisions are made much closer to the actual deactivation date, which should result in actual deactivation dates that better align with economically efficient deactivation dates.  Filing Parties also argue that this will reduce the likelihood that resources take on Capacity Supply Obligations for Capacity Commitment Periods in which they are not physically or economically able to perform due to inaccurately timing retirement decisions.  Filing Parties argue that this in turn improves signals to other market participants about the actual timing of when deactivations are expected to occur, and that this benefit could be significant given that historically many resources have retired prior to their planned retirement date.  Further, Filing Parties argue that the Deactivation Notification framework will continue to ensure that sufficient advance notice is given to prevent adverse reliability impacts from planned deactivations through ISO-NE\u2019s proactive transmission planning processes and significant investment in transmission infrastructure in recent decades.  Filing Parties state that deactivation notifications are irrevocable in order to ensure accurate planning for a reliable system and in order to not undermine market signals from the twelve-month notification lead time.  Filing Parties state that the certainty associated with irrevocable Deactivation Notifications submitted and reviewed on a batched basis enables a streamlined and more efficient process than the one used for the local transmission reliability review of retirements in the Forward Capacity Market.  Filing Parties explain that moving the deactivation framework outside the auction process eliminates the sequential and prolonged review process currently under the FCM and instead employs a single review of all resources planning to deactivate during a particular Capacity Commitment Period within the 90-day period that also coincides with the period when ISO-NE will conduct market power reviews.  Filing Parties state that these reforms will bring ISO-NE into alignment with several other RTOs, including PJM Interconnection, L.L.C. (PJM), New York Independent System Operator, Inc. (NYISO), and MISO, that also generally require twelve months of notice for deactivation decisions.\n\nOverview of Transition Mechanisms\n\nFiling Parties explain that ISO-NE will be implementing two rules to transition market participation from the FCM to the new prompt capacity market construct.  Specifically, Filing Parties explain that the first rule describes the transition from the FCM to the ACA for resources that have either sold capacity in the FCM or elected to be on critical path schedule monitoring but will not achieve commercial operation status by the start of the first Capacity Commitment Period under the prompt market.  ISO-NE proposes that such resources will remain on critical path schedule monitoring under the same conditions as under the FCM, including: the same ability to remain on critical path schedule monitoring until the resource becomes commercial, is terminated for failure to adhere to conditions under their critical path schedule, or voluntarily withdraws; the same termination and voluntarily withdrawal rules; the same assessment for determining whether a resource has become commercial; and the same financial assurance requirements.  ISO-NE clarifies that such resources may not participate in the ACA until they become commercial.\n\nFiling Parties explain that the second rule will allow resources that elected to receive a multi-year price lock under the FCM, for up to six Capacity Commitment Periods, to continue to receive that price lock under the prompt capacity market.  Filing Parties state that the Commission has previously accepted transition mechanisms that \u201cpromote [a] long-term cost-effectiveness for the market, while promoting investor confidence,\u201d and that these transition mechanisms support these objectives for resources that either need more time to become commercial or anticipated receiving a continued price-lock that will now be administered under the prompt capacity market.  Filing Parties explain that such resources will be required to offer into the ACA at $0 in order to ensure they are inframarginal and receive a Capacity Supply Obligation.  As under the FCM, ISO-NE explains that resources that terminate their multi-year price-lock would not be able to re-elect such treatment, and that multi-year price-locks are only available for whole Capacity Commitment Periods.  In addition, ISO-NE explains that it is proposing provisions related to resources with a multi-year price-lock that are non-commercial for the first ACA, which would allow such resources to maintain their price-lock through the remaining years of their price-lock election once those resources become commercial.\n\nRelationship to the Broader CAR Initiative\n\nFiling Parties explain that this CAR-PD filing represents Phase 1 of a two-phase initiative to reform ISO-NE\u2019s capacity market.  Filing Parties explain that Phase 2 is currently under development with stakeholders and is scheduled to be filed with the Commission by the end of 2026.  Filing Parties explain that Phase 2 will include two additional reforms:  (1) replacing the ACA with two seasonal (summer and winter) auctions; and (2) the implementation of a new accreditation process that captures the marginal reliability contributions of resources during periods of highest system risk.  Filing Parties state that they intend to implement both Phase 1 and Phase 2 reforms prior to running the first ACA in May 2028.  However, Filing Parties make clear that the CAR-PD proposal is fully implementable on its own and that ISO-NE can use CAR-PD to run the 2028 ACA regardless of whether Phase 2 is implemented.\n\nNotice and Responsive Pleadings\n\nNotice of the filing was published in the Federal Register, 91 Fed. Reg. 368 (Jan. 6, 2026), with interventions, comments, and protests due on or before January 20, 2026.  The Maine Public Utilities Commission and Massachusetts Department of Public Utilities filed notices of intervention.  Timely motions to intervene were filed by Avangrid, Inc.; Boston Energy Trading and Marketing LLC; Calpine, LLC; Constellation Energy Generation, LLC; CPV Towantic, LLC; Dominion Energy Services, Inc.; Electric Power Supply Association; Eversource Energy Service Company; FirstLight Power Inc.; H.Q. Energy Services (U.S.); LS Power Development, LLC; Narragansett Electric Company; National Grid; New England Power Generators Association Inc. (NEPGA); New England States Committee on Electricity (NESCOE); New Hampshire Office of the Consumer Advocate; NRG Business Marketing LLC; Public Citizen, Inc.; Public Systems; Solar Energy Industries Association (SEIA); and The Retail Energy Supply Association.  Comments were filed by the IMM, NEPGA, NESCOE, Public Systems, and SEIA.  Supplemental Comments were filed by NEPOOL.\n\nComments\n\nThe IMM and SEIA support the CAR-PD proposal.  NEPGA, NESCOE, and Public Systems also support the CAR-PD proposal, but with the caveat that there is further work to be done.  In its supplemental comments, NEPOOL provided additional detail on the stakeholder process, noting that the Participants Committee voted overwhelmingly in favor of the proposal and including specific details on the conceptual ideas and amendments that were discussed and/or voted on in stakeholder meetings.\n\nThe IMM, NEPGA, NESCOE, Public Systems, and SEIA state that they support the CAR-PD proposal for many of the reasons articulated by ISO-NE.  For example, they argue that the proposal will mitigate the issue of phantom entry and use more accurate demand-side and supply-side data inputs, thereby ensuring improved market efficiency and that the capacity secured through the auction will meet the region\u2019s actual reliability requirements.  Further, NESCOE, Public Systems, and SEIA support the proposal\u2019s simplification of the auction processes, which they argue will reduce administrative burdens, and NEPGA, NESCOE, and SEIA note that the deactivation process will provide better information for resources considering deactivation or reactivation.  The IMM, SEIA, and NESCOE all state that the benefits of a prompt market will increase over time as the grid continues to change, including from the potential emergence of large loads.  SEIA further notes that the Commission has accepted prompt auctions relying on near-term capacity procurement in MISO and NYISO.\n\nIn addition, the IMM states that it supports the proposed buyer-side market power rules and deactivation framework.  Furthermore, the IMM supports the move to a sealed-bid auction as a more administratively efficient means of running the auction, while mitigating market power concerns from the ability in the descending clock auction format to use information revealed during the auction to theoretically strategize a withdrawal that could inflate prices above competitive levels.  The IMM also supports the extension of the capacity must-offer requirement to all resources with CNRIS, as well as the new cost recovery mechanism for resources that believe they have been improperly mitigated.\n\nNEPGA notes its concern with the proposed methodology for calculating the Capacity Offer Price Threshold, the price above which a Market Participant\u2019s capacity supply offer price is subject to supply-side mitigation review by the IMM.  NEPGA states that the methodology risks over mitigation and uneconomic market prices, but acknowledges that ISO-NE has committed to evaluate this concern during the CAR-SA Filing NEPOOL stakeholder process.  Separately, NEPGA states that, while it does not oppose the extension of the must-offer requirement to all resources with CNR Capability and Qualified Capacity in excess of 0 MW, it notes its concern regarding Filing Parties\u2019 justification for this extension, specifically, that it is necessary to ensure that \u201cload gets the full value of the [interconnection rights] they are paying to maintain.\u201d  Specifically, NEPGA argues that while Network Customers are responsible for funding a significant share of transmission, interconnection customers are responsible for funding related transmission upgrades.  NEPGA states that the extension of the must-offer requirement promotes market competition, which is a sufficient reason for its acceptance.  NEPGA also notes that there is a risk that Reliability Must-Run (RMR) or cost-of-service agreements could last longer under the new deactivation framework given the shorter amount of time to prepare for a resource deactivation, and asks the Commission to take notice of this risk and take action if this risk materializes.  Notwithstanding these concerns, NEPGA states that it supports the CAR-PD proposal and asks that the Commission accept it.\n\nNESCOE supports the filing but asks that ISO-NE provide as much supplemental information to stakeholders as possible during the transition to the prompt market to mitigate the possibility of short-term price volatility.\n\nFinally, Public Systems argues that both Phase 1 and Phase 2 of the CAR reforms are essential to realize the full benefits of a move to a prompt market and urges the Commission, in approving the CAR-PD proposal, to stress that Phase 2 must also be completed and submitted by the end of 2026.\n\nDiscussion\n\nProcedural Matters\n\nPursuant to Rule 214 of the Commission\u2019s Rules of Practice and Procedure, \n18 C.F.R. \u00a7\u00a0385.214 (2025), the notices of intervention and timely, unopposed motions \nto intervene serve to make the entities that filed them parties to this proceeding.\n\nSubstantive Matters\n\nAs discussed below, we find that Filing Parties\u2019 CAR-PD proposal is just and reasonable and not unduly discriminatory or preferential, and therefore accept the filing effective March 31, 2026, as requested.\n\nWe find that Filing Parties\u2019 proposal to implement a prompt auction design for the ISO-NE capacity market \u2013 with ACAs held four weeks prior to each Capacity Commitment Period \u2013 is just and reasonable.  As Filing Parties state, the Commission has previously found proposed capacity market designs that rely on prompt capacity auctions to be just and reasonable.  Specifically, the Commission approved MISO\u2019s proposed prompt capacity auction market design, under which MISO holds a prompt auction two months prior to the delivery year.  Based on the record before us, we agree with Filing Parties that the proposal to move to a prompt capacity auction market design in ISO-NE is just and reasonable because it will reduce supply uncertainty by requiring resources to be fully commercial and to have demonstrated their ability to deliver capacity to the region to participate in ACAs, reduce demand uncertainty because the Installed Capacity Requirement will be calculated using data that is closer in time to the Capacity Commitment Period, simplify many processes within the auction and qualification rules, and result in more accurate Qualified Capacity values for resource accreditation.\n\nWe also find the proposed Deactivation Notification framework to be just and reasonable.  We agree with Filing Parties that the 12-month notification horizon will allow market participants to make their retirement decisions based on better information about market conditions, revenues, costs, and the remaining economic life of the resource, which should result in resources\u2019 actual deactivation dates aligning more closely with their most economically efficient deactivation dates.  Indeed, PJM, NYISO, and MISO all have deactivation frameworks, which the Commission has found to be just and reasonable, that require deactivating resources to provide 12 months\u2019 notice prior to deactivating, as Filing Parties propose here.  Further, Filing Parties\u2019 proposal also allows ISO-NE to study Deactivation Notifications on a batched basis, enabling a streamlined and more efficient process than under the status quo.  While we acknowledge NEGPA\u2019s concern that RMR-type cost-of-service agreements could last longer under the new deactivation framework, we note that, as relevant to the instant filing, NEPGA only asks that the Commission take notice of this aspect of the design.\n\nWe also find the proposed transition mechanisms to be just and reasonable because, as further explained below, they provide investor confidence and certainty.  The proposed transition mechanisms allow resources that received a multi-year price lock under the FCM to continue to receive that price lock.  Additionally, the proposed transition mechanisms provide that resources that will not achieve commercial operation status by the start of the first Capacity Commitment Period under the prompt market will remain on critical path schedule monitoring under the same conditions as under the FCM.  Moreover, the transition mechanisms will incentivize these market participants to complete their investments and successfully bring the capacity for which they have obtained a Capacity Supply Obligation online.\n\nWe note that NEPGA has raised concerns of over-mitigation under the proposed methodology for calculating the Capacity Offer Price Threshold.  As Filing Parties note in their Transmittal, the Capacity Offer Price Threshold methodology is the same as the methodology used to determine the Dynamic De-List Bid Threshold under the FCM.  ISO-NE is not proposing to change this methodology in the instant proceeding.  We continue to find that, as the Commission previously explained, the methodology \u201cproduce[s] a value that reasonably balances the objectives of protecting against the exercise of market power and minimizing interference with competitive bidding.\u201d  Moreover, we note that ISO-NE has committed to further evaluate whether the calculated Capacity Offer Price Threshold over- or under-mitigates capacity supply offers.\n\nNEPGA requests that the Commission not rely on Filing Parties\u2019 rationale that the extension of the must-offer requirement to all commercial resources that hold CNRIS ensures that \u201cload gets the full value of the [interconnection rights] they are paying to maintain.\u201d  Based on the record before us, we find that Filing Parties\u2019 proposal to extend the must-offer requirement to all resources that hold CNRIS is just and reasonable because, as Filing Parties state, the intended purpose of such rights is to make resources\u2019 capacity available to the ISO-NE region and allowing a resource that holds CNRIS to decline to offer its capacity would prevent another resource from doing so and thus adversely affect \u201c[ISO-NE\u2019s] ability to cost-effectively obtain sufficient capacity commitments through the [ACA].\u201d\n\nRegarding NESCOE\u2019s concerns about the possibility of short-term price volatility, we note ISO-NE\u2019s expressed commitment to continue to work with stakeholders to understand and address their concerns regarding the new prompt capacity auction market design.\n\nFinally, we find that Public Systems\u2019 comments that the full benefits of the prompt capacity auction market design will not be realized without the reforms anticipated in the CAR-SA Filing are outside the scope of this proceeding.  As Filing Parties represent in their Transmittal, the CAR-PD proposal represents a complete market design implementable on a standalone basis.\n\nThe Commission orders:\n\nFiling Parties\u2019 filing is hereby accepted effective March 31, 2026, as requested, \nas discussed in the body of this order.\n\nBy the Commission.\n\n( S E A L )\n\nDebbie-Anne A. Reese,\n\nSecretary.\n\nAppendix \u2013 Tariff Records\n\nISO New England Inc.\n\nISO New England Inc. Transmission, Markets and Services Tariff\n\nI.2, I.2 Rules of Construction; Definitions (177.0.0).\n\nI.3, I.3 Obligations of MPs & Other Customers (10.0.0).\n\nSection II TOC, Section II Table of Contents (19.0.0).\n\nII.22, II.22 Operating Arrangements (2.0.0).\n\nII.48, II.48 Interconnection Service Capabilities (5.0.0).\n\nII.I, II.I; Deactivation (0.0.0).\n\nII.I, II.52 through II.55 (0.0.0).\n\nSchedule 16, Schedule 16 System Restoration and Planning Service (61.0.0).\n\nAttachment K, Attachment K Regional System Planning Process (34.0.0).\n\nAttachment N, Attachment N Procedures for Regional System Plan Upgrades (7.0.0).\n\nSection III TOC, Section III - Table of Contents (56.0.0).\n\nIII.1, III.1 Market Operations (76.0.0).\n\nIII.12, III.12 Calculation of Capacity Requirements (29.0.0).\n\nIII.13, III.13 Forward Capacity Market (11.0.0).\n\nIII.15, III.15 Annual Capacity Market (0.0.0).\n\nAppendix A, Appendix A Market Monitoring, Reporting and Market Power Mit (69.0.0).\n\nISO New England Inc. | Docket No. | ER26-925-000"
+   }
+  ]
+ }
+}

@@ -106,6 +106,27 @@ def _load_model_config() -> dict:
         return defaults
 
 
+# Inline fallback when neither a DB override nor prompts/doc_summary_prompt.md
+# exists — kept as a constant so api/resummarize.py shares the same literal.
+_DOC_SUMMARY_FALLBACK = (
+    "Summarise the following document(s) for an energy market analyst.\n\n"
+    "Document(s): {filename}\n\n{text}"
+)
+
+
+def _load_doc_summary_prompt() -> str:
+    """doc_summary_prompt with the general context prepended — the same
+    injection the committee prompts get in _get_committee_prompts. Braces in
+    the context are escaped because this template (unlike the committee ones)
+    later runs .format(filename=…, text=…), and an unescaped {…} in a
+    user-edited context would KeyError into the degraded fallback path."""
+    template = _load_prompt("doc_summary_prompt") or _DOC_SUMMARY_FALLBACK
+    ctx = _load_prompt("general_context_prompt").strip()
+    if ctx:
+        template = ctx.replace("{", "{{").replace("}", "}}") + "\n\n" + template
+    return template
+
+
 _VENUE_SLUG = {
     "ISO-NE": "isone",
 }
@@ -605,11 +626,27 @@ def _get_text_for_doc(doc: dict) -> str:
 # Agenda metadata helpers
 # ---------------------------------------------------------------------------
 
-def _item_metadata_block(item: dict) -> str:
+def _item_metadata_block(item: dict, meeting: dict | None = None) -> str:
     """
-    Build a compact metadata block for an agenda item using its stored fields.
-    Returns an empty string if no metadata is present.
+    Build a compact metadata block for an agenda item using its stored fields,
+    prefixed with meeting-level context (venue / committee / date) when the
+    meeting row is supplied. Returns an empty string if no metadata is present.
     """
+    meeting_lines: list[str] = []
+    if meeting:
+        venue     = meeting.get("venue_name") or meeting.get("venue_short") or ""
+        committee = meeting.get("type_name") or meeting.get("type_short") or ""
+        date      = meeting.get("meeting_date")
+        head = " ".join(p for p in (venue, committee) if p)
+        if date:
+            head = f"{head} — {date}" if head else str(date)
+        if head:
+            meeting_lines.append(f"**Meeting:** {head}")
+        if meeting.get("title"):
+            meeting_lines.append(f"**Meeting title:** {meeting['title']}")
+        if meeting.get("location"):
+            meeting_lines.append(f"**Location:** {meeting['location']}")
+
     lines = []
     label = item.get("item_id") or ""
     title = item.get("title") or ""
@@ -638,9 +675,9 @@ def _item_metadata_block(item: dict) -> str:
     if notes:
         lines.append(f"**Notes:** {notes}")
 
-    if len(lines) <= 1:
+    if not meeting_lines and len(lines) <= 1:
         return ""  # Only the title line — no useful metadata
-    return "\n".join(lines)
+    return "\n".join(meeting_lines + lines)
 
 
 def _meeting_structure_block(all_items: list[dict]) -> str:
@@ -982,6 +1019,7 @@ def _run_item_doc_summary(
     max_tokens: int = 4096,
     extract_images: bool = False,
     meeting_folder: Path | None = None,
+    meeting: dict | None = None,
 ) -> bool:
     """
     Summarise all documents assigned to `item` in one LLM call.
@@ -993,6 +1031,7 @@ def _run_item_doc_summary(
         max_tokens=max_tokens,
         extract_images=extract_images,
         meeting_folder=meeting_folder,
+        meeting=meeting,
     )
     if detailed is None:
         return False
@@ -1018,6 +1057,7 @@ def _summarize_item_docs(
     max_tokens: int = 4096,
     extract_images: bool = False,
     meeting_folder: Path | None = None,
+    meeting: dict | None = None,
 ) -> str | None:
     """
     Produce the document-group summary text for `item`'s directly-attached
@@ -1071,7 +1111,7 @@ def _summarize_item_docs(
     item_label         = item.get("item_id") or item["title"]
 
     # Build metadata context block and prepend to the document text
-    meta_block = _item_metadata_block(item)
+    meta_block = _item_metadata_block(item, meeting)
     if meta_block:
         augmented_text = f"{meta_block}\n\n---\n\n{combined_text}"
     else:
@@ -1401,6 +1441,21 @@ def load_model_config() -> dict:
     return _load_model_config()
 
 
+def load_doc_summary_prompt() -> str:
+    """Public wrapper for _load_doc_summary_prompt — used by api/resummarize.py."""
+    return _load_doc_summary_prompt()
+
+
+def load_image_config() -> dict:
+    """Public wrapper for _load_image_config — used by api/resummarize.py."""
+    return _load_image_config()
+
+
+def resolve_meeting_folder(meeting: dict | None) -> Path | None:
+    """Public wrapper for _resolve_meeting_folder — used by api/resummarize.py."""
+    return _resolve_meeting_folder(meeting)
+
+
 # ---------------------------------------------------------------------------
 # Level 2 — Item rollup (parent items with child summaries)
 # ---------------------------------------------------------------------------
@@ -1412,6 +1467,7 @@ def _run_item_rollup(
     model: str,
     agenda_item_prompt: str,
     max_tokens: int = 4096,
+    meeting: dict | None = None,
 ) -> bool:
     """
     Synthesise child summaries into a summary for `item`.
@@ -1432,7 +1488,7 @@ def _run_item_rollup(
     item_label = item.get("item_id") or item["title"]
 
     # Prepend item metadata so the model knows presenter/org/vote context
-    meta_block = _item_metadata_block(item)
+    meta_block = _item_metadata_block(item, meeting)
     if meta_block:
         doc_summaries_block = f"{meta_block}\n\n---\n\n{doc_summaries_block}"
 
@@ -1616,6 +1672,7 @@ def _run_meeting_briefing(
     model: str,
     briefing_prompt: str,
     max_tokens: int = 8192,
+    meeting: dict | None = None,
 ) -> bool:
     """
     Synthesise top-level item summaries into the meeting briefing.
@@ -1643,7 +1700,7 @@ def _run_meeting_briefing(
             continue
 
         label = item.get("item_id") or item["title"]
-        meta  = _item_metadata_block(item)
+        meta  = _item_metadata_block(item, meeting)
         header = f"## Item {label}: {item['title']}"
         if meta:
             header += f"\n{meta}"
@@ -1756,6 +1813,33 @@ def _item_label(item: dict) -> str:
     return item.get("item_id") or item["title"]
 
 
+def _resolve_meeting_folder(meeting: dict | None) -> Path | None:
+    """Locate the on-disk materials folder for a meeting (image storage).
+    Scans <storage_root>/<committee name>/ for a directory whose name carries
+    the committee short name and the meeting date (ISO or MMDDYY). Returns
+    None when the meeting row is missing, has no date, or nothing matches."""
+    if not meeting or meeting.get("meeting_date") is None:
+        return None
+    try:
+        full_cfg = yaml.safe_load((_REPO_ROOT / "config.yaml").read_text(encoding="utf-8"))
+    except Exception:
+        full_cfg = {}
+    storage_root = Path((full_cfg or {}).get("storage_root", "./nepool-materials"))
+    comm_dir = _REPO_ROOT / storage_root / (meeting.get("type_name") or "")
+    if not comm_dir.is_dir():
+        return None
+    meeting_date = meeting["meeting_date"]
+    date_str = str(meeting_date)
+    mmddyy = meeting_date.strftime("%m%d%y") if hasattr(meeting_date, "strftime") else ""
+    type_short = meeting.get("type_short") or ""
+    for d in comm_dir.iterdir():
+        if not d.is_dir() or type_short not in d.name:
+            continue
+        if date_str in d.name or (mmddyy and mmddyy in d.name):
+            return d
+    return None
+
+
 def _run_items_parallel(
     items: list[dict],
     worker_fn,
@@ -1858,31 +1942,14 @@ def run_meeting_summarization(
     img_cfg = _load_image_config()
     do_images = extract_images if extract_images is not None else img_cfg.get("enabled", False)
 
-    # Resolve meeting folder for image storage
+    # The meeting row feeds the per-item metadata blocks at every level; the
+    # folder lookup (image storage) still only happens when images are on.
+    meeting = db.get_meeting(meeting_id)
+
     meeting_folder: Path | None = None
     if do_images:
-        meeting = db.get_meeting(meeting_id)
-        if meeting:
-            cfg_path = _REPO_ROOT / "config.yaml"
-            try:
-                full_cfg = yaml.safe_load(cfg_path.read_text(encoding="utf-8"))
-            except Exception:
-                full_cfg = {}
-            storage_root = Path(full_cfg.get("storage_root", "./nepool-materials"))
-            # Find existing meeting folder by scanning the committee directory
-            type_short = meeting.get("type_short", "")
-            type_name = meeting.get("type_name", "")
-            comm_dir = _REPO_ROOT / storage_root / type_name
-            if comm_dir.is_dir():
-                for d in comm_dir.iterdir():
-                    if d.is_dir() and type_short in d.name:
-                        # Check if the meeting date is in the folder name
-                        date_str = str(meeting["meeting_date"])
-                        if date_str in d.name or meeting["meeting_date"].strftime("%m%d%y") in d.name:
-                            meeting_folder = d
-                            break
-        if do_images:
-            _progress(f"Image extraction enabled{' (folder: ' + meeting_folder.name + ')' if meeting_folder else ''}.")
+        meeting_folder = _resolve_meeting_folder(meeting)
+        _progress(f"Image extraction enabled{' (folder: ' + meeting_folder.name + ')' if meeting_folder else ''}.")
 
     models      = _load_model_config()
     workers     = _load_parallel_workers()
@@ -1894,13 +1961,7 @@ def run_meeting_summarization(
     mtg_max_tokens  = models["meeting_max_tokens"]
 
     briefing_prompt, agenda_item_prompt = _get_committee_prompts(committee_short, venue_short)
-    doc_summary_prompt = _load_prompt("doc_summary_prompt")
-
-    if not doc_summary_prompt:
-        doc_summary_prompt = (
-            "Summarise the following document(s) for an energy market analyst.\n\n"
-            "Document(s): {filename}\n\n{text}"
-        )
+    doc_summary_prompt = _load_doc_summary_prompt()
 
     all_items = db.get_agenda_items(meeting_id)
     if not all_items:
@@ -1973,6 +2034,7 @@ def run_meeting_summarization(
                 max_tokens=doc_max_tokens,
                 extract_images=do_images,
                 meeting_folder=meeting_folder,
+                meeting=meeting,
             )
 
         for label, created, exc in _run_items_parallel(
@@ -2046,6 +2108,7 @@ def run_meeting_summarization(
                 max_tokens=doc_max_tokens,
                 extract_images=do_images,
                 meeting_folder=meeting_folder,
+                meeting=meeting,
             )
 
             if own_text and not child_summaries:
@@ -2076,6 +2139,7 @@ def run_meeting_summarization(
             return _run_item_rollup(
                 parent, child_summaries, client, item_model, agenda_item_prompt,
                 max_tokens=item_max_tokens,
+                meeting=meeting,
             )
 
         for label, created, exc in _run_items_parallel(
@@ -2119,6 +2183,7 @@ def run_meeting_summarization(
         l3_ok = _run_meeting_briefing(
             meeting_id, top_level, all_items, client, mtg_model, briefing_prompt,
             max_tokens=mtg_max_tokens,
+            meeting=meeting,
         )
     except Exception as exc:
         msg = f"Level 3 error: {exc}"
@@ -2263,7 +2328,7 @@ def estimate_summarization_cost(meeting_id: int, mode: str = "all") -> dict:
     briefing_prompt, agenda_item_prompt = _get_committee_prompts(type_short, venue_short)
     briefing_prompt = briefing_prompt or ""
     agenda_item_prompt = agenda_item_prompt or ""
-    doc_summary_prompt = _load_prompt("doc_summary_prompt") or ""
+    doc_summary_prompt = _load_doc_summary_prompt()
 
     cfg = _load_model_config()
     doc_model = cfg["document_model"]

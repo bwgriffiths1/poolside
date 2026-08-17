@@ -46,7 +46,11 @@ summary.
 
 Tone: formal and analytical. Omit general commentary and open questions unless
 a specific unresolved issue was flagged by PJM staff, the Independent Market
-Monitor, or a stakeholder in the materials. Target 150–300 words.
+Monitor, or a stakeholder in the materials.
+Scale length to the substance of the materials: a thin or administrative
+item deserves under 100 words; a major design proposal with multiple
+substantive documents can justify 600 or more. Never pad — length should
+track decision-relevant content, not a quota.
 
 If images are provided alongside the document summaries below, they are key
 figures selected from the underlying documents. You may reference up to 2 of

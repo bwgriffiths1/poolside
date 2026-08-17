@@ -3,10 +3,6 @@ Budget and Finance Subcommittee (BFS) meeting.
 
 Agenda Item: {item_id} — {title}
 
-[PRIOR CONTEXT]
-None available. (This section will be populated with prior-meeting context
-in a future version of this tool.)
-
 The document summaries below cover supporting materials for this agenda item.
 Synthesize them into a single coherent summary. Where multiple documents address
 the same item from different perspectives, integrate them rather than
@@ -38,7 +34,11 @@ decision-relevant development — what changed or was decided and why it
 matters to a market participant>` followed by a blank line, then the
 summary.
 
-Tone: formal and analytical. Target 150–300 words.
+Tone: formal and analytical.
+Scale length to the substance of the materials: a thin or administrative
+item deserves under 100 words; a major design proposal with multiple
+substantive documents can justify 600 or more. Never pad — length should
+track decision-relevant content, not a quota.
 
 ---
 

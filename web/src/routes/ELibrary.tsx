@@ -1,21 +1,11 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Topbar } from "../components/Topbar";
 import { Icon } from "../components/Icon";
 import { api, type DocketListItem } from "../lib/api";
+import { fmtShortDate } from "../lib/format";
 import { qk, useCan } from "../lib/queries";
-
-function fmtDate(iso: string | null | undefined): string {
-  if (!iso) return "—";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "—";
-  return d.toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  });
-}
 
 function BriefStatus({ d }: { d: DocketListItem }) {
   if (!d.filing_count) {
@@ -44,6 +34,16 @@ export function ELibrary() {
     queryKey: qk.dockets,
     queryFn: () => api.dockets(),
   });
+
+  // Movement first: most recent filing at the top, never-crawled dockets
+  // at the bottom (ties keep the tracked-newest-first order from the API).
+  const sorted = useMemo(
+    () =>
+      [...dockets].sort((a, b) =>
+        (b.latest_filed_date || "").localeCompare(a.latest_filed_date || ""),
+      ),
+    [dockets],
+  );
 
   const add = useMutation({
     mutationFn: () =>
@@ -126,15 +126,36 @@ export function ELibrary() {
           </div>
         ) : (
           <div className="ru-list">
-            {dockets.map((d) => (
+            {sorted.map((d) => (
               <button
                 key={d.id}
                 className="el-row"
                 onClick={() => navigate(`/docket/${d.id}`)}
               >
-                <div>
-                  <div className="el-row-number">{d.docket_number}</div>
+                <div className="el-row-main">
+                  <div className="el-row-head">
+                    <span className="el-row-number">{d.docket_number}</span>
+                    {(d.recent_filing_count ?? 0) > 0 && (
+                      <span
+                        className="el-row-new"
+                        title="Filings in the last 14 days"
+                      >
+                        {d.recent_filing_count} new filing
+                        {d.recent_filing_count === 1 ? "" : "s"}
+                      </span>
+                    )}
+                  </div>
                   <div className="el-row-title">{d.title || "Untitled docket"}</div>
+                  {(d.latest_filing_one_line || d.latest_filed_date) && (
+                    <div className="el-row-line">
+                      {d.latest_filed_date && (
+                        <span className="el-row-when">
+                          {fmtShortDate(d.latest_filed_date)}
+                        </span>
+                      )}
+                      {d.latest_filing_one_line}
+                    </div>
+                  )}
                 </div>
                 <div className="el-row-meta">
                   <span>
@@ -145,7 +166,6 @@ export function ELibrary() {
                     <span className="mono">{d.intervenor_count ?? 0}</span>{" "}
                     intervention{(d.intervenor_count ?? 0) === 1 ? "" : "s"}
                   </span>
-                  <span>latest {fmtDate(d.latest_filed_date)}</span>
                 </div>
                 <div className="ru-row-status">
                   <BriefStatus d={d} />

@@ -24,6 +24,12 @@ Standing areas of highest interest:
   fuel security in ISO-NE), backstop/out-of-market procurement mechanisms
   (e.g., PJM reliability backstop procurement), and load forecast changes that
   shift capacity procurement needs
+- Large-load, co-located load, and data-center integration policy:
+  interconnection and transmission service rules for large new loads,
+  their capacity-procurement treatment (ICR inclusion/exclusion,
+  bring-your-own-generation constructs), cost allocation and
+  socialization outcomes, and related FERC proceedings (show-cause
+  orders, compliance filings)
 - Interconnection queue trends, new supply entry (renewables, storage, gas),
   and retirement signals that indicate future market tightening or loosening
 - Demand response program rule changes affecting qualification, measurement

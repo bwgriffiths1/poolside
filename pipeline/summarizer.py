@@ -344,11 +344,19 @@ def _img_to_png_bytes(image_bytes: bytes, max_edge_px: int = 0) -> tuple[bytes, 
     crisp (config: summarization.images.max_edge_px).
     """
     img = Image.open(io.BytesIO(image_bytes))
-    if img.mode not in ("1", "L", "LA", "I", "P", "RGB", "RGBA"):
+    # Flatten transparency onto WHITE before anything else: slide/PDF
+    # graphics are frequently transparent-background line art that otherwise
+    # renders as white-boxes-on-black (or invisibly) in the reader, the Word
+    # export, and the multimodal LLM call.
+    if img.mode == "P":
+        img = img.convert("RGBA")  # palette may carry transparency; LANCZOS posterizes P anyway
+    if img.mode in ("RGBA", "LA"):
+        bg = Image.new("RGB", img.size, (255, 255, 255))
+        bg.paste(img, mask=img.getchannel("A"))
+        img = bg
+    elif img.mode not in ("1", "L", "I", "RGB"):
         img = img.convert("RGB")  # e.g. CMYK from print-oriented PDFs can't save as PNG
     if max_edge_px and max(img.size) > max_edge_px:
-        if img.mode == "P":
-            img = img.convert("RGBA")  # LANCZOS on a palette image posterizes
         img.thumbnail((max_edge_px, max_edge_px), Image.LANCZOS)
     buf = io.BytesIO()
     img.save(buf, format="PNG")
@@ -433,17 +441,36 @@ def _extract_images_pdf_unlocked(
         img_idx = 0
         for img_info in img_list:
             xref = img_info[0]
-            try:
-                pix = doc.extract_image(xref)
-            except Exception:
-                continue
-            if not pix or not pix.get("image"):
-                continue
-
-            blob = pix["image"]
-            ext = pix.get("ext", "png")
-            w = pix.get("width", 0)
-            h = pix.get("height", 0)
+            smask = img_info[1] if len(img_info) > 1 else 0
+            blob = None
+            ext = "png"
+            w = h = 0
+            if smask:
+                # extract_image returns the RAW base stream; transparency
+                # lives in a separate soft mask, so transparent-background
+                # slide graphics come out with the void filled black. Rebuild
+                # the pixmap with its mask so alpha survives — it is then
+                # flattened onto white by _img_to_png_bytes.
+                try:
+                    base = fitz.Pixmap(doc, xref)
+                    if base.colorspace and base.colorspace.n > 3:
+                        base = fitz.Pixmap(fitz.csRGB, base)
+                    combined = fitz.Pixmap(base, fitz.Pixmap(doc, smask))
+                    blob = combined.tobytes("png")
+                    w, h = combined.width, combined.height
+                except Exception:
+                    blob = None  # dimension/colorspace mismatch — raw stream below
+            if blob is None:
+                try:
+                    pix = doc.extract_image(xref)
+                except Exception:
+                    continue
+                if not pix or not pix.get("image"):
+                    continue
+                blob = pix["image"]
+                ext = pix.get("ext", "png")
+                w = pix.get("width", 0)
+                h = pix.get("height", 0)
 
             # Deduplicate
             img_hash = hashlib.sha256(blob).hexdigest()

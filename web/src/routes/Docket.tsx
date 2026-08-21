@@ -472,6 +472,7 @@ export function Docket() {
                   className="btn btn-ghost btn-sm"
                   disabled={!!jobActive || jobs.isStartingBrief}
                   onClick={jobs.startBrief}
+                  title="Check eLibrary for new filings, then rewrite the state of play"
                 >
                   <Icon name="spark" size={12} />
                   {brief ? "Regenerate" : "Generate"}

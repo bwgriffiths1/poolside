@@ -61,7 +61,10 @@ export function useDocketJob(docketId: number) {
     if (job.status === "complete") {
       const what =
         job.mode === "brief"
-          ? "State of play updated."
+          ? job.filings_found > 0
+            ? `State of play updated — ${job.filings_found} new filing(s) ` +
+              `picked up from eLibrary.`
+            : "State of play updated."
           : `Sync complete — ${job.filings_found} new filing(s), ` +
             `${job.filings_summarized} summarized.`;
       const cost =

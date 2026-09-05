@@ -12,8 +12,13 @@ map cross-checked against github.com/4very/ferc-elibrary-api):
 Operational notes, learned the hard way:
   - The API is SLOW: 15-60s per call is normal. Callers must run inside a
     background job, never a request handler.
-  - Cloudflare fronts the origin and throws transient 520s; plain curl gets
-    black-holed entirely. `requests` with a browser-ish UA works reliably.
+  - Cloudflare fronts the origin and throws transient 520s; those are worth
+    retrying through (eLibrary's own SPA does).
+  - Cloudflare ALSO scores the caller's IP, and a datacenter IP can earn a
+    blanket 403 across ferc.gov while the identical request from a clean IP
+    returns 200 (observed live 2026-09-04 from the app's Railway egress).
+    The browser-ish UA below is not what buys access — IP reputation is —
+    so no header change rescues a blocked host. See FercBlockedError.
   - Filings are immutable once posted, so per-accession metadata only ever
     needs to be fetched once.
 """
@@ -53,6 +58,36 @@ class FercClientError(Exception):
     """Raised when the eLibrary API keeps failing after retries."""
 
 
+class FercBlockedError(FercClientError):
+    """Cloudflare's edge refused us outright — an IP-reputation block on
+    THIS host, not an eLibrary fault (observed live 2026-09-04: the app's
+    Railway egress IP got a blanket 403 across ferc.gov while the identical
+    request from a residential IP returned 200). No amount of retrying or
+    header-tweaking clears it, and re-firing at a challenged edge only
+    deepens the block, so it fails fast and says so."""
+
+
+def _is_edge_block(resp) -> bool:
+    """True when a 403 is Cloudflare's own block/challenge page rather than
+    something eLibrary said.
+
+    Deliberately scoped to 403: FERC's origin 520s also arrive with
+    `Server: cloudflare` and a /cdn-cgi body, and that streak MUST stay
+    retryable (it's the whole reason the retry ladder exists)."""
+    if "cloudflare" not in (resp.headers.get("Server") or "").lower():
+        return False
+    try:
+        body = (resp.text or "")[:4096].lower()
+    except Exception:
+        return False
+    return any(marker in body for marker in (
+        "attention required",
+        "cf-error-details",
+        "/cdn-cgi/challenge-platform",
+        "error code: 1020",
+    ))
+
+
 class FercClient:
     def __init__(self, session: requests.Session | None = None,
                  pace_seconds: float = _PACE_SECONDS):
@@ -70,8 +105,14 @@ class FercClient:
 
     def _request(self, method: str, path: str, *, json_body=None,
                  expect_json: bool = True, retries: int = _RETRIES):
-        """One API call with pacing + retry/backoff on 5xx and transport
-        errors. 4xx returns are surfaced immediately (they're deterministic)."""
+        """One API call with pacing + retry/backoff on 5xx, 429 and
+        transport errors.
+
+        Other 4xx returns are surfaced immediately — they're deterministic,
+        so the backoff ladder would spend ~135s arriving at the same answer.
+        A Cloudflare edge block (403) is called out as FercBlockedError so
+        the failure reads as "this host is blocked" rather than "eLibrary is
+        down"; those two need completely different responses."""
         url = f"{BASE_URL}/{path}"
         last_exc: Exception | None = None
         for attempt in range(retries):
@@ -80,11 +121,25 @@ class FercClient:
                 resp = self.session.request(
                     method, url, json=json_body, timeout=_TIMEOUT)
                 self._last_call = time.monotonic()
-                if resp.status_code >= 500:
+                if resp.status_code == 403 and _is_edge_block(resp):
+                    raise FercBlockedError(
+                        f"eLibrary refused this host at the Cloudflare edge "
+                        f"(HTTP 403 on {path}). That's an IP-level block on "
+                        f"the server, not a problem with the docket or with "
+                        f"FERC — the same request succeeds from an unblocked "
+                        f"network. Retrying cannot clear it.")
+                # 429 is a rate limit: transient, and the backoff ladder is
+                # exactly the right response to it.
+                if resp.status_code >= 500 or resp.status_code == 429:
                     raise FercClientError(
                         f"HTTP {resp.status_code} from {path}")
                 resp.raise_for_status()
                 return resp.json() if expect_json else resp.content
+            except FercBlockedError:
+                raise
+            except requests.HTTPError as exc:
+                # Deterministic 4xx (404 on a bad accession, and the like).
+                raise FercClientError(f"{path} refused: {exc}") from exc
             except (FercClientError, requests.RequestException) as exc:
                 self._last_call = time.monotonic()
                 last_exc = exc

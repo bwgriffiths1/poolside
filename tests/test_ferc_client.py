@@ -4,7 +4,12 @@ from unittest.mock import MagicMock
 import pytest
 import requests
 
-from pipeline.ferc_client import FercClient, FercClientError, docinfo_url
+from pipeline.ferc_client import (
+    FercBlockedError,
+    FercClient,
+    FercClientError,
+    docinfo_url,
+)
 
 
 def make_client() -> tuple[FercClient, MagicMock]:
@@ -134,3 +139,87 @@ def test_docinfo_url():
     assert docinfo_url("20260101-0001") == (
         "https://elibrary.ferc.gov/eLibrary/docinfo?"
         "accession_number=20260101-0001")
+
+
+def cloudflare_block_response():
+    """Cloudflare's 'Attention Required!' page — what a blocked IP gets."""
+    resp = MagicMock()
+    resp.status_code = 403
+    resp.headers = {"Server": "cloudflare", "cf-ray": "a360e927cf720d2e-SEA"}
+    resp.text = (
+        "<!DOCTYPE html><html><head>"
+        "<title>Attention Required! | Cloudflare</title></head>"
+        "<body><div class='cf-error-details'>blocked</div></body></html>")
+    resp.raise_for_status.side_effect = requests.HTTPError("403 Forbidden")
+    return resp
+
+
+def test_edge_block_fails_fast_without_retrying(monkeypatch):
+    """A Cloudflare IP block is not transient: burning the 5-attempt ladder
+    just re-fires at an edge that already said no."""
+    slept = []
+    monkeypatch.setattr("pipeline.ferc_client.time.sleep", slept.append)
+    client, session = make_client()
+    session.request.return_value = cloudflare_block_response()
+    with pytest.raises(FercBlockedError, match="IP-level block"):
+        client.search_docket("ER26-3379")
+    assert session.request.call_count == 1
+    assert slept == []
+
+
+def test_edge_block_fails_fast_on_downloads_too(monkeypatch):
+    """Downloads carry the deeper budget for 520 streaks; a block must not
+    get to spend it (4 workers x 6 attempts is what deepens the block)."""
+    monkeypatch.setattr("pipeline.ferc_client.time.sleep", lambda s: None)
+    client, session = make_client()
+    session.request.return_value = cloudflare_block_response()
+    with pytest.raises(FercBlockedError):
+        client.download_file("GUID")
+    assert session.request.call_count == 1
+
+
+def test_blocked_error_is_a_client_error():
+    """Callers that only know FercClientError still catch the block."""
+    assert issubclass(FercBlockedError, FercClientError)
+
+
+def test_deterministic_4xx_fails_fast(monkeypatch):
+    monkeypatch.setattr("pipeline.ferc_client.time.sleep", lambda s: None)
+    client, session = make_client()
+    resp = MagicMock()
+    resp.status_code = 404
+    resp.headers = {}
+    resp.raise_for_status.side_effect = requests.HTTPError("404 Not Found")
+    session.request.return_value = resp
+    with pytest.raises(FercClientError, match="refused"):
+        client.get_doc_info("20260101-0001")
+    assert session.request.call_count == 1
+
+
+def test_429_still_retries(monkeypatch):
+    """A rate limit IS transient — backoff is the right answer to it."""
+    monkeypatch.setattr("pipeline.ferc_client.time.sleep", lambda s: None)
+    client, session = make_client()
+    session.request.side_effect = [
+        json_response({}, status=429),
+        json_response({"DataList": [{"Accession_Number": "x"}]}),
+    ]
+    assert client.get_doc_info("20260101-0001") == {"Accession_Number": "x"}
+    assert session.request.call_count == 2
+
+
+def test_520_streak_still_retries_despite_cloudflare_server_header(monkeypatch):
+    """Regression guard: FERC's origin 520 also arrives via Cloudflare with a
+    /cdn-cgi body. It must NOT be mistaken for an edge block."""
+    monkeypatch.setattr("pipeline.ferc_client.time.sleep", lambda s: None)
+    client, session = make_client()
+    five_twenty = MagicMock()
+    five_twenty.status_code = 520
+    five_twenty.headers = {"Server": "cloudflare"}
+    five_twenty.text = ("<html><body>error code: 520"
+                        "<script src='/cdn-cgi/scripts/x.js'></script>"
+                        "</body></html>")
+    ok = json_response({"DataList": [{"Accession_Number": "x"}]})
+    session.request.side_effect = [five_twenty, five_twenty, ok]
+    assert client.get_doc_info("20260101-0001") == {"Accession_Number": "x"}
+    assert session.request.call_count == 3

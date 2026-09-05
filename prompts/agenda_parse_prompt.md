@@ -43,6 +43,7 @@ Given raw agenda text (extracted from a .docx table or PDF), extract every agend
 - Rows with empty ID cells but metadata parentheticals are sub-items of the preceding item — assign them sequential letters (a, b, c).
 - Items marked with asterisk (e.g. "4.1*") should have the asterisk stripped from item_id.
 - Items ending in ".0" (like "2.0") should be treated as the top-level item (strip the ".0" → "2").
+- **Repeated IDs (multi-day joint meetings)**: when many consecutive rows share one ID (e.g. "4.0*" on every CAR-SA row), the first such row with no time slot is a banner ("JOINT MEETING OF THE MARKETS, ..." plus the initiative name, vote tag and WMPP ID). Emit it once as the parent item — item_id "4", title = the initiative name (e.g. "Capacity Auction Reforms – Seasonal / Accreditation"), never the "Joint Meeting of..." line. A later table that restates the same banner is NOT a new item. Every other row in the group is a session: assign sequential lowercase LETTERS in document order — "4.a", "4.b", "4.c" … — never numbers like "4.1". ISO-NE names the posted materials a04a_*, a04b_* to match, so the lettering is load-bearing.
 
 ### NYISO
 - Agendas are PDFs with a columnar layout.

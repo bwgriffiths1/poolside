@@ -11,6 +11,7 @@ Public API:
 """
 import io
 import logging
+import re
 import time as _time
 from pathlib import Path
 
@@ -369,6 +370,81 @@ def llm_match_docs(
 # Reconciliation
 # ---------------------------------------------------------------------------
 
+def _norm_id(iid: str) -> str:
+    """Normalise an item_id for cross-parser matching: lowercase, strip
+    trailing '*' and a sole '.0' sub-part."""
+    n = (iid or "").lower().rstrip("*").strip()
+    parts = n.split(".")
+    if len(parts) == 2 and parts[1] == "0":
+        n = parts[0]
+    return n
+
+
+_TITLE_NOISE_RE = re.compile(r"\(.*?\)|[^a-z0-9 ]+")
+_TITLE_CONT_RE = re.compile(r"(?:,\s*|\s+)cont(?:inued|'d|\.)?\.?$", re.IGNORECASE)
+
+
+def _norm_title(title: str) -> str:
+    t = _TITLE_CONT_RE.sub("", (title or "").lower())
+    t = _TITLE_NOISE_RE.sub(" ", t)
+    return " ".join(t.split())
+
+
+def _top_level(norm_id: str) -> str:
+    return norm_id.split(".", 1)[0]
+
+
+def _align_items(
+    regex_items: list[dict],
+    llm_items: list[dict],
+) -> dict[int, int]:
+    """Map LLM item index → regex item index for items that describe the
+    same agenda row.
+
+    Two passes:
+      1. normalised item_id equality;
+      2. same top-level number + same normalised title.
+
+    Pass 2 exists because ISO-NE joint agendas repeat one ID ("4.0*") on
+    every session row and leave disambiguation to the reader: regex letters
+    them (4.a, 4.b…) while the LLM sometimes numbers them (4.1, 4.2…). Those
+    are the same rows, not a structural disagreement — without this pass the
+    union merge below emitted both sets (28 children under item 4 on the
+    Sept 2026 MC).
+    """
+    regex_by_id = {}
+    for ri, r in enumerate(regex_items):
+        regex_by_id.setdefault(_norm_id(r.get("item_id", "")), ri)
+
+    align: dict[int, int] = {}
+    used: set[int] = set()
+    for li, lit in enumerate(llm_items):
+        ri = regex_by_id.get(_norm_id(lit.get("item_id", "")))
+        if ri is not None and ri not in used:
+            align[li] = ri
+            used.add(ri)
+
+    regex_by_title: dict[tuple[str, str], list[int]] = {}
+    for ri, r in enumerate(regex_items):
+        if ri in used:
+            continue
+        key = (_top_level(_norm_id(r.get("item_id", ""))), _norm_title(r.get("title")))
+        if key[1]:
+            regex_by_title.setdefault(key, []).append(ri)
+
+    for li, lit in enumerate(llm_items):
+        if li in align:
+            continue
+        key = (_top_level(_norm_id(lit.get("item_id", ""))), _norm_title(lit.get("title")))
+        cands = regex_by_title.get(key) or []
+        for ri in cands:
+            if ri not in used:
+                align[li] = ri
+                used.add(ri)
+                break
+    return align
+
+
 def reconcile_results(
     regex_items: list[dict],
     llm_items: list[dict],
@@ -385,21 +461,20 @@ def reconcile_results(
         "llm_only": [item_id, ...],     # in LLM but not regex
         "agreement_pct": float,          # % of items that fully agree
       }
+
+    Items are paired by normalised item_id, falling back to same top-level
+    number + same title (see _align_items). "matched" reports the regex
+    item_id for each pair; "llm_only" carries the LLM's raw item_id.
     """
-    # Normalise item_ids for matching: lowercase, strip trailing .0
-    def _norm_id(iid: str) -> str:
-        n = iid.lower().rstrip("*").strip()
-        parts = n.split(".")
-        if len(parts) == 2 and parts[1] == "0":
-            n = parts[0]
-        return n
+    align = _align_items(regex_items, llm_items)
+    matched_regex = set(align.values())
 
-    regex_by_id = {_norm_id(it["item_id"]): it for it in regex_items}
-    llm_by_id = {_norm_id(it["item_id"]): it for it in llm_items}
-
-    all_ids = set(regex_by_id) | set(llm_by_id)
-    regex_only = sorted(set(regex_by_id) - set(llm_by_id))
-    llm_only = sorted(set(llm_by_id) - set(regex_by_id))
+    regex_only = sorted(
+        _norm_id(r["item_id"]) for ri, r in enumerate(regex_items) if ri not in matched_regex
+    )
+    llm_only = sorted(
+        _norm_id(lit["item_id"]) for li, lit in enumerate(llm_items) if li not in align
+    )
 
     compare_fields = ["title", "presenter", "org", "vote_status", "wmpp_id"]
     # Title comparison is case-insensitive (regex preserves source casing,
@@ -408,23 +483,23 @@ def reconcile_results(
     matched = []
     full_agree = 0
 
-    for iid in sorted(set(regex_by_id) & set(llm_by_id)):
-        r = regex_by_id[iid]
-        l = llm_by_id[iid]
+    for li in sorted(align, key=lambda i: align[i]):
+        r = regex_items[align[li]]
+        lit = llm_items[li]
         diffs = {}
         for field in compare_fields:
             rv = (r.get(field) or "").strip() if r.get(field) else None
-            lv = (l.get(field) or "").strip() if l.get(field) else None
+            lv = (lit.get(field) or "").strip() if lit.get(field) else None
             if field in case_insensitive_fields:
                 if (rv or "").lower() != (lv or "").lower():
                     diffs[field] = (rv, lv)
             elif rv != lv:
                 diffs[field] = (rv, lv)
-        matched.append({"item_id": iid, "diffs": diffs})
+        matched.append({"item_id": _norm_id(r["item_id"]), "diffs": diffs})
         if not diffs:
             full_agree += 1
 
-    total = len(all_ids) or 1
+    total = (len(matched) + len(regex_only) + len(llm_only)) or 1
     return {
         "regex_count": len(regex_items),
         "llm_count": len(llm_items),
@@ -447,25 +522,20 @@ def _merge_results(
       - items found only by LLM: include them (regex missed)
       - items found only by regex: keep them (LLM missed)
       - title: prefer LLM (often cleaner)
-    """
-    def _norm_id(iid: str) -> str:
-        n = iid.lower().rstrip("*").strip()
-        parts = n.split(".")
-        if len(parts) == 2 and parts[1] == "0":
-            n = parts[0]
-        return n
 
-    llm_by_id = {_norm_id(it["item_id"]): it for it in llm_items}
+    Pairing follows _align_items, so an LLM item that renumbered a regex
+    row (4.1 for regex's 4.a) enriches that row instead of duplicating it.
+    """
+    align = _align_items(regex_items, llm_items)
+    llm_for_regex = {ri: li for li, ri in align.items()}
 
     merged: list[dict] = []
-    seen_ids: set[str] = set()
 
     # Process in regex order first (preserves sequence)
-    for item in regex_items:
-        iid = _norm_id(item["item_id"])
-        seen_ids.add(iid)
-        if iid in llm_by_id:
-            llm_item = llm_by_id[iid]
+    for ri, item in enumerate(regex_items):
+        li = llm_for_regex.get(ri)
+        if li is not None:
+            llm_item = llm_items[li]
             merged.append({
                 **item,
                 # Prefer LLM for metadata fields
@@ -481,13 +551,18 @@ def _merge_results(
             merged.append(item)
 
     # Add items found only by LLM (regex missed them)
-    for raw_iid in reconciliation.get("llm_only", []):
-        iid = _norm_id(raw_iid)
-        if iid not in seen_ids and iid in llm_by_id:
-            llm_item = {**llm_by_id[iid]}
-            # Compute prefix server-side
-            llm_item["prefix"] = item_id_to_prefix(raw_iid)
-            merged.append(llm_item)
+    seen_ids = {_norm_id(it["item_id"]) for it in merged}
+    for li, llm_item in enumerate(llm_items):
+        if li in align:
+            continue
+        iid = _norm_id(llm_item.get("item_id", ""))
+        if not iid or iid in seen_ids:
+            continue
+        seen_ids.add(iid)
+        new_item = {**llm_item}
+        # Compute prefix server-side
+        new_item["prefix"] = item_id_to_prefix(llm_item["item_id"])
+        merged.append(new_item)
 
     return merged
 

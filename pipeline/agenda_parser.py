@@ -200,6 +200,46 @@ def _extract_item_metadata(desc_cell: str, time_cell: str | None = None) -> dict
 # Table parser
 # ---------------------------------------------------------------------------
 
+# Joint-meeting banner rows: ISO-NE multi-day joint agendas open each day's
+# table with a row whose ID is the initiative's item number ("4.0*") and whose
+# description is "JOINT MEETING OF THE MARKETS, ..." followed by the initiative
+# name. It is a group header, not a session — see _assign_auto_sub_prefixes.
+_JOINT_BANNER_RE = re.compile(r"^JOINT MEETING OF THE\b", re.IGNORECASE)
+
+# ", Continued" / ", cont." / ", cont'd" suffix on lunch-break continuations.
+_CONT_RE = re.compile(r"(?:,\s*|\s+)cont(?:inued|'d|\.)?\.?$", re.IGNORECASE)
+
+
+def _banner_title(title_line: str, desc_cell: str) -> str:
+    """For a joint-meeting banner row, use the initiative name (the next
+    substantive line of the cell) as the title instead of the boilerplate
+    'JOINT MEETING OF THE ...' line. Other rows pass through unchanged."""
+    if not _JOINT_BANNER_RE.match(title_line):
+        return title_line
+    for line in desc_cell.splitlines()[1:]:
+        line = line.strip()
+        if not line or line.startswith("(") or _JOINT_BANNER_RE.match(line):
+            continue
+        cleaned = re.split(r"\s*\(", line)[0].strip().rstrip(".;:*")
+        if cleaned:
+            return cleaned
+    return title_line
+
+
+def _is_group_header(item: dict) -> bool:
+    """A row in a repeated-ID group that carries the group's metadata
+    (vote tag / WMPP ID / all-caps initiative name) but no session of its
+    own (no time slot, no presenter)."""
+    if item.get("time_slot") or item.get("presenter"):
+        return False
+    title = item.get("title") or ""
+    return bool(
+        item.get("wmpp_id")
+        or item.get("vote_status")
+        or (title.isupper() and any(c.isalpha() for c in title))
+    )
+
+
 def _parse_agenda_from_tables(doc: DocxDocument) -> list[dict]:
     """
     Walk all tables in the docx.  For each row whose first cell matches
@@ -291,7 +331,7 @@ def _parse_agenda_from_tables(doc: DocxDocument) -> list[dict]:
                 extra_lines   = "\n".join(sub_rest.splitlines()[1:])
                 meta_cell     = f"{title}\n{inline_parens}\n{extra_lines}".strip()
             else:
-                title        = title_line
+                title        = _banner_title(title_line, desc_cell)
                 effective_id = raw_id
                 meta_cell    = desc_cell  # existing behaviour
 
@@ -303,7 +343,7 @@ def _parse_agenda_from_tables(doc: DocxDocument) -> list[dict]:
             seen.add(key)
 
             # Drop "Continued" duplicates: same item_id, title ends with ", Continued"
-            base_title = re.sub(r",?\s*continued\.?$", "", title, flags=re.IGNORECASE).strip()
+            base_title = _CONT_RE.sub("", title).strip()
             if any(
                 it["item_id"] == effective_id and
                 it["title"].lower() == base_title.lower()
@@ -380,9 +420,22 @@ def _assign_auto_sub_prefixes(items: list[dict]) -> list[dict]:
     from collections import Counter
     counts = Counter(i["item_id"] for i in items)
     seq: dict[str, int] = {}
+    parent_emitted: set[str] = set()
     result = []
     for item in items:
         iid = item["item_id"]
+        if counts[iid] > 1 and _is_group_header(item):
+            # ISO-NE joint agendas repeat the initiative's ID ("4.0*") on a
+            # banner row at the top of each day's table. The first banner is
+            # the parent item itself (bare "4", so materials named a04_*
+            # and the lettered children a04a_*, a04b_* line up with the
+            # ISO's own numbering); later banners restate it and are dropped.
+            # Sessions in the group are lettered a, b, c… skipping banners.
+            if iid in parent_emitted:
+                continue
+            parent_emitted.add(iid)
+            result.append({**item, "auto_sub": False})
+            continue
         if counts[iid] > 1:
             n = seq.get(iid, 0)
             seq[iid] = n + 1
@@ -402,7 +455,6 @@ def _drop_continued(items: list[dict]) -> list[dict]:
     when a row with the same item_id and the base title already exists in the list.
     These are lunch-break continuations with no additional files.
     """
-    _CONT_RE = re.compile(r",?\s*continued\.?$", re.IGNORECASE)
     base_keys: set[tuple[str, str]] = set()
     for item in items:
         if not _CONT_RE.search(item["title"]):

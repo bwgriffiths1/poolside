@@ -14,20 +14,26 @@ Operational notes, learned the hard way:
     background job, never a request handler.
   - Cloudflare fronts the origin and throws transient 520s; those are worth
     retrying through (eLibrary's own SPA does).
-  - Cloudflare ALSO scores the caller's IP, and a datacenter IP can earn a
-    blanket 403 across ferc.gov while the identical request from a clean IP
-    returns 200 (observed live 2026-09-04 from the app's Railway egress).
-    The browser-ish UA below is not what buys access — IP reputation is —
-    so no header change rescues a blocked host. See FercBlockedError.
+  - Cloudflare Bot Management fingerprints the TLS ClientHello, and the
+    profile urllib3 builds for `requests` (its own cipher list + options)
+    is on its known-automation list. From a residential IP the score still
+    squeaks by; from a datacenter IP FERC's WAF hard-blocks it with a 403
+    (observed live 2026-09-04/05 from the app's Railway egress: `requests`
+    403, stdlib urllib/http.client 200, same IP, same second). So the
+    session below hands urllib3 a STOCK ssl context — see _StockTLSAdapter.
+    Neither headers nor a different IP fix this; a fresh IPv6 address was
+    refused on its first request.
   - Filings are immutable once posted, so per-accession metadata only ever
     needs to be fetched once.
 """
 from __future__ import annotations
 
 import logging
+import ssl
 import time
 
 import requests
+from requests.adapters import HTTPAdapter
 
 logger = logging.getLogger(__name__)
 
@@ -59,12 +65,31 @@ class FercClientError(Exception):
 
 
 class FercBlockedError(FercClientError):
-    """Cloudflare's edge refused us outright — an IP-reputation block on
-    THIS host, not an eLibrary fault (observed live 2026-09-04: the app's
-    Railway egress IP got a blanket 403 across ferc.gov while the identical
-    request from a residential IP returned 200). No amount of retrying or
-    header-tweaking clears it, and re-firing at a challenged edge only
-    deepens the block, so it fails fast and says so."""
+    """Cloudflare's edge refused us outright with its block page — a bot
+    verdict on THIS client, not an eLibrary fault. Retrying cannot clear it
+    and re-firing at the edge only deepens it, so it fails fast and says so.
+    If this shows up again after the stock-TLS fix, Cloudflare has most
+    likely re-flagged the client profile (TLS context or UA) — check that
+    before suspecting the IP."""
+
+
+class _StockTLSAdapter(HTTPAdapter):
+    """Mount point that gives urllib3 a stock `ssl.create_default_context()`.
+
+    urllib3 otherwise assembles its own SSL context (cipher string, option
+    flags), and that ClientHello is what Cloudflare's bot scoring keys on.
+    Passing a ready-made context makes urllib3 use it as-is, so the TLS
+    fingerprint is the interpreter's default — which passes. Verified live
+    from the blocked prod IP: AdvancedSearch 200/success, GetDocInfoFromP8
+    200, where the plain session got 403 in the same second."""
+
+    def init_poolmanager(self, *args, **kwargs):
+        kwargs["ssl_context"] = ssl.create_default_context()
+        return super().init_poolmanager(*args, **kwargs)
+
+    def proxy_manager_for(self, *args, **kwargs):
+        kwargs["ssl_context"] = ssl.create_default_context()
+        return super().proxy_manager_for(*args, **kwargs)
 
 
 def _is_edge_block(resp) -> bool:
@@ -93,6 +118,9 @@ class FercClient:
                  pace_seconds: float = _PACE_SECONDS):
         self.session = session or requests.Session()
         self.session.headers.update(_HEADERS)
+        # Always — an injected session that keeps urllib3's default TLS
+        # profile would be blocked exactly like the one this replaces.
+        self.session.mount("https://", _StockTLSAdapter())
         self.pace_seconds = pace_seconds
         self._last_call = 0.0
 
@@ -123,11 +151,11 @@ class FercClient:
                 self._last_call = time.monotonic()
                 if resp.status_code == 403 and _is_edge_block(resp):
                     raise FercBlockedError(
-                        f"eLibrary refused this host at the Cloudflare edge "
-                        f"(HTTP 403 on {path}). That's an IP-level block on "
-                        f"the server, not a problem with the docket or with "
-                        f"FERC — the same request succeeds from an unblocked "
-                        f"network. Retrying cannot clear it.")
+                        f"eLibrary refused this client at the Cloudflare edge "
+                        f"(HTTP 403 on {path}) — a bot-management block, not "
+                        f"a problem with the docket or with FERC. Retrying "
+                        f"cannot clear it; the client's TLS profile/UA has "
+                        f"most likely been re-flagged.")
                 # 429 is a rate limit: transient, and the backoff ladder is
                 # exactly the right response to it.
                 if resp.status_code >= 500 or resp.status_code == 429:

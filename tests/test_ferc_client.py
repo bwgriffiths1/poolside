@@ -161,7 +161,7 @@ def test_edge_block_fails_fast_without_retrying(monkeypatch):
     monkeypatch.setattr("pipeline.ferc_client.time.sleep", slept.append)
     client, session = make_client()
     session.request.return_value = cloudflare_block_response()
-    with pytest.raises(FercBlockedError, match="IP-level block"):
+    with pytest.raises(FercBlockedError, match="bot-management block"):
         client.search_docket("ER26-3379")
     assert session.request.call_count == 1
     assert slept == []
@@ -223,3 +223,29 @@ def test_520_streak_still_retries_despite_cloudflare_server_header(monkeypatch):
     session.request.side_effect = [five_twenty, five_twenty, ok]
     assert client.get_doc_info("20260101-0001") == {"Accession_Number": "x"}
     assert session.request.call_count == 3
+
+
+def test_session_mounts_stock_tls_context():
+    """The reason prod can reach eLibrary at all: urllib3's own TLS profile
+    is on Cloudflare's automation list; a stock ssl context is not. The
+    adapter must be mounted for https and must hand the pool a real
+    SSLContext (verified live from the blocked prod IP: 403 -> 200)."""
+    import ssl
+
+    from pipeline.ferc_client import _StockTLSAdapter
+
+    client = FercClient(pace_seconds=0)
+    adapter = client.session.get_adapter("https://elibrary.ferc.gov/x")
+    assert isinstance(adapter, _StockTLSAdapter)
+    ctx = adapter.poolmanager.connection_pool_kw.get("ssl_context")
+    assert isinstance(ctx, ssl.SSLContext)
+
+
+def test_injected_session_also_gets_stock_tls():
+    """A caller-supplied session must not silently keep the blocked profile."""
+    from pipeline.ferc_client import _StockTLSAdapter
+
+    sess = requests.Session()
+    FercClient(session=sess, pace_seconds=0)
+    assert isinstance(sess.get_adapter("https://elibrary.ferc.gov/"),
+                      _StockTLSAdapter)

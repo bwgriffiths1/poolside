@@ -472,6 +472,33 @@
 }
 .ask-scope-line > svg { color: var(--accent); }
 
+.ask-source-pdf {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: auto;
+  flex-shrink: 0;
+  color: var(--accent);
+  text-decoration: none;
+  white-space: nowrap;
+}
+.ask-source-pdf:hover { text-decoration: underline; }
+
+.ask-omitted {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: -4px 0 var(--pad-3);
+  padding: 6px 10px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--warn, #b45309);
+  background: transparent;
+  border: 1px dashed currentColor;
+  border-radius: var(--radius);
+}
+.ask-omitted > svg { flex-shrink: 0; margin-top: 3px; }
+
 .ask-docket-tag {
   font-size: 10.5px;
   color: var(--accent);

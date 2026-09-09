@@ -87,6 +87,23 @@ _MAX_SOURCES_BLOCK_CHARS = 220_000
 # A deep memo needs some deliberation; applied only when the request left
 # effort unset.
 _DEEP_EFFORT_FLOOR = "medium"
+# Output budget. On the Claude 5 models adaptive thinking counts against
+# max_tokens, so a small cap doesn't save money — it forces the
+# summarizer's truncate-and-double retry loop (three multi-minute calls
+# for one answer; that's what stranded Ben's first deep ER26-3515 run).
+# Start high enough that a memo finishes first time; the higher efforts
+# think longer, so they get more.
+_ASK_MAX_TOKENS = 32768
+_ASK_MAX_TOKENS_HIGH_EFFORT = 65536
+
+
+def ask_max_tokens(effort: str, cfg: dict | None = None) -> int:
+    """Output cap for one answer; `ask_max_tokens` in model_config is a
+    floor an admin can raise, never a way to reintroduce the retry loop."""
+    base = (_ASK_MAX_TOKENS_HIGH_EFFORT if effort in ("xhigh", "max")
+            else _ASK_MAX_TOKENS)
+    configured = int((cfg or {}).get("ask_max_tokens") or 0)
+    return max(base, configured)
 
 _NO_RESULTS_ANSWER = (
     "I couldn't find anything in the {corpus} matching that question. "
@@ -603,9 +620,9 @@ def ask(
     prompt = build_ask_prompt(question, hits, scope, detail=detail)
 
     cfg = load_model_config()
-    max_tokens = int(cfg.get("ask_max_tokens") or 8192)
     effort = body.effort or (_DEEP_EFFORT_FLOOR if detail == "deep"
                              else DEFAULT_EFFORT)
+    max_tokens = ask_max_tokens(effort, cfg)
 
     client = make_client()
     log.info("ask: %d source(s) [%s], model %s @ %s, %s detail: %r", len(hits),

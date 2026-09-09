@@ -52,6 +52,24 @@ function entryFromLive(res: AskResponse): AskEntry {
   return { ...res, key: res.id != null ? `log-${res.id}` : `live-${Date.now()}` };
 }
 
+/** A deep answer can outlive the HTTP request (edge/browser timeouts around
+ *  five minutes) while the server keeps composing and then logs it. When
+ *  the POST fails that way, we keep polling history for the answer. */
+interface Awaiting {
+  question: string;
+  since: number; // ms epoch of the submit
+  gaveUp?: boolean; // set by the poll once AWAIT_GIVE_UP_MS has elapsed
+}
+
+const AWAIT_POLL_MS = 10_000;
+const AWAIT_GIVE_UP_MS = 15 * 60_000;
+
+function looksLikeDroppedConnection(msg: string): boolean {
+  return /failed to fetch|networkerror|load failed|timeout|timed out|\b50[234]\b|bad gateway|gateway/i.test(
+    msg,
+  );
+}
+
 function loadPrefs(): AskPrefs {
   try {
     const raw = localStorage.getItem(PREFS_KEY);
@@ -242,6 +260,7 @@ export function Ask() {
   // entries) for the rest of the session; the server keeps the log.
   const [clearedAt, setClearedAt] = useState<number | null>(null);
   const [liveOnly, setLiveOnly] = useState<AskEntry[]>([]);
+  const [awaiting, setAwaiting] = useState<Awaiting | null>(null);
   const qc = useQueryClient();
   const [mention, setMention] = useState<MentionState | null>(null);
   const [menuIdx, setMenuIdx] = useState(0);
@@ -273,12 +292,33 @@ export function Ask() {
     queryFn: api.askOptions,
     staleTime: Infinity,
   });
+  // While an answer is stranded server-side, poll history for it to land.
+  const awaitFound = (page: AskHistoryPage | undefined, a: Awaiting | null) =>
+    !!a &&
+    (page?.items ?? []).some(
+      (it) =>
+        it.question === a.question &&
+        new Date(it.created_at).getTime() >= a.since - 60_000,
+    );
   const { data: historyPage } = useQuery({
     queryKey: qk.askHistory,
     queryFn: () => api.askHistory(20),
     staleTime: 30_000,
+    refetchInterval: (query) => {
+      // Runs outside render, so the clock is fine here.
+      if (!awaiting || awaiting.gaveUp) return false;
+      if (awaitFound(query.state.data, awaiting)) return false;
+      if (Date.now() - awaiting.since > AWAIT_GIVE_UP_MS) {
+        setAwaiting((a) => (a ? { ...a, gaveUp: true } : a));
+        return false;
+      }
+      return AWAIT_POLL_MS;
+    },
   });
   const detail = prefs.detail || options?.default_detail || "standard";
+  const awaitingFound = awaitFound(historyPage, awaiting);
+  const awaitingActive = awaiting !== null && !awaitingFound && !awaiting.gaveUp;
+  const awaitingGaveUp = awaiting !== null && !awaitingFound && !!awaiting.gaveUp;
 
   const modelId = prefs.model || options?.default_model || "";
   const modelOpt = options?.models.find((m) => m.id === modelId);
@@ -322,13 +362,25 @@ export function Ask() {
       }
       setQuestion("");
       setMention(null);
+      setAwaiting(null);
     },
-    onError: (e: Error) => toast.error(`Ask failed: ${e.message}`),
+    onError: (e: Error, q: string) => {
+      if (looksLikeDroppedConnection(e.message)) {
+        // The server is very likely still composing; it logs the answer
+        // when done, so watch history for it instead of losing it.
+        setAwaiting({ question: q, since: Date.now() });
+        setQuestion("");
+        toast.info("The connection dropped but the answer is still composing — it will appear below when it lands.");
+      } else {
+        toast.error(`Ask failed: ${e.message}`);
+      }
+    },
   });
 
   const submit = (q?: string) => {
     const text = (q ?? question).trim();
     if (text.length < 3 || askMut.isPending) return;
+    setAwaiting(null);
     askMut.mutate(text);
   };
 
@@ -608,14 +660,29 @@ export function Ask() {
           <div className="ask-pending">
             <Icon name="refresh" size={14} />
             {detail === "deep"
-              ? "Pulling every relevant source and composing a full memo — this can take a minute or two…"
+              ? "Pulling every relevant source and composing a full memo — a few minutes at higher effort…"
               : depth === "documents"
                 ? "Searching summaries and the underlying documents, then composing a cited answer…"
                 : "Searching the corpus and composing a cited answer…"}
           </div>
         )}
 
-        {history.length === 0 && !askMut.isPending && (
+        {awaitingActive && !askMut.isPending && (
+          <div className="ask-pending">
+            <Icon name="refresh" size={14} />
+            Still composing on the server — long memos can take several
+            minutes. Watching your history for it…
+          </div>
+        )}
+        {awaitingGaveUp && !askMut.isPending && (
+          <div className="ask-pending ask-pending-warn">
+            <Icon name="bell" size={14} />
+            No answer arrived after 15 minutes. Try again with a lower effort
+            level or Standard detail.
+          </div>
+        )}
+
+        {history.length === 0 && !askMut.isPending && !awaitingActive && (
           <div className="empty" style={{ marginTop: 24 }}>
             Nothing asked yet.
           </div>

@@ -55,6 +55,9 @@ export const qk = {
 
   myPrefs: ["my-prefs"] as const,
 
+  askOptions: ["ask-options"] as const,
+  askHistory: ["ask-history"] as const,
+
   initiatives: ["initiatives"] as const,
   initiative: (code: string) => ["initiative", code] as const,
 

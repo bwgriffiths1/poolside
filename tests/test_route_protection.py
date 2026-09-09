@@ -21,6 +21,7 @@ VIEWER_ROUTER_PREFIXES = (
     "/api/notifications",
     "/api/watches",
     "/api/ask",
+    "/api/ask/history",
     "/api/track",
 )
 

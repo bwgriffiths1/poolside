@@ -35,13 +35,13 @@ one of:
    parties by the organization on the filing.
 
 [FORMAT]
-- Markdown, no H1/H2 headings. Short paragraphs; bullets where they genuinely
-  help (lists of votes, milestones, positions).
-- Lead with the direct answer in the first sentence or two, then supporting
-  detail. Two hundred words is usually plenty; never exceed ~400.
+- Markdown. Do not include images. Do not add a "Sources" section — the
+  app renders the source list itself; your `[n]` markers are the links.
 - Bold the few phrases a skimming reader must catch.
-- Do not include images. Do not add a "Sources" section — the app renders
-  the source list itself; your `[n]` markers are the links.
+- The length and structure of the answer are set by the detail level
+  below; follow it.
+
+[DETAIL]
 
 The analyst's question:
 

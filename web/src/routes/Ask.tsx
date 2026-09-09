@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Topbar } from "../components/Topbar";
 import { Icon } from "../components/Icon";
 import { TypeTag } from "../components/Tag";
@@ -9,7 +9,10 @@ import {
   api,
   type AskCorpus,
   type AskDepth,
+  type AskDetail,
   type AskEffort,
+  type AskHistoryItem,
+  type AskHistoryPage,
   type AskResponse,
   type AskScope,
   type AskSource,
@@ -25,16 +28,28 @@ import {
   sourceHref,
 } from "../lib/ask";
 
+/** A live answer or an ask_log row — same shape, keyed by id when the
+ *  server logged it and by a client timestamp when it couldn't. */
 interface AskEntry extends AskResponse {
-  ts: number;
+  key: string;
+  created_at?: string | null;
+  user_email?: string;
 }
 
-const HISTORY_KEY = "poolside-ask-history";
 const PREFS_KEY = "poolside-ask-prefs";
 
 interface AskPrefs {
   model?: string;
   effort?: AskEffort;
+  detail?: AskDetail;
+}
+
+function entryFromHistory(item: AskHistoryItem): AskEntry {
+  return { ...item, key: `log-${item.id}` };
+}
+
+function entryFromLive(res: AskResponse): AskEntry {
+  return { ...res, key: res.id != null ? `log-${res.id}` : `live-${Date.now()}` };
 }
 
 function loadPrefs(): AskPrefs {
@@ -52,24 +67,6 @@ function savePrefs(prefs: AskPrefs) {
     localStorage.setItem(PREFS_KEY, JSON.stringify(prefs));
   } catch {
     /* storage blocked — the pick still applies this session */
-  }
-}
-
-function loadHistory(): AskEntry[] {
-  try {
-    const raw = sessionStorage.getItem(HISTORY_KEY);
-    const parsed = raw ? JSON.parse(raw) : [];
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
-}
-
-function saveHistory(entries: AskEntry[]) {
-  try {
-    sessionStorage.setItem(HISTORY_KEY, JSON.stringify(entries.slice(0, 20)));
-  } catch {
-    /* quota — history is a nicety */
   }
 }
 
@@ -149,14 +146,26 @@ function AnswerCard({ entry }: { entry: AskEntry }) {
   const meta: string[] = [];
   if (entry.model_id) meta.push(entry.model_id);
   if (entry.effort) meta.push(`${entry.effort} effort`);
+  if (entry.detail) meta.push(`${entry.detail} detail`);
   if (entry.cost_usd != null) meta.push(`$${entry.cost_usd.toFixed(3)}`);
   const scope = scopeLabel(entry.scope);
+  const when = entry.created_at ? new Date(entry.created_at) : null;
 
   return (
     <div className="ask-card">
       <div className="ask-q">
         <Icon name="chat" size={14} />
         <span>{entry.question}</span>
+        {when && !Number.isNaN(when.getTime()) && (
+          <span className="ask-q-when mono text-xs muted">
+            {when.toLocaleString(undefined, {
+              month: "short",
+              day: "numeric",
+              hour: "numeric",
+              minute: "2-digit",
+            })}
+          </span>
+        )}
       </div>
       {scope && (
         <div className="ask-scope-line">
@@ -229,7 +238,11 @@ export function Ask() {
   const [depth, setDepth] = useState<AskDepth>("summaries");
   // "" = the server's default (model_config.json / DEFAULT_EFFORT).
   const [prefs, setPrefs] = useState<AskPrefs>(loadPrefs);
-  const [history, setHistory] = useState<AskEntry[]>(loadHistory);
+  // "Clear" hides everything at or before this log id (or all live-only
+  // entries) for the rest of the session; the server keeps the log.
+  const [clearedAt, setClearedAt] = useState<number | null>(null);
+  const [liveOnly, setLiveOnly] = useState<AskEntry[]>([]);
+  const qc = useQueryClient();
   const [mention, setMention] = useState<MentionState | null>(null);
   const [menuIdx, setMenuIdx] = useState(0);
   // Caret position to restore after a programmatic edit of the textarea
@@ -256,10 +269,16 @@ export function Ask() {
     staleTime: 60_000,
   });
   const { data: options } = useQuery({
-    queryKey: ["ask-options"],
+    queryKey: qk.askOptions,
     queryFn: api.askOptions,
     staleTime: Infinity,
   });
+  const { data: historyPage } = useQuery({
+    queryKey: qk.askHistory,
+    queryFn: () => api.askHistory(20),
+    staleTime: 30_000,
+  });
+  const detail = prefs.detail || options?.default_detail || "standard";
 
   const modelId = prefs.model || options?.default_model || "";
   const modelOpt = options?.models.find((m) => m.id === modelId);
@@ -286,13 +305,21 @@ export function Ask() {
         depth,
         model: prefs.model || undefined,
         effort: effortSupported ? prefs.effort || undefined : undefined,
+        detail: prefs.detail || undefined,
       }),
     onSuccess: (res) => {
-      setHistory((prev) => {
-        const next = [{ ...res, ts: Date.now() }, ...prev];
-        saveHistory(next);
-        return next;
-      });
+      if (res.id != null) {
+        // Logged server-side: prepend to the cached page so it shows at
+        // once, then let the next refetch reconcile.
+        const item = res as AskHistoryItem;
+        qc.setQueryData<AskHistoryPage>(qk.askHistory, (prev) => ({
+          items: [item, ...(prev?.items ?? [])].slice(0, 50),
+          next_before_id: prev?.next_before_id ?? null,
+        }));
+        qc.invalidateQueries({ queryKey: qk.askHistory });
+      } else {
+        setLiveOnly((prev) => [entryFromLive(res), ...prev]);
+      }
       setQuestion("");
       setMention(null);
     },
@@ -377,9 +404,17 @@ export function Ask() {
     }
   };
 
+  const logged = (historyPage?.items ?? [])
+    .filter((it) => clearedAt === null || it.id > clearedAt)
+    .map(entryFromHistory);
+  const history: AskEntry[] = [...liveOnly, ...logged].sort((a, b) =>
+    (b.created_at ?? "") < (a.created_at ?? "") ? -1 : 1,
+  );
+
   const clearHistory = () => {
-    setHistory([]);
-    saveHistory([]);
+    const newest = historyPage?.items?.[0]?.id ?? null;
+    setClearedAt(newest ?? Number.MAX_SAFE_INTEGER);
+    setLiveOnly([]);
   };
 
   const scoped = mentioned.length > 0;
@@ -406,7 +441,8 @@ export function Ask() {
             answers cite their sources, and each citation links back. Type{" "}
             <span className="mono">@</span> to scope a question to one or
             more dockets; switch to <em>Documents</em> to search the
-            underlying filings and materials too.
+            underlying filings and materials too. Your questions are kept
+            here across sessions.
           </p>
         </div>
 
@@ -552,6 +588,7 @@ export function Ask() {
                   options={options}
                   modelId={modelId}
                   effort={effort}
+                  detail={detail}
                   onChange={updatePrefs}
                 />
               )}
@@ -570,21 +607,23 @@ export function Ask() {
         {askMut.isPending && (
           <div className="ask-pending">
             <Icon name="refresh" size={14} />
-            {depth === "documents"
-              ? "Searching summaries and the underlying documents, then composing a cited answer…"
-              : "Searching the corpus and composing a cited answer…"}
+            {detail === "deep"
+              ? "Pulling every relevant source and composing a full memo — this can take a minute or two…"
+              : depth === "documents"
+                ? "Searching summaries and the underlying documents, then composing a cited answer…"
+                : "Searching the corpus and composing a cited answer…"}
           </div>
         )}
 
         {history.length === 0 && !askMut.isPending && (
           <div className="empty" style={{ marginTop: 24 }}>
-            Nothing asked yet this session.
+            Nothing asked yet.
           </div>
         )}
 
         <div className="ask-history">
           {history.map((entry) => (
-            <AnswerCard key={entry.ts} entry={entry} />
+            <AnswerCard key={entry.key} entry={entry} />
           ))}
         </div>
 

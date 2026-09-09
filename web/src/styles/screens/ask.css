@@ -394,6 +394,18 @@
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
 }
 
+.mep-seg { display: flex; width: 100%; }
+.mep-seg button { flex: 1; justify-content: center; }
+
+.mep-trigger-detail { color: var(--ink-soft); }
+
+.ask-q-when {
+  margin-left: auto;
+  flex-shrink: 0;
+  font-weight: 400;
+  transform: translateY(1px);
+}
+
 .mep-hint {
   margin-top: 8px;
   font-size: 12px;

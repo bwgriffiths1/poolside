@@ -2714,6 +2714,102 @@ def list_audit(limit: int = 50, before_id: int | None = None,
 
 
 # ---------------------------------------------------------------------------
+# Ask log  — every Ask Poolside question + answer (migration 023)
+# ---------------------------------------------------------------------------
+
+def record_ask(entry: dict) -> dict:
+    """Insert one Ask exchange; returns {"id", "created_at"}. JSON fields
+    are dumped with default=str so dates inside sources/scope serialize."""
+    import json as _json
+    with _conn() as conn:
+        with _cursor(conn) as cur:
+            cur.execute(
+                """INSERT INTO ask_log
+                       (user_id, user_email, question, scope, model_id, effort,
+                        detail, sources, answer_md, input_tokens, output_tokens,
+                        cost_usd, duration_ms)
+                   VALUES (%s, %s, %s, %s::jsonb, %s, %s, %s, %s::jsonb, %s,
+                           %s, %s, %s, %s)
+                RETURNING id, created_at""",
+                (entry.get("user_id"), entry.get("user_email") or "",
+                 entry.get("question") or "",
+                 _json.dumps(entry.get("scope") or {}, default=str),
+                 entry.get("model_id"), entry.get("effort"),
+                 entry.get("detail") or "standard",
+                 _json.dumps(entry.get("sources") or [], default=str),
+                 entry.get("answer_md") or "",
+                 entry.get("input_tokens"), entry.get("output_tokens"),
+                 entry.get("cost_usd"), entry.get("duration_ms")),
+            )
+            row = cur.fetchone()
+            return {"id": row["id"], "created_at": row["created_at"]}
+
+
+def list_ask_log(limit: int = 20, before_id: int | None = None,
+                 user_email: str | None = None) -> list[dict]:
+    """Newest-first keyset pagination (same shape as list_audit); pass
+    user_email to see one person's questions, None for everyone's."""
+    where, params = [], []
+    if before_id is not None:
+        where.append("id < %s")
+        params.append(before_id)
+    if user_email:
+        where.append("user_email = %s")
+        params.append(user_email)
+    clause = f"WHERE {' AND '.join(where)}" if where else ""
+    params.append(limit)
+    with _conn() as conn:
+        with _cursor(conn) as cur:
+            cur.execute(
+                f"""SELECT * FROM ask_log
+                    {clause}
+                 ORDER BY id DESC
+                    LIMIT %s""",
+                params,
+            )
+            return [dict(r) for r in cur.fetchall()]
+
+
+def list_docket_filing_summaries(docket_ids: list[int]) -> list[dict]:
+    """Every substantive filing across the given dockets that HAS a current
+    summary, newest first — the roster Ask uses at deep detail so a
+    "positions by party" question sees every party, not just the filings
+    whose text happens to match the question. Skip-tier (administrative,
+    doc-less) filings are excluded; the summary body itself is fetched
+    later by entity id."""
+    if not docket_ids:
+        return []
+    with _conn() as conn:
+        with _cursor(conn) as cur:
+            cur.execute("""
+                SELECT f.id               AS filing_id,
+                       f.docket_id,
+                       f.accession_number,
+                       f.document_class,
+                       f.document_type,
+                       f.description,
+                       COALESCE(f.filed_date, f.issued_date) AS filed_date,
+                       f.filing_parties,
+                       f.treatment,
+                       d.docket_number,
+                       d.title            AS docket_title
+                  FROM docket_filings f
+                  JOIN dockets d ON d.id = f.docket_id
+                 WHERE f.docket_id = ANY(%s)
+                   AND f.treatment <> 'skip'
+                   AND NOT f.is_docless
+                   AND EXISTS (
+                       SELECT 1 FROM summary_versions sv
+                        WHERE sv.entity_type = 'docket_filing'
+                          AND sv.entity_id = f.id
+                          AND sv.status IN ('draft', 'approved'))
+                 ORDER BY COALESCE(f.filed_date, f.issued_date) DESC NULLS LAST,
+                          f.id DESC
+            """, (list(docket_ids),))
+            return [dict(r) for r in cur.fetchall()]
+
+
+# ---------------------------------------------------------------------------
 # Page views  — read analytics (written by /api/track/view, read by Admin)
 # ---------------------------------------------------------------------------
 

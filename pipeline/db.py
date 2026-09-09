@@ -2727,9 +2727,9 @@ def record_ask(entry: dict) -> dict:
                 """INSERT INTO ask_log
                        (user_id, user_email, question, scope, model_id, effort,
                         detail, sources, answer_md, input_tokens, output_tokens,
-                        cost_usd, duration_ms)
+                        cost_usd, duration_ms, parent_id)
                    VALUES (%s, %s, %s, %s::jsonb, %s, %s, %s, %s::jsonb, %s,
-                           %s, %s, %s, %s)
+                           %s, %s, %s, %s, %s)
                 RETURNING id, created_at""",
                 (entry.get("user_id"), entry.get("user_email") or "",
                  entry.get("question") or "",
@@ -2739,10 +2739,19 @@ def record_ask(entry: dict) -> dict:
                  _json.dumps(entry.get("sources") or [], default=str),
                  entry.get("answer_md") or "",
                  entry.get("input_tokens"), entry.get("output_tokens"),
-                 entry.get("cost_usd"), entry.get("duration_ms")),
+                 entry.get("cost_usd"), entry.get("duration_ms"),
+                 entry.get("parent_id")),
             )
             row = cur.fetchone()
             return {"id": row["id"], "created_at": row["created_at"]}
+
+
+def get_ask_log(ask_id: int) -> dict | None:
+    with _conn() as conn:
+        with _cursor(conn) as cur:
+            cur.execute("SELECT * FROM ask_log WHERE id = %s", (ask_id,))
+            row = cur.fetchone()
+            return dict(row) if row else None
 
 
 def list_ask_log(limit: int = 20, before_id: int | None = None,

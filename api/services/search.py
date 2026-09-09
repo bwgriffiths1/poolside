@@ -644,7 +644,8 @@ def score_passages_detailed(text: str | None, question: str,
     def render(idxs: list[int]) -> tuple[str, list[int]]:
         parts, seen_pages = [], []
         for i in idxs:
-            w = windows[i][:max_chars]
+            # The raw `[Page N]` markers are noise once we label the window.
+            w = _PAGE_RE.sub("", windows[i]).strip()[:max_chars]
             if pages[i] is not None:
                 parts.append(f"[p. {pages[i]}] {w}")
                 if pages[i] not in seen_pages:

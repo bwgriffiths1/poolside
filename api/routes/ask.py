@@ -25,7 +25,7 @@ import logging
 import re
 import time
 from datetime import date
-from typing import Any, Literal
+from typing import Any, Callable, Literal
 
 from fastapi import APIRouter, Body, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -44,6 +44,7 @@ from pipeline.summarizer import (
 )
 
 from ..auth import current_user
+from ..services import ask_jobs as jobs_service
 from ..services import search as search_svc
 from ..services.search import (
     extract_passages,
@@ -158,6 +159,9 @@ class AskBody(BaseModel):
     model: str | None = None
     effort: Effort | None = None
     detail: Detail = DEFAULT_DETAIL
+    # Follow-up: re-use this earlier exchange's sources (same [n] numbers)
+    # and carry its Q&A into the prompt instead of retrieving afresh.
+    parent_id: int | None = None
     type_short: str | None = None
     from_date: date | None = None
     to_date: date | None = None
@@ -342,6 +346,8 @@ def gather_sources(scope: dict[str, Any], detail: str = DEFAULT_DETAIL,
 # ── Prompt assembly ──────────────────────────────────────────────────────
 
 def _authors(hit: dict) -> str:
+    if hit.get("authors"):
+        return str(hit["authors"])
     parties = hit.get("filing_parties") or []
     orgs = [p.get("org") for p in parties
             if isinstance(p, dict) and p.get("type") == "AUTHOR" and p.get("org")]
@@ -445,6 +451,47 @@ def _source_body(hit: dict, question: str = "",
     return body or "(No summary text.)"
 
 
+# ── Follow-ups ───────────────────────────────────────────────────────────
+
+_MAX_PRIOR_ANSWER_CHARS = 14000
+
+
+def hits_from_logged_sources(sources: list[dict], question: str,
+                             passage_chars: int) -> list[dict]:
+    """Turn a logged exchange's serialized sources back into hits, in the
+    same order (so [n] numbering matches the prior answer). Summary
+    sources fetch their body by entity id as usual; document excerpts
+    re-cut passages from the stored text for the NEW question."""
+    hits: list[dict] = []
+    for src in sources:
+        hit = dict(src)
+        hit["tier"] = src.get("tier") or "summary"
+        hit.pop("n", None)
+        if hit["tier"] == "document":
+            raw = None
+            if src.get("file_row_id"):
+                row = db.get_docket_filing_file(int(src["file_row_id"]))
+                raw = (row or {}).get("raw_content")
+            elif src.get("document_id"):
+                row = db.get_document(int(src["document_id"]))
+                raw = (row or {}).get("raw_content")
+            d = search_svc.score_passages_detailed(raw, question, max_chars=passage_chars)
+            hit["passage"], hit["passage_pages"] = d["passage"], d["pages"]
+            hit["file_desc"] = src.get("filename")
+        hits.append(hit)
+    return hits
+
+
+def prior_exchange_block(parent: dict) -> str:
+    answer = (parent.get("answer_md") or "").strip()
+    if len(answer) > _MAX_PRIOR_ANSWER_CHARS:
+        answer = answer[:_MAX_PRIOR_ANSWER_CHARS].rsplit("\n", 1)[0] + "\n\n…(truncated)"
+    return ("=== PRIOR EXCHANGE (this question follows up on it; the numbered "
+            "sources below are the SAME sources, same numbers) ===\n\n"
+            f"Earlier question: {parent.get('question', '').strip()}\n\n"
+            f"Earlier answer:\n{answer}")
+
+
 def scope_line(scope: dict[str, Any]) -> str:
     """Human-readable scope, shared by the prompt and the no-results copy."""
     if scope.get("dockets"):
@@ -486,7 +533,8 @@ def source_char_budget(n_sources: int, caps: dict[str, int],
 def build_ask_prompt(question: str, hits: list[dict],
                      scope: dict[str, Any] | None = None,
                      detail: str = DEFAULT_DETAIL,
-                     meta: dict[str, Any] | None = None) -> str:
+                     meta: dict[str, Any] | None = None,
+                     parent: dict | None = None) -> str:
     """Template + detail directive + numbered sources + the question.
     Raises ValueError when the template or the level's directive is
     missing — callers surface that instead of free-styling.
@@ -536,6 +584,8 @@ def build_ask_prompt(question: str, hits: list[dict],
     if meta is not None:
         meta["omitted"] = omitted
         meta["per_source_chars"] = per_source
+    if parent:
+        blocks.insert(0, prior_exchange_block(parent))
     sources_block = "\n\n".join(blocks)
 
     q_text = question
@@ -585,6 +635,7 @@ def _serialize_source(n: int, hit: dict) -> dict[str, Any]:
         "document_class": hit.get("document_class"),
         "filed_date": filed.isoformat() if hasattr(filed, "isoformat") else filed,
         "description": hit.get("description"),
+        "authors": _authors(hit) or None,
         # Document-tier provenance.
         "document_id": hit.get("document_id"),
         "filename": _file_name(hit) if hit.get("tier") == "document" else None,
@@ -623,6 +674,7 @@ def _record(user: dict, payload: dict[str, Any], totals: dict,
             "output_tokens": totals.get("output_tokens"),
             "cost_usd": payload["cost_usd"],
             "duration_ms": int((time.monotonic() - started) * 1000),
+            "parent_id": payload.get("parent_id"),
         })
     except Exception:  # noqa: BLE001 — logging must not break answering
         log.exception("ask_log write failed")
@@ -632,12 +684,14 @@ def _record(user: dict, payload: dict[str, Any], totals: dict,
             "created_at": created.isoformat() if hasattr(created, "isoformat") else created}
 
 
-@router.post("")
-def ask(
-    body: AskBody = Body(...),
-    user: dict = Depends(current_user),
-) -> dict[str, Any]:
+def run_ask(body: AskBody, user: dict,
+            progress: Callable[[str], None] | None = None) -> dict[str, Any]:
+    """The whole Ask pipeline for one request: scope → sources → prompt →
+    model → ask_log. Used by the synchronous route and by ask_jobs.
+    `progress` (optional) receives short status strings; raising from it
+    aborts the run (that's how a job cancel lands)."""
     started = time.monotonic()
+    tick = progress or (lambda _t: None)
     question = body.question.strip()
     detail = body.detail
     filters: dict[str, Any] = {}
@@ -649,8 +703,27 @@ def ask(
         filters["to_date"] = body.to_date
 
     model = resolve_model(body.model)
+    parent: dict | None = None
+    if body.parent_id is not None:
+        parent = db.get_ask_log(body.parent_id)
+        if not parent or (parent.get("user_email") != user.get("email")
+                          and user.get("role") != "admin"):
+            raise HTTPException(status_code=404, detail="Earlier exchange not found")
     scope = resolve_scope(body)
-    hits = gather_sources(scope, detail=detail, **filters)
+    caps = _RETRIEVAL.get(detail, _RETRIEVAL[DEFAULT_DETAIL])
+    if parent:
+        # Same sources, same numbers: the follow-up reads the prior
+        # exchange and answers over what it already had.
+        tick("Re-reading the earlier sources…")
+        scope = {**scope, **{k: parent["scope"].get(k, scope[k])
+                             for k in ("corpus", "depth", "dockets", "docket_ids")
+                             if isinstance(parent.get("scope"), dict) and k in parent["scope"]}}
+        scope["docket_ids"] = [d["id"] for d in scope.get("dockets") or []]
+        hits = hits_from_logged_sources(parent.get("sources") or [], question,
+                                        caps["passage_chars"])
+    else:
+        tick("Gathering sources…")
+        hits = gather_sources(scope, detail=detail, **filters)
 
     if not hits:
         unit = "docket" if scope["corpus"] == "dockets" else "meeting"
@@ -667,13 +740,15 @@ def ask(
             "model_id": None,
             "effort": None,
             "detail": detail,
+            "parent_id": body.parent_id,
             "cost_usd": None,
         }
         payload.update(_record(user, payload, {}, started))
         return payload
 
     meta: dict[str, Any] = {}
-    prompt = build_ask_prompt(question, hits, scope, detail=detail, meta=meta)
+    prompt = build_ask_prompt(question, hits, scope, detail=detail, meta=meta,
+                              parent=parent)
     scope["omitted_sources"] = meta.get("omitted", [])
 
     cfg = load_model_config()
@@ -682,8 +757,10 @@ def ask(
     max_tokens = ask_max_tokens(effort, cfg)
 
     client = make_client()
-    log.info("ask: %d source(s) [%s], model %s @ %s, %s detail: %r", len(hits),
-             scope_line(scope), model, effort, detail, question[:80])
+    log.info("ask: %d source(s) [%s], model %s @ %s, %s detail%s: %r", len(hits),
+             scope_line(scope), model, effort, detail,
+             f", follow-up of #{body.parent_id}" if parent else "", question[:80])
+    tick(f"Composing over {len(hits)} sources with {model}…")
     with capture_usage() as usage_log:
         answer = call_llm(client, model, prompt, max_tokens=max_tokens,
                           label=f"ask: {question[:40]}", effort=effort)
@@ -697,10 +774,80 @@ def ask(
         "model_id": model,
         "effort": effort,
         "detail": detail,
+        "parent_id": body.parent_id,
         "cost_usd": float(totals.get("cost_usd", 0.0)) or None,
     }
     payload.update(_record(user, payload, totals, started))
     return payload
+
+
+@router.post("")
+def ask(
+    body: AskBody = Body(...),
+    user: dict = Depends(current_user),
+) -> dict[str, Any]:
+    """Synchronous Ask — fine for brief/standard; the page uses jobs."""
+    return run_ask(body, user)
+
+
+# ── Jobs ─────────────────────────────────────────────────────────────────
+
+def _serialize_ask_job(row: dict | None) -> dict[str, Any] | None:
+    if not row:
+        return None
+    out = {
+        "id": row["id"],
+        "status": row.get("status"),
+        "progress_text": row.get("progress_text") or "",
+        "error": row.get("error"),
+        "request": row.get("request") or {},
+        "ask_log_id": row.get("ask_log_id"),
+        "started_at": _iso(row.get("started_at")),
+        "finished_at": _iso(row.get("finished_at")),
+        "result": None,
+    }
+    if row.get("status") == "complete" and row.get("ask_log_id"):
+        logged = db.get_ask_log(int(row["ask_log_id"]))
+        if logged:
+            out["result"] = _serialize_log_row(logged)
+    return out
+
+
+def _iso(v: Any) -> Any:
+    return v.isoformat() if hasattr(v, "isoformat") else v
+
+
+@router.post("/jobs", status_code=202)
+def start_ask_job(
+    body: AskBody = Body(...),
+    user: dict = Depends(current_user),
+) -> dict[str, Any]:
+    """Run Ask in the background; poll GET /api/ask/jobs/{id}."""
+    resolve_model(body.model)  # fail fast on a bad pick, before claiming a row
+    return jobs_service.start_ask_job(body, user, runner=run_ask)
+
+
+@router.get("/jobs/active")
+def active_ask_jobs(user: dict = Depends(current_user)) -> list[dict[str, Any]]:
+    return [_serialize_ask_job(r) for r in jobs_service.active_jobs(user.get("email") or "")]
+
+
+@router.get("/jobs/{job_id}")
+def get_ask_job(job_id: int, user: dict = Depends(current_user)) -> dict[str, Any]:
+    row = jobs_service.get_job(job_id)
+    if not row or (row.get("user_email") != user.get("email")
+                   and user.get("role") != "admin"):
+        raise HTTPException(status_code=404, detail="Job not found")
+    return _serialize_ask_job(row)
+
+
+@router.post("/jobs/{job_id}/cancel")
+def cancel_ask_job(job_id: int, user: dict = Depends(current_user)) -> dict[str, Any]:
+    row = jobs_service.get_job(job_id)
+    if not row or (row.get("user_email") != user.get("email")
+                   and user.get("role") != "admin"):
+        raise HTTPException(status_code=404, detail="Job not found")
+    return {"job_id": job_id, "cancelling": jobs_service.request_cancel(job_id)}
 
 
 def _serialize_log_row(row: dict) -> dict[str, Any]:
@@ -709,6 +856,7 @@ def _serialize_log_row(row: dict) -> dict[str, Any]:
     cost = row.get("cost_usd")
     return {
         "id": row.get("id"),
+        "parent_id": row.get("parent_id"),
         "created_at": created.isoformat() if hasattr(created, "isoformat") else created,
         "user_email": row.get("user_email"),
         "question": row.get("question"),

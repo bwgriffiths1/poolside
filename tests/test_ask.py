@@ -160,6 +160,18 @@ class _FakeDB:
         self.asks.append(entry)
         return {"id": len(self.asks), "created_at": datetime(2026, 9, 9, 1, 2, 3)}
 
+    logged: dict = {}
+    files: dict = {}
+
+    def get_ask_log(self, ask_id):
+        return self.logged.get(ask_id)
+
+    def get_docket_filing_file(self, file_row_id):
+        return self.files.get(file_row_id)
+
+    def get_document(self, document_id):
+        return None
+
     def list_ask_log(self, limit=20, before_id=None, user_email=None):
         self.log_calls.append({"limit": limit, "before_id": before_id,
                                "user_email": user_email})
@@ -730,3 +742,122 @@ def test_score_passages_detailed_reports_pages():
     assert d["passage"].startswith("[p. 2]")
     # The two-tuple wrapper still works for older callers.
     assert search_svc.score_passages(text, "seasonal auction design")[1] == d["passage"]
+
+
+# ---------------------------------------------------------------------------
+# Follow-ups
+# ---------------------------------------------------------------------------
+
+def _logged_parent():
+    return {
+        "id": 41, "user_email": "ben@example.com", "question": "Where does it stand?",
+        "answer_md": "It stands here [1][2].",
+        "scope": {"corpus": "dockets", "depth": "documents",
+                  "dockets": [{"id": 7, "docket_number": "ER26-925", "title": "T"}],
+                  "unknown_dockets": [], "omitted_sources": []},
+        "sources": [
+            {"n": 1, "tier": "summary", "entity_type": "docket", "entity_id": 7,
+             "docket_id": 7, "docket_number": "ER26-925", "docket_title": "T"},
+            {"n": 2, "tier": "document", "entity_type": "docket_filing_file",
+             "entity_id": 300, "file_row_id": 300, "docket_id": 7,
+             "docket_number": "ER26-925", "filing_id": 40,
+             "accession_number": "20251230-5436", "filename": "Attachment B",
+             "authors": "NEPGA"},
+        ],
+    }
+
+
+def test_follow_up_reuses_parent_sources_and_prior_exchange(monkeypatch):
+    fake = _FakeDB(summaries={("docket", 7): {"detailed": "State of play."}})
+    fake.logged = {41: _logged_parent()}
+    fake.files = {300: {"raw_content": "[Page 1]\nIntro.\n\n" + "filler " * 250
+                                       + "\n\n[Page 4]\nThe RMR risk is real."}}
+    monkeypatch.setattr(ask_mod, "db", fake)
+    monkeypatch.setattr(ask_mod, "load_prompt", _fake_prompts(TEMPLATE))
+    monkeypatch.setattr(ask_mod, "load_model_config", lambda: {"ask_model": "m"})
+    monkeypatch.setattr(ask_mod, "make_client", lambda: object())
+
+    def boom(*a, **k):  # retrieval must NOT run for a follow-up
+        raise AssertionError("gather_sources called")
+
+    monkeypatch.setattr(ask_mod, "gather_sources", boom)
+    seen: dict = {}
+
+    def _llm(client, model, prompt, max_tokens=0, label="", effort=None):
+        seen["prompt"] = prompt
+        return "Follow-up answer [2] (p. 4)."
+
+    monkeypatch.setattr(ask_mod, "call_llm", _llm)
+    out = ask_mod.run_ask(AskBody(question="What about RMR risk?", parent_id=41), _USER)
+    prompt = seen["prompt"]
+    assert "=== PRIOR EXCHANGE" in prompt and "Earlier question: Where does it stand?" in prompt
+    # Same numbering: [1] state of play, [2] the excerpt, re-cut for the new question.
+    assert "[1] FERC docket ER26-925 (T) — state of play" in prompt
+    assert "[2] FERC docket ER26-925 — filing 20251230-5436" in prompt
+    assert "by NEPGA" in prompt and "DOCUMENT EXCERPT: Attachment B" in prompt
+    assert "[p. 4] The RMR risk is real." in prompt
+    assert out["parent_id"] == 41 and out["sources"][1]["pages"] == [4]
+    assert fake.asks[-1]["parent_id"] == 41
+    assert out["scope"]["dockets"][0]["docket_number"] == "ER26-925"
+
+
+def test_follow_up_rejects_foreign_or_missing_parent(monkeypatch):
+    from fastapi import HTTPException
+    fake = _FakeDB()
+    fake.logged = {41: dict(_logged_parent(), user_email="someone@else")}
+    monkeypatch.setattr(ask_mod, "db", fake)
+    monkeypatch.setattr(ask_mod, "load_model_config", lambda: {"ask_model": "m"})
+    viewer = {"id": 9, "email": "v@example.com", "role": "viewer"}
+    with pytest.raises(HTTPException) as exc:
+        ask_mod.run_ask(AskBody(question="anything at all", parent_id=41), viewer)
+    assert exc.value.status_code == 404
+    with pytest.raises(HTTPException):
+        ask_mod.run_ask(AskBody(question="anything at all", parent_id=999), _USER)
+
+
+# ---------------------------------------------------------------------------
+# Jobs
+# ---------------------------------------------------------------------------
+
+def test_ask_job_runner_records_outcomes(monkeypatch):
+    import api.services.ask_jobs as jobs
+    updates: list[dict] = []
+    status = {"v": "running"}
+    monkeypatch.setattr(jobs, "_update_job", lambda job_id, **f: updates.append(f))
+    monkeypatch.setattr(jobs, "_job_status", lambda job_id: status["v"])
+
+    def ok_runner(body, user, progress=None):
+        progress("Composing…")
+        return {"id": 77}
+
+    jobs._run_ask_job(1, ok_runner, AskBody(question="anything at all"), _USER)
+    assert updates[-1]["status"] == "complete" and updates[-1]["ask_log_id"] == 77
+    assert any(u.get("progress_text") == "Composing…" for u in updates)
+
+    def bad_runner(body, user, progress=None):
+        raise RuntimeError("model down")
+
+    jobs._run_ask_job(2, bad_runner, AskBody(question="anything at all"), _USER)
+    assert updates[-1]["status"] == "failed" and "model down" in updates[-1]["error"]
+
+    status["v"] = "cancelling"
+    jobs._run_ask_job(3, ok_runner, AskBody(question="anything at all"), _USER)
+    assert updates[-1]["status"] == "cancelled"
+
+
+def test_ask_job_routes_scope_to_owner(monkeypatch):
+    from fastapi import HTTPException
+    row = {"id": 5, "user_email": "ben@example.com", "status": "complete",
+           "progress_text": "Done", "error": None, "request": {}, "ask_log_id": 41,
+           "started_at": datetime(2026, 9, 9), "finished_at": datetime(2026, 9, 9)}
+    monkeypatch.setattr(ask_mod.jobs_service, "get_job", lambda jid: row if jid == 5 else None)
+    fake = _FakeDB(); fake.logged = {41: _logged_parent()}
+    monkeypatch.setattr(ask_mod, "db", fake)
+    out = ask_mod.get_ask_job(5, _USER)
+    assert out["status"] == "complete" and out["result"]["question"] == "Where does it stand?"
+    assert out["result"]["sources"][1]["n"] == 2
+    viewer = {"id": 9, "email": "v@example.com", "role": "viewer"}
+    with pytest.raises(HTTPException):
+        ask_mod.get_ask_job(5, viewer)
+    with pytest.raises(HTTPException):
+        ask_mod.cancel_ask_job(5, viewer)

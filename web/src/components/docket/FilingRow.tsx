@@ -119,13 +119,16 @@ export function FilingRow({
   f,
   canEdit,
   fileHref = defaultFileHref,
+  defaultOpen = false,
 }: {
   f: DocketFiling;
   canEdit: boolean;
   fileHref?: (fileId: number) => string;
+  /** Start expanded — used by the ?filing= deep link from Ask citations. */
+  defaultOpen?: boolean;
 }) {
   const navigate = useNavigate();
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(defaultOpen);
   const expandable = !!(f.summary_detailed || f.files.length);
   const date = f.filed_date || f.issued_date;
 

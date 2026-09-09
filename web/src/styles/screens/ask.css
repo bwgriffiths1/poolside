@@ -47,6 +47,7 @@
   color: var(--info);
 }
 @keyframes ask-spin { to { transform: rotate(360deg); } }
+.ask-pending-warn > svg { animation: none; color: var(--warn, #b45309); }
 
 .ask-history {
   display: flex;

@@ -672,3 +672,31 @@ def test_ask_options_lists_models_and_defaults(monkeypatch):
     assert out["default_model"] == "claude-sonnet-5"
     assert out["default_effort"] == "low"
     assert out["default_detail"] == "standard"
+
+
+def test_ask_max_tokens_by_effort():
+    assert ask_mod.ask_max_tokens("low") == 32768
+    assert ask_mod.ask_max_tokens("high") == 32768
+    assert ask_mod.ask_max_tokens("xhigh") == 65536
+    assert ask_mod.ask_max_tokens("max") == 65536
+    # Config can raise the cap, never lower it back into retry territory.
+    assert ask_mod.ask_max_tokens("low", {"ask_max_tokens": 8192}) == 32768
+    assert ask_mod.ask_max_tokens("low", {"ask_max_tokens": 100000}) == 100000
+
+
+def test_ask_passes_effort_scaled_max_tokens(monkeypatch):
+    monkeypatch.setattr(ask_mod, "gather_sources", lambda scope, **kw: [_hit("meeting", 1)])
+    monkeypatch.setattr(ask_mod, "db", _FakeDB(summaries={("meeting", 1): {"detailed": "t"}}))
+    monkeypatch.setattr(ask_mod, "load_prompt", _fake_prompts(TEMPLATE))
+    monkeypatch.setattr(ask_mod, "load_model_config", lambda: {"ask_model": "m"})
+    monkeypatch.setattr(ask_mod, "make_client", lambda: object())
+    seen: list = []
+
+    def _llm(client, model, prompt, max_tokens=0, label="", effort=None):
+        seen.append(max_tokens)
+        return "A [1]."
+
+    monkeypatch.setattr(ask_mod, "call_llm", _llm)
+    ask_mod.ask(AskBody(question="anything at all"), _USER)
+    ask_mod.ask(AskBody(question="anything at all", effort="xhigh"), _USER)
+    assert seen == [32768, 65536]

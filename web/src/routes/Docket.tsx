@@ -1,5 +1,5 @@
-import { useMemo, useRef, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Topbar } from "../components/Topbar";
 import { Icon } from "../components/Icon";
@@ -136,6 +136,19 @@ export function Docket() {
     if (!el || !main) return;
     main.scrollTo({ top: el.offsetTop - 80, behavior: "smooth" });
   };
+
+  // Deep link from Ask citations: /docket/:id?filing=<filing id> scrolls to
+  // that filing (and FilingRow opens it via defaultOpen). One-shot per load;
+  // the refs exist only after the first data render, hence the timeout.
+  const [searchParams] = useSearchParams();
+  const targetFiling = Number(searchParams.get("filing")) || null;
+  const jumpedTo = useRef<number | null>(null);
+  useEffect(() => {
+    if (!targetFiling || !d || jumpedTo.current === targetFiling) return;
+    jumpedTo.current = targetFiling;
+    const t = window.setTimeout(() => jump(`f${targetFiling}`), 60);
+    return () => window.clearTimeout(t);
+  }, [targetFiling, d]);
 
   if (isLoading || !d) {
     return (
@@ -569,7 +582,11 @@ export function Docket() {
                     refs.current[`f${f.id}`] = el;
                   }}
                 >
-                  <FilingRow f={f} canEdit={canEdit} />
+                  <FilingRow
+                    f={f}
+                    canEdit={canEdit}
+                    defaultOpen={f.id === targetFiling}
+                  />
                 </div>
               ))}
             </div>

@@ -834,6 +834,9 @@ export const api = {
   // ── Ask Poolside ─────────────────────────────────────────────────────
   ask: (body: {
     question: string;
+    corpus?: AskCorpus;
+    depth?: AskDepth;
+    docket_numbers?: string[];
     type_short?: string;
     from_date?: string;
     to_date?: string;
@@ -1376,24 +1379,63 @@ export interface MyPrefs {
   mail_configured: boolean;
 }
 
+export type AskCorpus = "all" | "meetings" | "dockets";
+export type AskDepth = "summaries" | "documents";
+
 export interface AskSource {
   n: number;
-  entity_type: "meeting" | "agenda_item";
+  /** "summary" = a stored summary; "document" = a verbatim excerpt. */
+  tier: "summary" | "document";
+  entity_type:
+    | "meeting"
+    | "agenda_item"
+    | "document"
+    | "docket"
+    | "docket_filing"
+    | "docket_filing_file";
   entity_id: number;
-  meeting_id: number;
+  // Meeting-side provenance (null for docket sources).
+  meeting_id: number | null;
   meeting_title: string | null;
-  meeting_date: string;
-  venue: string;
-  type_short: string;
+  meeting_date: string | null;
+  venue: string | null;
+  type_short: string | null;
   item_id: string | null;
   item_title: string | null;
+  // Docket-side provenance (null for meeting sources).
+  docket_id: number | null;
+  docket_number: string | null;
+  docket_title: string | null;
+  filing_id: number | null;
+  accession_number: string | null;
+  document_class: string | null;
+  filed_date: string | null;
+  description: string | null;
+  // Document-tier provenance.
+  document_id: number | null;
+  filename: string | null;
+  file_row_id: number | null;
   snippet: string; // pre-escaped HTML with <b> highlights
+}
+
+export interface AskScopeDocket {
+  id: number;
+  docket_number: string;
+  title: string | null;
+}
+
+export interface AskScope {
+  corpus: AskCorpus;
+  depth: AskDepth;
+  dockets: AskScopeDocket[];
+  unknown_dockets: string[];
 }
 
 export interface AskResponse {
   question: string;
   answer_md: string;
   sources: AskSource[];
+  scope?: AskScope;
   model_id: string | null;
   cost_usd: number | null;
 }

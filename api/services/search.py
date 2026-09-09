@@ -291,3 +291,365 @@ def search_docket_hits(q: str, limit: int = 10) -> list[dict[str, Any]]:
         out.append(r)
 
     return out[:limit]
+
+
+# ── Ask Poolside: docket-scoped summaries + underlying-document tier ─────
+#
+# Ask's retrieval has two axes the Search screen doesn't: a SCOPE (all /
+# meetings / FERC dockets / specific dockets) and a DEPTH (summaries only,
+# or summaries plus verbatim passages from the underlying documents —
+# migration 022's raw_tsv over documents.raw_content and
+# docket_filing_files.raw_content). Everything below returns hit dicts in
+# the same shape search_summary_hits does, extended with docket / filing /
+# document provenance, so api/routes/ask.py can label and cite them
+# uniformly.
+
+_HEADLINE_OPTS = (
+    "StartSel=@@HLS@@, StopSel=@@HLE@@, MaxFragments=1, MaxWords=22, "
+    "MinWords=10, ShortWord=2"
+)
+
+
+def _finish_snippet(raw: str | None) -> str:
+    return (_escape_snippet(raw or "")
+            .replace("@@HLS@@", "<b>").replace("@@HLE@@", "</b>"))
+
+
+def search_docket_summary_hits(
+    q: str,
+    limit: int = 15,
+    docket_ids: list[int] | None = None,
+) -> list[dict[str, Any]]:
+    """Ranked hits over docket state-of-play + filing summaries (current
+    versions only), optionally restricted to specific dockets. Unlike
+    search_docket_hits (the Search screen's docket list) this keeps one
+    row per SUMMARY, because Ask cites each summary as its own source."""
+    q = (q or "").strip()
+    if not q:
+        return []
+    params: dict[str, Any] = {"q": q, "limit": limit}
+    scope_sql = ""
+    if docket_ids:
+        scope_sql = "AND d.id = ANY(%(docket_ids)s)"
+        params["docket_ids"] = list(docket_ids)
+
+    sql = f"""
+        WITH current_versions AS (
+            SELECT DISTINCT ON (entity_type, entity_id)
+                entity_type, entity_id, detailed, one_line, detailed_tsv,
+                created_at
+            FROM summary_versions
+            WHERE entity_type IN ('docket', 'docket_filing')
+              AND status IN ('draft', 'approved')
+              AND detailed_tsv @@ websearch_to_tsquery('english', %(q)s)
+            ORDER BY entity_type, entity_id,
+                CASE status WHEN 'approved' THEN 0 ELSE 1 END,
+                version DESC
+        )
+        SELECT
+            cv.entity_type,
+            cv.entity_id,
+            cv.created_at      AS summary_date,
+            ts_rank_cd(cv.detailed_tsv, websearch_to_tsquery('english', %(q)s)) AS rank,
+            ts_headline('english', COALESCE(cv.detailed, cv.one_line, ''),
+                        websearch_to_tsquery('english', %(q)s),
+                        '{_HEADLINE_OPTS}') AS snippet,
+            d.id               AS docket_id,
+            d.docket_number    AS docket_number,
+            d.title            AS docket_title,
+            f.id               AS filing_id,
+            f.accession_number AS accession_number,
+            f.document_class   AS document_class,
+            f.document_type    AS document_type,
+            f.description      AS description,
+            COALESCE(f.filed_date, f.issued_date) AS filed_date,
+            f.filing_parties   AS filing_parties
+        FROM current_versions cv
+        LEFT JOIN docket_filings f
+               ON cv.entity_type = 'docket_filing' AND f.id = cv.entity_id
+        JOIN dockets d
+          ON d.id = CASE WHEN cv.entity_type = 'docket' THEN cv.entity_id
+                         ELSE f.docket_id END
+        WHERE TRUE {scope_sql}
+        ORDER BY rank DESC
+        LIMIT %(limit)s
+    """
+    with db._conn() as conn:
+        with db._cursor(conn) as cur:
+            cur.execute(sql, params)
+            rows = [dict(r) for r in cur.fetchall()]
+    for r in rows:
+        r["snippet"] = _finish_snippet(r.pop("snippet", None))
+        r["tier"] = "summary"
+    return rows
+
+
+def search_document_hits(
+    q: str,
+    limit: int = 6,
+    corpus: str = "all",
+    docket_ids: list[int] | None = None,
+    from_date: date | None = None,
+    to_date: date | None = None,
+    type_short: str | None = None,
+) -> list[dict[str, Any]]:
+    """Ranked hits over the UNDERLYING text (migration 022): meeting
+    materials and/or FERC filing files, per `corpus`. Each hit carries the
+    full raw_content so the caller can cut passages (extract_passages) —
+    the SQL only computes a short highlighted snippet for the UI, and only
+    for the rows that survive the LIMIT (headline on a 500k-char document
+    is not free, hence the subquery)."""
+    q = (q or "").strip()
+    if not q:
+        return []
+    want_meetings = corpus in ("all", "meetings") and not docket_ids
+    want_dockets = corpus in ("all", "dockets") or bool(docket_ids)
+    fetch = limit * 3
+    out: list[dict[str, Any]] = []
+
+    with db._conn() as conn:
+        with db._cursor(conn) as cur:
+            if want_meetings:
+                params: dict[str, Any] = {"q": q, "limit": fetch}
+                extra: list[str] = []
+                if from_date is not None:
+                    extra.append("m.meeting_date >= %(from_date)s")
+                    params["from_date"] = from_date
+                if to_date is not None:
+                    extra.append("m.meeting_date <= %(to_date)s")
+                    params["to_date"] = to_date
+                if type_short:
+                    extra.append("mt.short_name = %(type_short)s")
+                    params["type_short"] = type_short
+                extra_sql = ("AND " + " AND ".join(extra)) if extra else ""
+                cur.execute(f"""
+                    SELECT t.*,
+                           ts_headline('english', left(t.raw_content, 200000),
+                                       websearch_to_tsquery('english', %(q)s),
+                                       '{_HEADLINE_OPTS}') AS snippet
+                    FROM (
+                        SELECT
+                            'document'::text  AS entity_type,
+                            d.id              AS entity_id,
+                            d.id              AS document_id,
+                            d.filename        AS filename,
+                            d.file_type       AS file_type,
+                            d.raw_content     AS raw_content,
+                            ts_rank_cd(d.raw_tsv,
+                                       websearch_to_tsquery('english', %(q)s)) AS rank,
+                            m.id              AS meeting_id,
+                            m.title           AS meeting_title,
+                            m.meeting_date    AS meeting_date,
+                            v.short_name      AS venue,
+                            mt.short_name     AS type_short,
+                            ai.item_id        AS item_id,
+                            ai.title          AS item_title
+                        FROM documents d
+                        JOIN meetings m       ON m.id = d.meeting_id
+                        JOIN meeting_types mt ON mt.id = m.meeting_type_id
+                        JOIN venues v         ON v.id = mt.venue_id
+                        LEFT JOIN LATERAL (
+                            SELECT ai.item_id, ai.title
+                              FROM item_documents idoc
+                              JOIN agenda_items ai ON ai.id = idoc.item_id
+                             WHERE idoc.document_id = d.id
+                             ORDER BY ai.id
+                             LIMIT 1
+                        ) ai ON TRUE
+                        WHERE d.raw_tsv @@ websearch_to_tsquery('english', %(q)s)
+                          AND NOT d.ceii_skipped
+                          {extra_sql}
+                        ORDER BY rank DESC, m.meeting_date DESC
+                        LIMIT %(limit)s
+                    ) t
+                """, params)
+                out.extend(dict(r) for r in cur.fetchall())
+
+            if want_dockets:
+                params = {"q": q, "limit": fetch}
+                scope_sql = ""
+                if docket_ids:
+                    scope_sql = "AND d.id = ANY(%(docket_ids)s)"
+                    params["docket_ids"] = list(docket_ids)
+                cur.execute(f"""
+                    SELECT t.*,
+                           ts_headline('english', left(t.raw_content, 200000),
+                                       websearch_to_tsquery('english', %(q)s),
+                                       '{_HEADLINE_OPTS}') AS snippet
+                    FROM (
+                        SELECT
+                            'docket_filing_file'::text AS entity_type,
+                            dff.id             AS entity_id,
+                            dff.id             AS file_row_id,
+                            dff.file_desc      AS file_desc,
+                            dff.orig_file_name AS orig_file_name,
+                            dff.file_type      AS file_type,
+                            dff.raw_content    AS raw_content,
+                            ts_rank_cd(dff.raw_tsv,
+                                       websearch_to_tsquery('english', %(q)s)) AS rank,
+                            f.id               AS filing_id,
+                            f.accession_number AS accession_number,
+                            f.document_class   AS document_class,
+                            f.document_type    AS document_type,
+                            f.description      AS description,
+                            COALESCE(f.filed_date, f.issued_date) AS filed_date,
+                            f.filing_parties   AS filing_parties,
+                            d.id               AS docket_id,
+                            d.docket_number    AS docket_number,
+                            d.title            AS docket_title
+                        FROM docket_filing_files dff
+                        JOIN docket_filings f ON f.id = dff.filing_id
+                        JOIN dockets d        ON d.id = f.docket_id
+                        WHERE dff.raw_tsv @@ websearch_to_tsquery('english', %(q)s)
+                          AND dff.included
+                          {scope_sql}
+                        ORDER BY rank DESC, filed_date DESC NULLS LAST
+                        LIMIT %(limit)s
+                    ) t
+                """, params)
+                out.extend(dict(r) for r in cur.fetchall())
+
+    # tsvector positions stop at word 16,383, so a long filing matched only
+    # in its back half ranks 0 in SQL. Over-fetch, then re-rank by passage
+    # score (which reads the whole text) before cutting to `limit`.
+    for r in out:
+        r["passage_score"], r["passage"] = score_passages(r.get("raw_content"), q)
+    out.sort(key=lambda r: (r["passage_score"], float(r.get("rank") or 0.0)),
+             reverse=True)
+    # Meeting materials often ship as clean / redline / incremental copies
+    # of one document; keep only the best-scoring variant per meeting.
+    seen_variants: set[tuple] = set()
+    deduped = []
+    for r in out:
+        key = (r.get("meeting_id"), _variant_key(r.get("filename")))
+        if r["entity_type"] == "document":
+            if key in seen_variants:
+                continue
+            seen_variants.add(key)
+        deduped.append(r)
+    out = deduped[:limit]
+    for r in out:
+        r["snippet"] = _finish_snippet(r.pop("snippet", None))
+        r["tier"] = "document"
+    return out
+
+
+_VARIANT_RE = re.compile(r"\(.*?\)|\b(clean|redline|incremental|draft|final|v\d+(\.\d+)*)\b|[\s_\-.]+", re.I)
+
+
+def _variant_key(filename: str | None) -> str:
+    return _VARIANT_RE.sub("", (filename or "").lower())
+
+
+def _with_or_fallback(fn, question: str, limit: int, **kw) -> list[dict]:
+    """Strict websearch pass, then the OR-relaxed pass when the strict one
+    is thin — the same recall rule retrieve_for_question applies."""
+    hits = fn(question, limit=limit, **kw)
+    if len(hits) < 3:
+        relaxed = or_query(question)
+        if relaxed and relaxed.lower() != question.strip().lower():
+            seen = {(h["entity_type"], h["entity_id"]) for h in hits}
+            for h in fn(relaxed, limit=limit, **kw):
+                key = (h["entity_type"], h["entity_id"])
+                if key not in seen and len(hits) < limit:
+                    seen.add(key)
+                    hits.append(h)
+    return hits
+
+
+def retrieve_docket_summaries(question: str, limit: int = 12,
+                              docket_ids: list[int] | None = None) -> list[dict]:
+    return _with_or_fallback(search_docket_summary_hits, question, limit,
+                             docket_ids=docket_ids)
+
+
+def retrieve_document_hits(question: str, limit: int = 6, **scope) -> list[dict]:
+    return _with_or_fallback(search_document_hits, question, limit, **scope)
+
+
+# ── Passage extraction ───────────────────────────────────────────────────
+
+_WINDOW_CHARS = 1400
+
+
+def query_terms(question: str) -> list[str]:
+    """Substantive lowercase terms of a question, for passage scoring."""
+    return [t.lower() for t in or_query(question).split(" or ") if len(t) >= 3]
+
+
+def _term_matcher(term: str) -> re.Pattern:
+    # Crude stemming: match on a prefix so "auction" also finds "auctions"
+    # / "auctioned"; short terms and codes (CAR-SA, ER26) stay exact.
+    if len(term) <= 4 or "-" in term or any(c.isdigit() for c in term):
+        return re.compile(r"\b" + re.escape(term) + r"\b", re.I)
+    return re.compile(r"\b" + re.escape(term[:-1]), re.I)
+
+
+def score_passages(text: str | None, question: str,
+                   max_chars: int = 3200,
+                   window: int = _WINDOW_CHARS) -> tuple[int, str]:
+    """(score, passages): the best few windows of `text` for `question`, in
+    document order, joined with an ellipsis marker. Windows are
+    paragraph-aligned chunks of ~`window` chars scored by distinct-term
+    coverage (dominant) plus term frequency; the score is the best
+    window's, so callers can re-rank documents by it. When nothing matches
+    — e.g. the tsquery matched on stems Python can't see — the opening of
+    the document stands in at score 0, so the source is never empty."""
+    text = (text or "").strip()
+    if not text:
+        return 0, ""
+    paras = [p.strip() for p in re.split(r"\n\s*\n|\n(?=\S)", text) if p.strip()]
+    windows: list[str] = []
+    buf = ""
+    for p in paras:
+        if buf and len(buf) + len(p) + 2 > window:
+            windows.append(buf)
+            buf = p
+        else:
+            buf = f"{buf}\n{p}" if buf else p
+        # A single giant paragraph (extracted PDFs often lack breaks):
+        while len(buf) > window * 1.5:
+            cut = buf.rfind(" ", 0, window)
+            if cut < window // 2:
+                cut = window
+            windows.append(buf[:cut])
+            buf = buf[cut:].lstrip()
+    if buf:
+        windows.append(buf)
+    if not windows:
+        return 0, ""
+
+    matchers = [_term_matcher(t) for t in query_terms(question)]
+    scored: list[tuple[float, int]] = []
+    for i, w in enumerate(windows):
+        distinct = 0
+        freq = 0
+        for m in matchers:
+            n = len(m.findall(w))
+            if n:
+                distinct += 1
+                freq += min(n, 5)
+        score = distinct * 10 + freq
+        if score:
+            scored.append((score, i))
+    if not scored:
+        return 0, windows[0][:max_chars]
+
+    scored.sort(key=lambda s: (-s[0], s[1]))
+    chosen: list[int] = []
+    used = 0
+    for _score, i in scored:
+        if used + len(windows[i]) > max_chars and chosen:
+            break
+        chosen.append(i)
+        used += len(windows[i])
+        if used >= max_chars:
+            break
+    chosen.sort()
+    best = scored[0][0]
+    return best, "\n\n[…]\n\n".join(windows[i][:max_chars] for i in chosen)
+
+
+def extract_passages(text: str | None, question: str,
+                     max_chars: int = 3200) -> str:
+    return score_passages(text, question, max_chars=max_chars)[1]

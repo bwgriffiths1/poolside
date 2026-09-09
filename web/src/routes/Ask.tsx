@@ -1,12 +1,27 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { Topbar } from "../components/Topbar";
 import { Icon } from "../components/Icon";
 import { TypeTag } from "../components/Tag";
-import { api, type AskResponse, type AskSource } from "../lib/api";
+import {
+  api,
+  type AskCorpus,
+  type AskDepth,
+  type AskResponse,
+  type AskScope,
+  type AskSource,
+  type DocketListItem,
+} from "../lib/api";
+import { qk } from "../lib/queries";
 import { Markdown } from "../lib/markdown";
 import { toast } from "../lib/toast";
+import {
+  AT_CARET_RE,
+  linkCitations,
+  mentionedDockets,
+  sourceHref,
+} from "../lib/ask";
 
 interface AskEntry extends AskResponse {
   ts: number;
@@ -32,38 +47,45 @@ function saveHistory(entries: AskEntry[]) {
   }
 }
 
-/** Turn bare [n] citation markers into internal links so the markdown
- *  renderer emits clickable citations. Meeting-level sources land on the
- *  briefing reader; item-level sources deep-link the meeting page's item. */
-export function linkCitations(md: string, sources: AskSource[]): string {
-  if (!md) return md;
-  const byN = new Map(sources.map((s) => [s.n, s]));
-  return md.replace(/\[(\d+)\](?!\()/g, (match, num) => {
-    const s = byN.get(Number(num));
-    if (!s) return match;
-    const href = s.item_id
-      ? `#/meeting/${s.meeting_id}?item=${encodeURIComponent(s.item_id)}`
-      : `#/briefing/${s.meeting_id}`;
-    return `[${num}](${href})`;
-  });
-}
-
 function SourceRow({ s }: { s: AskSource }) {
   const navigate = useNavigate();
-  const target = s.item_id
-    ? `/meeting/${s.meeting_id}?item=${encodeURIComponent(s.item_id)}`
-    : `/briefing/${s.meeting_id}`;
+  const target = sourceHref(s).slice(1); // drop the hash-router "#"
+  const isDocket = s.docket_id != null;
+  const excerpt = s.tier === "document";
+
+  let title: string;
+  if (s.entity_type === "docket") {
+    title = "State of play";
+  } else if (isDocket) {
+    const bits = [s.accession_number, s.document_class].filter(Boolean);
+    title = bits.join(" · ") || "Filing";
+    if (excerpt && s.filename) title += ` — ${s.filename}`;
+    else if (s.description) title += ` — ${s.description}`;
+  } else if (excerpt) {
+    title = s.filename || "Document";
+    if (s.item_id) title = `${s.item_id} · ${title}`;
+  } else if (s.item_id) {
+    title = `${s.item_id} — ${s.item_title || "Untitled item"}`;
+  } else {
+    title = "Meeting briefing";
+  }
+
   return (
     <button className="ask-source" onClick={() => navigate(target)}>
       <span className="ask-source-n mono">{s.n}</span>
       <div className="ask-source-main">
         <div className="row" style={{ gap: 6 }}>
-          <span className="mono text-xs muted">{s.meeting_date}</span>
-          <TypeTag>{s.type_short}</TypeTag>
-          <span className="ask-source-title">
-            {s.item_id
-              ? `${s.item_id} — ${s.item_title || "Untitled item"}`
-              : "Meeting briefing"}
+          <span className="mono text-xs muted">
+            {isDocket ? s.filed_date || "" : s.meeting_date}
+          </span>
+          {isDocket ? (
+            <span className="tag ask-docket-tag mono">{s.docket_number}</span>
+          ) : (
+            <TypeTag>{s.type_short ?? "?"}</TypeTag>
+          )}
+          {excerpt && <span className="ask-tier-tag">excerpt</span>}
+          <span className="ask-source-title" title={title}>
+            {title}
           </span>
         </div>
         {s.snippet && (
@@ -79,11 +101,29 @@ function SourceRow({ s }: { s: AskSource }) {
   );
 }
 
+function scopeLabel(scope: AskScope | undefined): string | null {
+  if (!scope) return null;
+  const bits: string[] = [];
+  if (scope.dockets.length) {
+    bits.push(scope.dockets.map((d) => d.docket_number).join(", "));
+  } else if (scope.corpus === "dockets") {
+    bits.push("all tracked dockets");
+  } else if (scope.corpus === "meetings") {
+    bits.push("meetings only");
+  }
+  if (scope.depth === "documents") bits.push("summaries + documents");
+  if (scope.unknown_dockets.length) {
+    bits.push(`not tracked: ${scope.unknown_dockets.join(", ")}`);
+  }
+  return bits.length ? bits.join(" · ") : null;
+}
+
 function AnswerCard({ entry }: { entry: AskEntry }) {
   const [showSources, setShowSources] = useState(true);
   const meta: string[] = [];
   if (entry.model_id) meta.push(entry.model_id);
   if (entry.cost_usd != null) meta.push(`$${entry.cost_usd.toFixed(3)}`);
+  const scope = scopeLabel(entry.scope);
 
   return (
     <div className="ask-card">
@@ -91,6 +131,12 @@ function AnswerCard({ entry }: { entry: AskEntry }) {
         <Icon name="chat" size={14} />
         <span>{entry.question}</span>
       </div>
+      {scope && (
+        <div className="ask-scope-line">
+          <Icon name="filter" size={11} />
+          {scope}
+        </div>
+      )}
       <article className="ask-answer">
         <Markdown source={linkCitations(entry.answer_md, entry.sources)} />
       </article>
@@ -120,15 +166,76 @@ function AnswerCard({ entry }: { entry: AskEntry }) {
   );
 }
 
+// ── Mention autocomplete ────────────────────────────────────────────────
+
+interface MentionState {
+  /** Text typed after the "@", for filtering. */
+  frag: string;
+  /** Caret index where the "@" token starts. */
+  start: number;
+}
+
+function mentionAtCaret(text: string, caret: number): MentionState | null {
+  const before = text.slice(0, caret);
+  const m = AT_CARET_RE.exec(before);
+  if (!m) return null;
+  return { frag: m[2], start: before.length - m[2].length - 1 };
+}
+
+function filterDockets(dockets: DocketListItem[], frag: string): DocketListItem[] {
+  const f = frag.toLowerCase();
+  return dockets
+    .filter(
+      (d) =>
+        !f ||
+        d.docket_number.toLowerCase().includes(f) ||
+        (d.title || "").toLowerCase().includes(f) ||
+        (d.party_label || "").toLowerCase().includes(f),
+    )
+    .slice(0, 8);
+}
+
 export function Ask() {
   const [params, setParams] = useSearchParams();
   const [question, setQuestion] = useState("");
+  const [corpus, setCorpus] = useState<AskCorpus>("all");
+  const [depth, setDepth] = useState<AskDepth>("summaries");
   const [history, setHistory] = useState<AskEntry[]>(loadHistory);
+  const [mention, setMention] = useState<MentionState | null>(null);
+  const [menuIdx, setMenuIdx] = useState(0);
+  // Caret position to restore after a programmatic edit of the textarea
+  // value (React resets the caret to the end when it re-renders the value,
+  // so this has to run in an effect, after the commit).
+  const pendingCaret = useRef<number | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const autoRan = useRef(false);
 
+  useEffect(() => {
+    const pos = pendingCaret.current;
+    if (pos === null) return;
+    pendingCaret.current = null;
+    const el = inputRef.current;
+    if (el) {
+      el.focus();
+      el.setSelectionRange(pos, pos);
+    }
+  }, [question]);
+
+  const { data: dockets = [] } = useQuery({
+    queryKey: qk.dockets,
+    queryFn: api.dockets,
+    staleTime: 60_000,
+  });
+
+  const mentioned = mentionedDockets(question);
+  const byNumber = new Map(dockets.map((d) => [d.docket_number, d]));
+  const knownMentions = mentioned.filter((n) => byNumber.has(n));
+  const unknownMentions = mentioned.filter((n) => !byNumber.has(n));
+  const menuItems = mention ? filterDockets(dockets, mention.frag) : [];
+  const menuOpen = mention !== null && menuItems.length > 0;
+
   const askMut = useMutation({
-    mutationFn: (q: string) => api.ask({ question: q }),
+    mutationFn: (q: string) => api.ask({ question: q, corpus, depth }),
     onSuccess: (res) => {
       setHistory((prev) => {
         const next = [{ ...res, ts: Date.now() }, ...prev];
@@ -136,6 +243,7 @@ export function Ask() {
         return next;
       });
       setQuestion("");
+      setMention(null);
     },
     onError: (e: Error) => toast.error(`Ask failed: ${e.message}`),
   });
@@ -158,10 +266,72 @@ export function Ask() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [params]);
 
+  const syncMention = (text: string, caret: number) => {
+    const m = mentionAtCaret(text, caret);
+    setMention(m);
+    if (!m || m.frag !== mention?.frag) setMenuIdx(0);
+  };
+
+  const pickDocket = (d: DocketListItem) => {
+    if (!mention) return;
+    const el = inputRef.current;
+    const caret = el ? el.selectionStart : question.length;
+    const before = question.slice(0, mention.start);
+    const after = question.slice(caret);
+    const inserted = `@${d.docket_number} `;
+    setQuestion(before + inserted + after);
+    setMention(null);
+    pendingCaret.current = before.length + inserted.length;
+  };
+
+  const insertAt = () => {
+    const el = inputRef.current;
+    const caret = el ? el.selectionStart : question.length;
+    const before = question.slice(0, caret);
+    const needsSpace = before.length > 0 && !/\s$/.test(before);
+    const inserted = (needsSpace ? " " : "") + "@";
+    setQuestion(before + inserted + question.slice(caret));
+    const pos = before.length + inserted.length;
+    setMention({ frag: "", start: pos - 1 });
+    setMenuIdx(0);
+    pendingCaret.current = pos;
+  };
+
+  const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (menuOpen) {
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setMenuIdx((i) => (i + 1) % menuItems.length);
+        return;
+      }
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setMenuIdx((i) => (i - 1 + menuItems.length) % menuItems.length);
+        return;
+      }
+      if (e.key === "Enter" || e.key === "Tab") {
+        e.preventDefault();
+        pickDocket(menuItems[menuIdx] ?? menuItems[0]);
+        return;
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setMention(null);
+        return;
+      }
+    }
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      submit();
+    }
+  };
+
   const clearHistory = () => {
     setHistory([]);
     saveHistory([]);
   };
+
+  const scoped = mentioned.length > 0;
 
   return (
     <>
@@ -178,11 +348,14 @@ export function Ask() {
 
       <div className="page">
         <div className="page-header">
-          <div className="page-eyebrow">Cited Q&amp;A · summary corpus</div>
+          <div className="page-eyebrow">Cited Q&amp;A · meetings + FERC dockets</div>
           <h1 className="page-title">Ask Poolside</h1>
           <p className="page-subtitle">
-            Ask across every briefing and item summary — answers cite their
-            sources, and each citation links to the underlying meeting.
+            Ask across every briefing, item summary and tracked docket —
+            answers cite their sources, and each citation links back. Type{" "}
+            <span className="mono">@</span> to scope a question to one or
+            more dockets; switch to <em>Documents</em> to search the
+            underlying filings and materials too.
           </p>
         </div>
 
@@ -191,20 +364,138 @@ export function Ask() {
             ref={inputRef}
             className="ask-input"
             rows={2}
-            placeholder='e.g. "Where does CAR-SA stand and what are the open objections?"'
+            placeholder={
+              scoped
+                ? 'e.g. "What did the protesters object to, and how did the order respond?"'
+                : 'e.g. "Where does CAR-SA stand?" or "@ER26-925 what did NEPGA argue?"'
+            }
             value={question}
-            onChange={(e) => setQuestion(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                submit();
+            onChange={(e) => {
+              setQuestion(e.target.value);
+              syncMention(e.target.value, e.target.selectionStart);
+            }}
+            onKeyUp={(e) => {
+              // Caret moves without a value change (arrows, clicks) still
+              // decide whether we're inside an @token.
+              if (e.key.startsWith("Arrow") || e.key === "Home" || e.key === "End") {
+                syncMention(question, e.currentTarget.selectionStart);
               }
             }}
+            onClick={(e) => syncMention(question, e.currentTarget.selectionStart)}
+            onKeyDown={onKeyDown}
+            onBlur={() => window.setTimeout(() => setMention(null), 120)}
           />
+
+          {menuOpen && (
+            <div className="ask-mention-menu" role="listbox">
+              {menuItems.map((d, i) => (
+                <button
+                  key={d.id}
+                  type="button"
+                  role="option"
+                  aria-selected={i === menuIdx}
+                  className={`ask-mention-item${i === menuIdx ? " on" : ""}`}
+                  onMouseDown={(e) => e.preventDefault()}
+                  onMouseEnter={() => setMenuIdx(i)}
+                  onClick={() => pickDocket(d)}
+                >
+                  <span className="mono ask-mention-num">{d.docket_number}</span>
+                  <span className="ask-mention-title">
+                    {d.title || d.party_label || "Untitled docket"}
+                  </span>
+                  {d.filing_count != null && (
+                    <span className="muted text-xs">
+                      {d.filing_count} filing{d.filing_count === 1 ? "" : "s"}
+                    </span>
+                  )}
+                </button>
+              ))}
+            </div>
+          )}
+          {mention && !menuOpen && dockets.length > 0 && mention.frag && (
+            <div className="ask-mention-menu ask-mention-empty">
+              No tracked docket matches “{mention.frag}” — add it on the
+              eLibrary page first.
+            </div>
+          )}
+
           <div className="ask-input-foot">
-            <span className="muted text-xs">
-              Enter to ask · answers come from stored summaries only
-            </span>
+            <div className="ask-controls">
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm ask-at-btn"
+                title="Scope to a docket"
+                onClick={insertAt}
+              >
+                <span className="mono">@</span> Docket
+              </button>
+
+              {scoped ? (
+                <div className="ask-chips">
+                  {knownMentions.map((n) => {
+                    const d = byNumber.get(n)!;
+                    return (
+                      <span key={n} className="ask-chip" title={d.title || undefined}>
+                        <span className="mono">{n}</span>
+                        {d.title && (
+                          <span className="ask-chip-title">{d.title}</span>
+                        )}
+                      </span>
+                    );
+                  })}
+                  {unknownMentions.map((n) => (
+                    <span key={n} className="ask-chip ask-chip-warn" title="Not a tracked docket">
+                      <span className="mono">{n}</span>
+                      <span className="ask-chip-title">not tracked</span>
+                    </span>
+                  ))}
+                </div>
+              ) : (
+                <div className="seg" role="radiogroup" aria-label="Corpus">
+                  {(
+                    [
+                      ["all", "All"],
+                      ["meetings", "Meetings"],
+                      ["dockets", "Dockets"],
+                    ] as [AskCorpus, string][]
+                  ).map(([v, label]) => (
+                    <button
+                      key={v}
+                      type="button"
+                      role="radio"
+                      aria-checked={corpus === v}
+                      className={corpus === v ? "on" : ""}
+                      onClick={() => setCorpus(v)}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              <div className="seg" role="radiogroup" aria-label="Depth">
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked={depth === "summaries"}
+                  className={depth === "summaries" ? "on" : ""}
+                  title="Search stored summaries only (fast, cheapest)"
+                  onClick={() => setDepth("summaries")}
+                >
+                  Summaries
+                </button>
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked={depth === "documents"}
+                  className={depth === "documents" ? "on" : ""}
+                  title="Also search the underlying filings and meeting materials, quoting verbatim passages"
+                  onClick={() => setDepth("documents")}
+                >
+                  <Icon name="doc" size={11} /> Documents
+                </button>
+              </div>
+            </div>
             <button
               className="btn btn-primary btn-sm"
               disabled={question.trim().length < 3 || askMut.isPending}
@@ -219,7 +510,9 @@ export function Ask() {
         {askMut.isPending && (
           <div className="ask-pending">
             <Icon name="refresh" size={14} />
-            Searching the corpus and composing a cited answer…
+            {depth === "documents"
+              ? "Searching summaries and the underlying documents, then composing a cited answer…"
+              : "Searching the corpus and composing a cited answer…"}
           </div>
         )}
 

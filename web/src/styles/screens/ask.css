@@ -174,3 +174,137 @@
   color: var(--muted);
 }
 .ask-source-snippet b { color: var(--ink-soft); }
+
+/* ── Scope + depth controls ─────────────────────────────────────────── */
+
+.ask-input-card { position: relative; }
+
+.ask-controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+}
+
+.ask-at-btn { padding-left: 8px; padding-right: 10px; }
+.ask-at-btn .mono {
+  font-size: 13px;
+  color: var(--accent);
+}
+
+.ask-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.ask-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 320px;
+  padding: 3px 9px;
+  font-size: 12px;
+  color: var(--accent);
+  background: var(--accent-tint);
+  border: 1px solid var(--accent-soft);
+  border-radius: 99px;
+}
+.ask-chip > .mono { white-space: nowrap; }
+.ask-chip-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink-soft);
+}
+.ask-chip-warn {
+  color: var(--warn, #b45309);
+  background: transparent;
+  border-style: dashed;
+  border-color: currentColor;
+}
+.ask-chip-warn .ask-chip-title { color: inherit; }
+
+/* Mention autocomplete — anchored under the textarea, above the footer. */
+.ask-mention-menu {
+  margin: 0 0 var(--pad-2);
+  padding: 4px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow, 0 6px 20px rgba(0, 0, 0, 0.08));
+  max-height: 260px;
+  overflow-y: auto;
+}
+.ask-mention-empty {
+  padding: 8px 10px;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+.ask-mention-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 7px 10px;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-radius: 4px;
+  font-family: inherit;
+  font-size: 13px;
+  color: var(--ink);
+  cursor: pointer;
+}
+.ask-mention-item.on { background: var(--bg-elev); }
+.ask-mention-num {
+  min-width: 78px;
+  font-size: 12px;
+  color: var(--accent);
+}
+.ask-mention-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── Answer card: scope line + docket / excerpt source rows ─────────── */
+
+.ask-scope-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: -6px 0 var(--pad-3);
+  font-size: 12px;
+  color: var(--muted);
+}
+.ask-scope-line > svg { color: var(--accent); }
+
+.ask-docket-tag {
+  font-size: 10.5px;
+  color: var(--accent);
+  background: var(--accent-tint);
+  border-color: var(--accent-soft);
+}
+
+.ask-tier-tag {
+  display: inline-block;
+  padding: 0 6px;
+  font-size: 10px;
+  line-height: 16px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  background: var(--bg-sunk, var(--bg-elev));
+  border: 1px solid var(--border-soft);
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+
+@media (max-width: 640px) {
+  .ask-input-foot { flex-direction: column; align-items: stretch; }
+  .ask-input-foot > .btn { align-self: flex-end; }
+}

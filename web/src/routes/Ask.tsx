@@ -13,6 +13,8 @@ import {
   type AskEffort,
   type AskHistoryItem,
   type AskHistoryPage,
+  type AskJob,
+  type AskJobStatus,
   type AskResponse,
   type AskScope,
   type AskSource,
@@ -48,26 +50,20 @@ function entryFromHistory(item: AskHistoryItem): AskEntry {
   return { ...item, key: `log-${item.id}` };
 }
 
-function entryFromLive(res: AskResponse): AskEntry {
-  return { ...res, key: res.id != null ? `log-${res.id}` : `live-${Date.now()}` };
+
+/** Ask runs as a server-side job: submit → 202 → poll. A long memo then
+ *  survives the browser/edge request timeout, and a reload can recover an
+ *  in-flight job from /api/ask/jobs/active. */
+const JOB_POLL_MS = 3000;
+
+function isTerminal(status: AskJobStatus | undefined): boolean {
+  return status === "complete" || status === "failed" || status === "cancelled";
 }
 
-/** A deep answer can outlive the HTTP request (edge/browser timeouts around
- *  five minutes) while the server keeps composing and then logs it. When
- *  the POST fails that way, we keep polling history for the answer. */
-interface Awaiting {
+/** The exchange a follow-up builds on: id + the question, for the chip. */
+interface FollowUp {
+  id: number;
   question: string;
-  since: number; // ms epoch of the submit
-  gaveUp?: boolean; // set by the poll once AWAIT_GIVE_UP_MS has elapsed
-}
-
-const AWAIT_POLL_MS = 10_000;
-const AWAIT_GIVE_UP_MS = 15 * 60_000;
-
-function looksLikeDroppedConnection(msg: string): boolean {
-  return /failed to fetch|networkerror|load failed|timeout|timed out|\b50[234]\b|bad gateway|gateway/i.test(
-    msg,
-  );
 }
 
 function loadPrefs(): AskPrefs {
@@ -194,7 +190,16 @@ function OmittedNote({ scope }: { scope: AskScope | undefined }) {
   );
 }
 
-function AnswerCard({ entry }: { entry: AskEntry }) {
+function AnswerCard({
+  entry,
+  parentQuestion,
+  onFollowUp,
+}: {
+  entry: AskEntry;
+  /** The question this entry followed up on, when known. */
+  parentQuestion?: string | null;
+  onFollowUp?: (entry: AskEntry) => void;
+}) {
   const [showSources, setShowSources] = useState(true);
   const meta: string[] = [];
   if (entry.model_id) meta.push(entry.model_id);
@@ -206,6 +211,12 @@ function AnswerCard({ entry }: { entry: AskEntry }) {
 
   return (
     <div className="ask-card">
+      {entry.parent_id != null && (
+        <div className="ask-followup-of muted text-xs" title={parentQuestion ?? undefined}>
+          ↳ follow-up to{" "}
+          <em>{parentQuestion ? parentQuestion : `an earlier question`}</em>
+        </div>
+      )}
       <div className="ask-q">
         <Icon name="chat" size={14} />
         <span>{entry.question}</span>
@@ -243,6 +254,16 @@ function AnswerCard({ entry }: { entry: AskEntry }) {
               <span className="muted"> · {meta.join(" · ")}</span>
             )}
           </button>
+          {onFollowUp && entry.id != null && (
+            <button
+              type="button"
+              className="btn btn-ghost btn-sm ask-followup-btn"
+              title="Ask a follow-up over these same sources"
+              onClick={() => onFollowUp(entry)}
+            >
+              <Icon name="chat" size={12} /> Follow up
+            </button>
+          )}
           {showSources && (
             <div className="ask-source-list">
               {entry.sources.map((s) => (
@@ -296,7 +317,12 @@ export function Ask() {
   // entries) for the rest of the session; the server keeps the log.
   const [clearedAt, setClearedAt] = useState<number | null>(null);
   const [liveOnly, setLiveOnly] = useState<AskEntry[]>([]);
-  const [awaiting, setAwaiting] = useState<Awaiting | null>(null);
+  const [jobId, setJobId] = useState<number | null>(null);
+  const [followUp, setFollowUp] = useState<FollowUp | null>(null);
+  // Jobs whose terminal state has been handled (prepend + toast) once:
+  // the ref guards the poll callback; the state keeps render ref-free.
+  const settledRef = useRef<Set<number>>(new Set());
+  const [settledIds, setSettledIds] = useState<number[]>([]);
   const qc = useQueryClient();
   const [mention, setMention] = useState<MentionState | null>(null);
   const [menuIdx, setMenuIdx] = useState(0);
@@ -328,33 +354,57 @@ export function Ask() {
     queryFn: api.askOptions,
     staleTime: Infinity,
   });
-  // While an answer is stranded server-side, poll history for it to land.
-  const awaitFound = (page: AskHistoryPage | undefined, a: Awaiting | null) =>
-    !!a &&
-    (page?.items ?? []).some(
-      (it) =>
-        it.question === a.question &&
-        new Date(it.created_at).getTime() >= a.since - 60_000,
-    );
   const { data: historyPage } = useQuery({
     queryKey: qk.askHistory,
     queryFn: () => api.askHistory(20),
     staleTime: 30_000,
-    refetchInterval: (query) => {
-      // Runs outside render, so the clock is fine here.
-      if (!awaiting || awaiting.gaveUp) return false;
-      if (awaitFound(query.state.data, awaiting)) return false;
-      if (Date.now() - awaiting.since > AWAIT_GIVE_UP_MS) {
-        setAwaiting((a) => (a ? { ...a, gaveUp: true } : a));
-        return false;
-      }
-      return AWAIT_POLL_MS;
-    },
   });
   const detail = prefs.detail || options?.default_detail || "standard";
-  const awaitingFound = awaitFound(historyPage, awaiting);
-  const awaitingActive = awaiting !== null && !awaitingFound && !awaiting.gaveUp;
-  const awaitingGaveUp = awaiting !== null && !awaitingFound && !!awaiting.gaveUp;
+
+  // Recover an in-flight job after a reload (fetched once per mount).
+  const { data: activeJobs } = useQuery({
+    queryKey: qk.askJobsActive,
+    queryFn: api.activeAskJobs,
+    staleTime: Infinity,
+  });
+  const recoveredId =
+    activeJobs?.find((j) => !isTerminal(j.status) && !settledIds.includes(j.id))?.id ?? null;
+  const effectiveJobId = jobId ?? recoveredId;
+
+  const settle = (job: AskJob) => {
+    if (settledRef.current.has(job.id)) return;
+    settledRef.current.add(job.id);
+    setSettledIds((prev) => [...prev, job.id]);
+    if (job.status === "complete" && job.result) {
+      const item = job.result;
+      qc.setQueryData<AskHistoryPage>(qk.askHistory, (prev) => ({
+        items: [item, ...(prev?.items ?? []).filter((it) => it.id !== item.id)].slice(0, 50),
+        next_before_id: prev?.next_before_id ?? null,
+      }));
+      qc.invalidateQueries({ queryKey: qk.askHistory });
+    } else if (job.status === "failed") {
+      toast.error(`Ask failed: ${job.error || "unknown error"}`, 12_000);
+    } else if (job.status === "cancelled") {
+      toast.info("Ask cancelled.");
+    }
+    setJobId(null);
+  };
+
+  const { data: job } = useQuery({
+    queryKey: qk.askJob(effectiveJobId),
+    queryFn: () => api.getAskJob(effectiveJobId as number),
+    enabled: effectiveJobId != null,
+    refetchInterval: (q) => {
+      const data = q.state.data as AskJob | undefined;
+      if (data && isTerminal(data.status)) {
+        settle(data); // runs outside render
+        return false;
+      }
+      return JOB_POLL_MS;
+    },
+    refetchIntervalInBackground: true,
+  });
+  const jobActive = effectiveJobId != null && !(job && isTerminal(job.status));
 
   const modelId = prefs.model || options?.default_model || "";
   const modelOpt = options?.models.find((m) => m.id === modelId);
@@ -378,49 +428,44 @@ export function Ask() {
 
   const askMut = useMutation({
     mutationFn: (q: string) =>
-      api.ask({
+      api.startAskJob({
         question: q,
         corpus,
         depth,
         model: prefs.model || undefined,
         effort: effortSupported ? prefs.effort || undefined : undefined,
         detail: prefs.detail || undefined,
+        parent_id: followUp?.id,
       }),
     onSuccess: (res) => {
-      if (res.id != null) {
-        // Logged server-side: prepend to the cached page so it shows at
-        // once, then let the next refetch reconcile.
-        const item = res as AskHistoryItem;
-        qc.setQueryData<AskHistoryPage>(qk.askHistory, (prev) => ({
-          items: [item, ...(prev?.items ?? [])].slice(0, 50),
-          next_before_id: prev?.next_before_id ?? null,
-        }));
-        qc.invalidateQueries({ queryKey: qk.askHistory });
-      } else {
-        setLiveOnly((prev) => [entryFromLive(res), ...prev]);
-      }
+      setJobId(res.job_id);
       setQuestion("");
       setMention(null);
-      setAwaiting(null);
+      setFollowUp(null);
     },
-    onError: (e: Error, q: string) => {
-      if (looksLikeDroppedConnection(e.message)) {
-        // The server is very likely still composing; it logs the answer
-        // when done, so watch history for it instead of losing it.
-        setAwaiting({ question: q, since: Date.now() });
-        setQuestion("");
-        toast.info("The connection dropped but the answer is still composing — it will appear below when it lands.");
-      } else {
-        toast.error(`Ask failed: ${e.message}`);
-      }
-    },
+    onError: (e: Error) => toast.error(`Ask failed: ${e.message}`),
+  });
+
+  const cancelMut = useMutation({
+    mutationFn: (id: number) => api.cancelAskJob(id),
+    onError: (e: Error) => toast.error(`Could not cancel: ${e.message}`),
   });
 
   const submit = (q?: string) => {
     const text = (q ?? question).trim();
-    if (text.length < 3 || askMut.isPending) return;
-    setAwaiting(null);
+    if (text.length < 3 || askMut.isPending || jobActive) return;
     askMut.mutate(text);
+  };
+
+  const startFollowUp = (entry: AskEntry) => {
+    if (entry.id == null) return;
+    setFollowUp({ id: entry.id, question: entry.question });
+    const el = inputRef.current;
+    if (el) {
+      el.focus();
+      const main = document.querySelector(".main") as HTMLElement | null;
+      main?.scrollTo({ top: 0, behavior: "smooth" });
+    }
   };
 
   // Command palette hands off via /ask?q=… — run it once, then clean the URL.
@@ -507,6 +552,10 @@ export function Ask() {
     setClearedAt(newest ?? Number.MAX_SAFE_INTEGER);
     setLiveOnly([]);
   };
+  const questionById = new Map(
+    (historyPage?.items ?? []).map((it) => [it.id, it.question] as const),
+  );
+  const busy = askMut.isPending || jobActive;
 
   const scoped = mentioned.length > 0;
 
@@ -538,6 +587,23 @@ export function Ask() {
         </div>
 
         <div className="ask-input-card">
+          {followUp && (
+            <div className="ask-followup-chip">
+              <Icon name="chat" size={12} />
+              <span>
+                Following up on: <em>{followUp.question}</em>
+              </span>
+              <button
+                type="button"
+                className="ask-followup-x"
+                aria-label="Cancel follow-up"
+                title="Ask a fresh question instead"
+                onClick={() => setFollowUp(null)}
+              >
+                <Icon name="x" size={11} />
+              </button>
+            </div>
+          )}
           <textarea
             ref={inputRef}
             className="ask-input"
@@ -686,42 +752,44 @@ export function Ask() {
             </div>
             <button
               className="btn btn-primary btn-sm"
-              disabled={question.trim().length < 3 || askMut.isPending}
+              disabled={question.trim().length < 3 || busy}
               onClick={() => submit()}
             >
               <Icon name="spark" size={12} />
-              {askMut.isPending ? "Thinking…" : "Ask"}
+              {busy ? "Thinking…" : followUp ? "Follow up" : "Ask"}
             </button>
           </div>
         </div>
 
-        {askMut.isPending && (
+        {busy && (
           <div className="ask-pending">
             <Icon name="refresh" size={14} />
-            {detail === "deep"
-              ? "Pulling every relevant source and composing a full memo — a few minutes at higher effort…"
-              : depth === "documents"
-                ? "Searching summaries and the underlying documents, then composing a cited answer…"
-                : "Searching the corpus and composing a cited answer…"}
+            <span className="ask-pending-text">
+              {job?.progress_text
+                ? job.progress_text
+                : detail === "deep"
+                  ? "Pulling every relevant source and composing a full memo — a few minutes at higher effort…"
+                  : depth === "documents"
+                    ? "Searching summaries and the underlying documents, then composing a cited answer…"
+                    : "Searching the corpus and composing a cited answer…"}
+              {job?.request?.question && (
+                <span className="muted"> · {job.request.question}</span>
+              )}
+            </span>
+            {effectiveJobId != null && (
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm"
+                disabled={cancelMut.isPending || job?.status === "cancelling"}
+                onClick={() => cancelMut.mutate(effectiveJobId)}
+              >
+                {job?.status === "cancelling" ? "Cancelling…" : "Cancel"}
+              </button>
+            )}
           </div>
         )}
 
-        {awaitingActive && !askMut.isPending && (
-          <div className="ask-pending">
-            <Icon name="refresh" size={14} />
-            Still composing on the server — long memos can take several
-            minutes. Watching your history for it…
-          </div>
-        )}
-        {awaitingGaveUp && !askMut.isPending && (
-          <div className="ask-pending ask-pending-warn">
-            <Icon name="bell" size={14} />
-            No answer arrived after 15 minutes. Try again with a lower effort
-            level or Standard detail.
-          </div>
-        )}
-
-        {history.length === 0 && !askMut.isPending && !awaitingActive && (
+        {history.length === 0 && !busy && (
           <div className="empty" style={{ marginTop: 24 }}>
             Nothing asked yet.
           </div>
@@ -729,7 +797,14 @@ export function Ask() {
 
         <div className="ask-history">
           {history.map((entry) => (
-            <AnswerCard key={entry.key} entry={entry} />
+            <AnswerCard
+              key={entry.key}
+              entry={entry}
+              parentQuestion={
+                entry.parent_id != null ? questionById.get(entry.parent_id) ?? null : null
+              }
+              onFollowUp={startFollowUp}
+            />
           ))}
         </div>
 

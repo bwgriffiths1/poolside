@@ -840,12 +840,25 @@ export const api = {
     model?: string;
     effort?: AskEffort;
     detail?: AskDetail;
+    parent_id?: number;
     type_short?: string;
     from_date?: string;
     to_date?: string;
   }): Promise<AskResponse> => postJson(`/ask`, body),
 
   askOptions: () => get<AskOptions>(`/ask/options`),
+
+  // Async Ask: 202 + job id, then poll. The page uses this path so a
+  // long memo survives the browser/edge request timeout.
+  startAskJob: (body: AskBody): Promise<{ job_id: number }> =>
+    postJson(`/ask/jobs`, body),
+
+  getAskJob: (jobId: number) => get<AskJob>(`/ask/jobs/${jobId}`),
+
+  activeAskJobs: () => get<AskJob[]>(`/ask/jobs/active`, () => []),
+
+  cancelAskJob: (jobId: number): Promise<{ job_id: number; cancelling: boolean }> =>
+    postJson(`/ask/jobs/${jobId}/cancel`, {}),
 
   askHistory: (limit = 20) =>
     get<AskHistoryPage>(`/ask/history?limit=${limit}`, () => ({
@@ -1473,10 +1486,44 @@ export interface AskResponse {
   model_id: string | null;
   effort?: AskEffort | null;
   detail?: AskDetail | null;
+  /** The exchange this one followed up on, if any. */
+  parent_id?: number | null;
   cost_usd: number | null;
   /** Set once the exchange is written to ask_log (migration 023). */
   id?: number | null;
   created_at?: string | null;
+}
+
+export interface AskBody {
+  question: string;
+  corpus?: AskCorpus;
+  depth?: AskDepth;
+  docket_numbers?: string[];
+  model?: string;
+  effort?: AskEffort;
+  detail?: AskDetail;
+  parent_id?: number;
+}
+
+export type AskJobStatus =
+  | "queued"
+  | "running"
+  | "cancelling"
+  | "complete"
+  | "failed"
+  | "cancelled";
+
+export interface AskJob {
+  id: number;
+  status: AskJobStatus;
+  progress_text: string;
+  error: string | null;
+  request: AskBody;
+  ask_log_id: number | null;
+  started_at: string | null;
+  finished_at: string | null;
+  /** The logged answer, present once status is "complete". */
+  result: AskHistoryItem | null;
 }
 
 export interface AskHistoryItem extends AskResponse {

@@ -57,6 +57,8 @@ export const qk = {
 
   askOptions: ["ask-options"] as const,
   askHistory: ["ask-history"] as const,
+  askJobsActive: ["ask-jobs-active"] as const,
+  askJob: (id: number | null) => ["ask-job", id] as const,
 
   initiatives: ["initiatives"] as const,
   initiative: (code: string) => ["initiative", code] as const,

@@ -65,9 +65,11 @@ function inline(text: string): ReactNode[] {
         </a>
       );
     } else if (m[6] !== undefined) {
-      nodes.push(<strong key={key++}>{unescape(m[6])}</strong>);
+      // Recurse so a citation link inside a bold lead-in ("**NEPGA [5]:**")
+      // still renders as a link rather than literal markdown.
+      nodes.push(<strong key={key++}>{inline(m[6])}</strong>);
     } else if (m[7] !== undefined) {
-      nodes.push(<em key={key++}>{unescape(m[7])}</em>);
+      nodes.push(<em key={key++}>{inline(m[7])}</em>);
     } else if (m[8] !== undefined) {
       nodes.push(<code key={key++}>{unescape(m[8])}</code>);
     }

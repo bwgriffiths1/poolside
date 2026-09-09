@@ -45,7 +45,10 @@
 .ask-pending > svg {
   animation: ask-spin 1.2s linear infinite;
   color: var(--info);
+  flex-shrink: 0;
 }
+.ask-pending-text { flex: 1; min-width: 0; }
+.ask-pending > .btn { flex-shrink: 0; }
 @keyframes ask-spin { to { transform: rotate(360deg); } }
 .ask-pending-warn > svg { animation: none; color: var(--warn, #b45309); }
 
@@ -399,6 +402,39 @@
 .mep-seg button { flex: 1; justify-content: center; }
 
 .mep-trigger-detail { color: var(--ink-soft); }
+
+.ask-followup-of { margin-bottom: 4px; }
+.ask-followup-of em { font-style: italic; color: var(--ink-soft); }
+
+.ask-followup-btn { margin-left: auto; }
+.ask-sources { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; }
+.ask-sources > .ask-sources-toggle { display: inline-flex; }
+.ask-sources > .ask-source-list { flex-basis: 100%; }
+
+.ask-followup-chip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 var(--pad-2);
+  padding: 6px 10px;
+  font-size: 12.5px;
+  color: var(--accent);
+  background: var(--accent-tint);
+  border: 1px solid var(--accent-soft);
+  border-radius: var(--radius);
+}
+.ask-followup-chip > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ask-followup-chip em { color: var(--ink-soft); }
+.ask-followup-x {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px;
+  background: transparent;
+  border: 0;
+  color: var(--muted);
+  cursor: pointer;
+}
+.ask-followup-x:hover { color: var(--ink); }
 
 .ask-q-when {
   margin-left: auto;

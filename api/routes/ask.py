@@ -27,7 +27,7 @@ import time
 from datetime import date
 from typing import Any, Callable, Literal
 
-from fastapi import APIRouter, Body, Depends, HTTPException
+from fastapi import APIRouter, Body, Depends, HTTPException, Response
 from pydantic import BaseModel, Field
 
 from pipeline import db
@@ -815,6 +815,24 @@ def _serialize_ask_job(row: dict | None) -> dict[str, Any] | None:
 
 def _iso(v: Any) -> Any:
     return v.isoformat() if hasattr(v, "isoformat") else v
+
+
+@router.get("/{ask_id}/docx")
+def download_ask_docx(ask_id: int, user: dict = Depends(current_user)) -> Response:
+    """One exchange as a Word memo: question, answer, numbered sources."""
+    from pipeline.ask_docx import generate_ask_docx_bytes
+
+    row = db.get_ask_log(ask_id)
+    if not row or (row.get("user_email") != user.get("email")
+                   and user.get("role") != "admin"):
+        raise HTTPException(status_code=404, detail="Exchange not found")
+    data, filename = generate_ask_docx_bytes(ask_id)
+    return Response(
+        content=data,
+        media_type=("application/vnd.openxmlformats-officedocument"
+                    ".wordprocessingml.document"),
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.post("/jobs", status_code=202)

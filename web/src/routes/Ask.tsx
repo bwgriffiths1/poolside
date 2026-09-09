@@ -254,15 +254,26 @@ function AnswerCard({
               <span className="muted"> · {meta.join(" · ")}</span>
             )}
           </button>
-          {onFollowUp && entry.id != null && (
-            <button
-              type="button"
-              className="btn btn-ghost btn-sm ask-followup-btn"
-              title="Ask a follow-up over these same sources"
-              onClick={() => onFollowUp(entry)}
-            >
-              <Icon name="chat" size={12} /> Follow up
-            </button>
+          {entry.id != null && (
+            <span className="ask-card-actions">
+              <a
+                className="btn btn-ghost btn-sm"
+                href={`/api/ask/${entry.id}/docx`}
+                title="Download this answer as a Word memo with a sources list"
+              >
+                <Icon name="download" size={12} /> Word
+              </a>
+              {onFollowUp && (
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-sm"
+                  title="Ask a follow-up over these same sources"
+                  onClick={() => onFollowUp(entry)}
+                >
+                  <Icon name="chat" size={12} /> Follow up
+                </button>
+              )}
+            </span>
           )}
           {showSources && (
             <div className="ask-source-list">

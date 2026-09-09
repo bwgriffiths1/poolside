@@ -839,12 +839,19 @@ export const api = {
     docket_numbers?: string[];
     model?: string;
     effort?: AskEffort;
+    detail?: AskDetail;
     type_short?: string;
     from_date?: string;
     to_date?: string;
   }): Promise<AskResponse> => postJson(`/ask`, body),
 
   askOptions: () => get<AskOptions>(`/ask/options`),
+
+  askHistory: (limit = 20) =>
+    get<AskHistoryPage>(`/ask/history?limit=${limit}`, () => ({
+      items: [],
+      next_before_id: null,
+    })),
 
   // ── Deep dives ───────────────────────────────────────────────────────
   listDeepDives: () => get<DeepDive[]>(`/deep-dives`, () => []),
@@ -1386,6 +1393,7 @@ export interface MyPrefs {
 export type AskCorpus = "all" | "meetings" | "dockets";
 export type AskDepth = "summaries" | "documents";
 export type AskEffort = "low" | "medium" | "high" | "xhigh" | "max";
+export type AskDetail = "brief" | "standard" | "deep";
 
 export interface AskModelOption {
   id: string;
@@ -1398,8 +1406,10 @@ export interface AskModelOption {
 export interface AskOptions {
   models: AskModelOption[];
   efforts: AskEffort[];
+  details: AskDetail[];
   default_model: string;
   default_effort: AskEffort;
+  default_detail: AskDetail;
 }
 
 export interface AskSource {
@@ -1458,7 +1468,23 @@ export interface AskResponse {
   scope?: AskScope;
   model_id: string | null;
   effort?: AskEffort | null;
+  detail?: AskDetail | null;
   cost_usd: number | null;
+  /** Set once the exchange is written to ask_log (migration 023). */
+  id?: number | null;
+  created_at?: string | null;
+}
+
+export interface AskHistoryItem extends AskResponse {
+  id: number;
+  created_at: string;
+  user_email?: string;
+  duration_ms?: number | null;
+}
+
+export interface AskHistoryPage {
+  items: AskHistoryItem[];
+  next_before_id: number | null;
 }
 
 export interface DeepDiveSource {

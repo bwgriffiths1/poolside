@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Icon } from "./Icon";
-import type { AskEffort, AskOptions } from "../lib/api";
+import type { AskDetail, AskEffort, AskOptions } from "../lib/api";
 
 const EFFORT_LABEL: Record<AskEffort, string> = {
   low: "Low",
@@ -18,19 +18,39 @@ const EFFORT_HINT: Record<AskEffort, string> = {
   max: "Slowest and most expensive; correctness over speed.",
 };
 
-/** Compact trigger ("Sonnet 5 · Low") that opens a popover with a model
- *  list and a Faster ↔ Smarter effort slider. Controlled: the parent owns
- *  the picks and their persistence. */
+const DETAIL_LABEL: Record<AskDetail, string> = {
+  brief: "Brief",
+  standard: "Standard",
+  deep: "Deep",
+};
+
+const DETAIL_HINT: Record<AskDetail, string> = {
+  brief: "A direct answer in a paragraph or two (≤400 words).",
+  standard:
+    "A structured answer with the supporting detail: dates, positions, figures (500–800 words).",
+  deep:
+    "A full analyst memo with sections. On a docket it reads every filing, not just the best matches; pair with Documents for verbatim language. Slower and costs more.",
+};
+
+/** Compact trigger ("Sonnet 5 · Low · Standard") that opens a popover with
+ *  a model list, a Faster ↔ Smarter effort slider and a detail level.
+ *  Controlled: the parent owns the picks and their persistence. */
 export function ModelEffortPicker({
   options,
   modelId,
   effort,
+  detail,
   onChange,
 }: {
   options: AskOptions;
   modelId: string;
   effort: AskEffort;
-  onChange: (patch: { model?: string; effort?: AskEffort }) => void;
+  detail: AskDetail;
+  onChange: (patch: {
+    model?: string;
+    effort?: AskEffort;
+    detail?: AskDetail;
+  }) => void;
 }) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -68,7 +88,7 @@ export function ModelEffortPicker({
         className={`mep-trigger${open ? " on" : ""}`}
         aria-haspopup="dialog"
         aria-expanded={open}
-        title="Model and effort"
+        title="Model, effort and detail"
         onClick={() => setOpen((o) => !o)}
       >
         <span className="mep-trigger-model">{model?.label ?? modelId}</span>
@@ -76,11 +96,13 @@ export function ModelEffortPicker({
         <span className="mep-trigger-effort">
           {effortSupported ? EFFORT_LABEL[effort] : "n/a"}
         </span>
+        <span className="mep-trigger-sep">·</span>
+        <span className="mep-trigger-detail">{DETAIL_LABEL[detail]}</span>
         <Icon name="chev-d" size={10} />
       </button>
 
       {open && (
-        <div className="mep-pop" role="dialog" aria-label="Model and effort">
+        <div className="mep-pop" role="dialog" aria-label="Model, effort and detail">
           <div className="mep-section">
             <div className="mep-head">
               <span className="mep-label">Model</span>
@@ -157,9 +179,38 @@ export function ModelEffortPicker({
             </div>
             <div className="mep-hint">
               {effortSupported
-                ? EFFORT_HINT[effort]
+                ? EFFORT_HINT[effort] +
+                  (detail === "deep" && effort === options.default_effort
+                    ? " Deep raises this to Medium unless you choose otherwise."
+                    : "")
                 : `${model?.label} takes no effort setting.`}
             </div>
+          </div>
+
+          <div className="mep-section">
+            <div className="mep-head">
+              <span className="mep-label">Detail</span>
+              <span className="mep-value">{DETAIL_LABEL[detail]}</span>
+            </div>
+            <div className="seg mep-seg" role="radiogroup" aria-label="Detail">
+              {options.details.map((lvl) => (
+                <button
+                  key={lvl}
+                  type="button"
+                  role="radio"
+                  aria-checked={detail === lvl}
+                  className={detail === lvl ? "on" : ""}
+                  onClick={() =>
+                    onChange({
+                      detail: lvl === options.default_detail ? undefined : lvl,
+                    })
+                  }
+                >
+                  {DETAIL_LABEL[lvl]}
+                </button>
+              ))}
+            </div>
+            <div className="mep-hint">{DETAIL_HINT[detail]}</div>
           </div>
         </div>
       )}

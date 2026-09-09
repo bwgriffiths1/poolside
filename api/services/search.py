@@ -392,6 +392,7 @@ def search_document_hits(
     from_date: date | None = None,
     to_date: date | None = None,
     type_short: str | None = None,
+    passage_chars: int = 3200,
 ) -> list[dict[str, Any]]:
     """Ranked hits over the UNDERLYING text (migration 022): meeting
     materials and/or FERC filing files, per `corpus`. Each hit carries the
@@ -513,7 +514,8 @@ def search_document_hits(
     # in its back half ranks 0 in SQL. Over-fetch, then re-rank by passage
     # score (which reads the whole text) before cutting to `limit`.
     for r in out:
-        r["passage_score"], r["passage"] = score_passages(r.get("raw_content"), q)
+        r["passage_score"], r["passage"] = score_passages(
+            r.get("raw_content"), q, max_chars=passage_chars)
     out.sort(key=lambda r: (r["passage_score"], float(r.get("rank") or 0.0)),
              reverse=True)
     # Meeting materials often ship as clean / redline / incremental copies

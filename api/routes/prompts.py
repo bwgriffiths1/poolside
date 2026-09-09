@@ -103,6 +103,12 @@ def list_prompts() -> dict[str, Any]:
          "hint": "Per-initiative 'story so far' synthesis"},
         {"label": "Ask Poolside", **meta("ask_prompt"),
          "hint": "Cited Q&A over the summary corpus"},
+        {"label": "Ask — brief", **meta("ask_detail_brief"),
+         "hint": "Answer length/structure at the Brief detail level"},
+        {"label": "Ask — standard", **meta("ask_detail_standard"),
+         "hint": "Answer length/structure at the Standard detail level (default)"},
+        {"label": "Ask — deep", **meta("ask_detail_deep"),
+         "hint": "Full analyst memo at the Deep detail level"},
         {"label": "Keyword extraction", **meta("keyword_extraction_prompt"),
          "hint": "Tag generation"},
     ]
@@ -132,6 +138,7 @@ def list_prompts() -> dict[str, Any]:
         "agenda_parse_prompt", "doc_match_prompt", "deep_dive_prompt",
         "keyword_extraction_prompt", "monthly_roundup_prompt",
         "initiative_brief_prompt", "ask_prompt",
+        "ask_detail_brief", "ask_detail_standard", "ask_detail_deep",
     }
     for v in venues_out:
         for c in v["committees"]:

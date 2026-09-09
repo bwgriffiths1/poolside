@@ -140,15 +140,45 @@ def test_parse_mentions_normalizes_and_strips():
 
 
 class _FakeDB:
-    def __init__(self, dockets=None, summaries=None):
+    def __init__(self, dockets=None, summaries=None, roster=None):
         self.dockets = dockets or {}
         self.summaries = summaries or {}
+        self.roster = roster or []
+        self.asks: list[dict] = []
+        self.log_calls: list[dict] = []
 
     def get_docket_by_number(self, num):
         return self.dockets.get(num)
 
     def get_current_summary(self, etype, eid):
         return self.summaries.get((etype, eid))
+
+    def list_docket_filing_summaries(self, docket_ids):
+        return [r for r in self.roster if r["docket_id"] in docket_ids]
+
+    def record_ask(self, entry):
+        self.asks.append(entry)
+        return {"id": len(self.asks), "created_at": datetime(2026, 9, 9, 1, 2, 3)}
+
+    def list_ask_log(self, limit=20, before_id=None, user_email=None):
+        self.log_calls.append({"limit": limit, "before_id": before_id,
+                               "user_email": user_email})
+        return []
+
+
+def _fake_prompts(template):
+    """load_prompt stand-in: the ask template plus a marker directive per
+    detail level, nothing else."""
+    def load(slug):
+        if slug == ask_mod.PROMPT_SLUG:
+            return template
+        if slug.startswith("ask_detail_"):
+            return f"DIRECTIVE {slug.removeprefix('ask_detail_').upper()}"
+        return ""
+    return load
+
+
+_USER = {"id": 3, "email": "ben@example.com", "role": "admin"}
 
 
 @pytest.fixture
@@ -194,16 +224,18 @@ def retrieval(monkeypatch):
 
     def meeting(q, limit, **kw):
         calls["meeting"].append(kw)
+        calls.setdefault("limits", []).append(limit)
         return [_hit("meeting", 1, rank=0.9), _hit("agenda_item", 9, rank=0.2)]
 
     def docket(q, limit, docket_ids=None):
         calls["docket"].append(docket_ids)
+        calls.setdefault("limits", []).append(limit)
         # The state of play also matches — must de-dup against the seed.
         return [_docket_hit("docket_filing", 40, rank=0.5),
                 _docket_hit("docket", 7, rank=0.3)]
 
     def document(q, limit, **kw):
-        calls["document"].append(kw)
+        calls["document"].append({**kw, "limit": limit})
         return [{"entity_type": "docket_filing_file", "entity_id": 300,
                  "tier": "document", "passage": "verbatim text",
                  "file_desc": "No description given",
@@ -240,6 +272,42 @@ def test_gather_scoped_docket_seeds_state_of_play(scope_db, retrieval):
     assert retrieval["docket"] == [[7]]
     assert retrieval["document"][0]["docket_ids"] == [7]
     assert retrieval["document"][0]["corpus"] == "dockets"
+
+
+def test_gather_caps_follow_detail_level(scope_db, retrieval):
+    scope = ask_mod.resolve_scope(AskBody(question="gas constraint", depth="documents"))
+    ask_mod.gather_sources(scope, detail="brief")
+    assert retrieval["limits"][-2:] == [12, 12]
+    assert retrieval["document"][-1]["limit"] == 6
+    assert retrieval["document"][-1]["passage_chars"] == 3200
+    ask_mod.gather_sources(scope, detail="deep")
+    assert retrieval["limits"][-2:] == [40, 40]
+    assert retrieval["document"][-1]["limit"] == 8
+    assert retrieval["document"][-1]["passage_chars"] == 4000
+
+
+def test_gather_deep_docket_scope_includes_full_roster(scope_db, retrieval):
+    scope_db.roster = [
+        {"filing_id": 41, "docket_id": 7, "docket_number": "ER26-925",
+         "accession_number": "20260201-0001", "document_class": "Comments/Protest",
+         "description": "Comments of Party B", "filed_date": date(2026, 2, 1),
+         "filing_parties": [], "treatment": "brief"},
+        {"filing_id": 40, "docket_id": 7, "docket_number": "ER26-925",
+         "accession_number": "20251230-5436", "document_class": "Comments/Protest",
+         "description": "Protest of NEPGA", "filed_date": date(2025, 12, 30),
+         "filing_parties": [], "treatment": "full"},
+    ]
+    scope = ask_mod.resolve_scope(AskBody(question="@ER26-925 every party's position"))
+    hits = ask_mod.gather_sources(scope, detail="deep")
+    keys = [(h["entity_type"], h["entity_id"]) for h in hits]
+    # State of play, then the whole roster newest-first, then ranked extras
+    # de-duplicated against it (filing 40 appears once).
+    assert keys[:3] == [("docket", 7), ("docket_filing", 41), ("docket_filing", 40)]
+    assert keys.count(("docket_filing", 40)) == 1
+    assert hits[1]["tier"] == "summary" and hits[1]["accession_number"] == "20260201-0001"
+    # Standard detail does NOT pull the roster.
+    hits_std = ask_mod.gather_sources(scope, detail="standard")
+    assert ("docket_filing", 41) not in [(h["entity_type"], h["entity_id"]) for h in hits_std]
 
 
 def test_gather_meetings_corpus_passes_filters(scope_db, retrieval):
@@ -280,15 +348,12 @@ def test_variant_key_collapses_clean_redline_copies():
 # build_ask_prompt
 # ---------------------------------------------------------------------------
 
-TEMPLATE = "[RULES] cite [n]\n\nQ: [QUESTION]\n\n[SOURCES]"
+TEMPLATE = "[RULES] cite [n]\n\n[DETAIL]\n\nQ: [QUESTION]\n\n[SOURCES]"
 
 
 @pytest.fixture
 def ask_env(monkeypatch):
-    monkeypatch.setattr(
-        ask_mod, "load_prompt",
-        lambda slug: TEMPLATE if slug == ask_mod.PROMPT_SLUG else "",
-    )
+    monkeypatch.setattr(ask_mod, "load_prompt", _fake_prompts(TEMPLATE))
     summaries = {
         ("meeting", 1): {"detailed": "Briefing text.\n<!-- image_id:4 -->"},
         ("agenda_item", 9): {"detailed": "Item text\n**Figure:** x"},
@@ -314,6 +379,9 @@ def test_prompt_numbers_and_labels_sources(ask_env):
     # Image markup never reaches the model.
     assert "image_id" not in prompt and "**Figure:**" not in prompt
     assert "(Scope:" not in prompt   # unscoped, summaries depth → no scope line
+    # Default detail level's directive fills the placeholder, before the Q.
+    assert prompt.index("DIRECTIVE STANDARD") < prompt.index("Q: Where")
+    assert "[DETAIL]" not in prompt
 
 
 def test_prompt_labels_docket_filing_and_excerpt_sources(ask_env):
@@ -355,24 +423,74 @@ def test_prompt_requires_template(ask_env, monkeypatch):
         build_ask_prompt("q", [_hit("meeting", 1)])
 
 
+def test_prompt_requires_detail_directive(ask_env, monkeypatch):
+    monkeypatch.setattr(ask_mod, "load_prompt",
+                        lambda slug: TEMPLATE if slug == ask_mod.PROMPT_SLUG else "")
+    with pytest.raises(ValueError, match="ask_detail_deep"):
+        build_ask_prompt("q", [_hit("meeting", 1)], detail="deep")
+
+
+def test_prompt_appends_directive_when_placeholder_missing(ask_env, monkeypatch):
+    # A prod prompt_overrides copy that predates [DETAIL] still gets the level.
+    legacy = "[RULES] cite [n]\n\nQ: [QUESTION]\n\n[SOURCES]"
+    monkeypatch.setattr(ask_mod, "load_prompt", _fake_prompts(legacy))
+    prompt = build_ask_prompt("q", [_hit("meeting", 1)], detail="deep")
+    assert prompt.rstrip().endswith("DIRECTIVE DEEP")
+    assert prompt.index("=== SOURCE [1]") < prompt.index("DIRECTIVE DEEP")
+
+
+def test_state_of_play_exempt_from_source_cap(monkeypatch):
+    monkeypatch.setattr(ask_mod, "load_prompt", _fake_prompts(TEMPLATE))
+    sop = "S" * 9000                      # > brief/standard caps, < SOP ceiling
+    filing = "F" * 7000                   # > brief cap (6000), < deep cap
+    monkeypatch.setattr(ask_mod, "db", _FakeDB(summaries={
+        ("docket", 7): {"detailed": sop},
+        ("docket_filing", 40): {"detailed": filing},
+    }))
+    hits = [_docket_hit("docket", 7), _docket_hit("docket_filing", 40)]
+    brief = build_ask_prompt("q", hits, detail="brief")
+    assert sop in brief                               # never truncated
+    assert filing not in brief and "…(truncated)" in brief
+    deep = build_ask_prompt("q", hits, detail="deep")
+    assert filing in deep and "…(truncated)" not in deep
+
+
+def test_sources_block_budget_trims_tail(monkeypatch):
+    monkeypatch.setattr(ask_mod, "load_prompt", _fake_prompts(TEMPLATE))
+    monkeypatch.setattr(ask_mod, "_MAX_SOURCES_BLOCK_CHARS", 500)
+    monkeypatch.setattr(ask_mod, "db", _FakeDB(summaries={
+        ("meeting", i): {"detailed": f"body{i} " * 40} for i in range(1, 6)
+    }))
+    hits = [_hit("meeting", i) for i in range(1, 6)]
+    prompt = build_ask_prompt("q", hits)
+    assert "=== SOURCE [1]" in prompt and "=== SOURCE [5]" not in prompt
+    # The hits list is trimmed in step so the response's source list matches
+    # what the model actually saw.
+    assert len(hits) < 5
+
+
 # ---------------------------------------------------------------------------
 # Route: no-hit short-circuit + happy path
 # ---------------------------------------------------------------------------
 
 def test_ask_no_hits_skips_llm(monkeypatch):
-    monkeypatch.setattr(ask_mod, "db", _FakeDB())
+    fake = _FakeDB()
+    monkeypatch.setattr(ask_mod, "db", fake)
     monkeypatch.setattr(ask_mod, "gather_sources", lambda scope, **kw: [])
 
     def boom():  # pragma: no cover — the assertion
         raise AssertionError("LLM client must not be created on zero hits")
 
     monkeypatch.setattr(ask_mod, "make_client", boom)
-    out = ask_mod.ask(AskBody(question="anything about @EL99-1 nothing"), {})
+    out = ask_mod.ask(AskBody(question="anything about @EL99-1 nothing"), _USER)
     assert out["sources"] == []
     assert "couldn't find" in out["answer_md"].lower()
     assert "Not tracked here: EL99-1" in out["answer_md"]
     assert out["scope"]["unknown_dockets"] == ["EL99-1"]
     assert out["cost_usd"] is None
+    # Even a no-result exchange is logged.
+    assert len(fake.asks) == 1 and fake.asks[0]["model_id"] is None
+    assert out["id"] == 1 and out["detail"] == "standard"
 
 
 def test_ask_happy_path_serializes_sources(monkeypatch):
@@ -384,12 +502,17 @@ def test_ask_happy_path_serializes_sources(monkeypatch):
          "docket_number": "ER26-925", "filing_id": 40,
          "filed_date": date(2025, 12, 30), "snippet": "…"},
     ]
-    monkeypatch.setattr(ask_mod, "gather_sources", lambda scope, **kw: hits)
-    monkeypatch.setattr(ask_mod, "db", _FakeDB(
-        summaries={("agenda_item", 9): {"detailed": "text"},
-                   ("docket_filing", 40): {"detailed": "text"}}))
-    monkeypatch.setattr(ask_mod, "load_prompt",
-                        lambda slug: TEMPLATE if slug == ask_mod.PROMPT_SLUG else "")
+    gathered: dict = {}
+
+    def _gather(scope, **kw):
+        gathered.update(kw)
+        return hits
+
+    monkeypatch.setattr(ask_mod, "gather_sources", _gather)
+    fake = _FakeDB(summaries={("agenda_item", 9): {"detailed": "text"},
+                              ("docket_filing", 40): {"detailed": "text"}})
+    monkeypatch.setattr(ask_mod, "db", fake)
+    monkeypatch.setattr(ask_mod, "load_prompt", _fake_prompts(TEMPLATE))
     monkeypatch.setattr(ask_mod, "load_model_config", lambda: {"ask_model": "m-ask"})
     monkeypatch.setattr(ask_mod, "make_client", lambda: object())
     seen: dict = {}
@@ -400,7 +523,7 @@ def test_ask_happy_path_serializes_sources(monkeypatch):
 
     monkeypatch.setattr(ask_mod, "call_llm", _fake_llm)
 
-    out = ask_mod.ask(AskBody(question="where does CAR-SA stand?", depth="documents"), {})
+    out = ask_mod.ask(AskBody(question="where does CAR-SA stand?", depth="documents"), _USER)
     # Ask opts out of the model family's default effort — it's interactive and
     # reads already-summarized text.
     assert seen["effort"] == "low"
@@ -415,6 +538,80 @@ def test_ask_happy_path_serializes_sources(monkeypatch):
     assert out["sources"][2]["filename"] == "Attachment B"
     assert out["scope"] == {"corpus": "all", "depth": "documents",
                             "dockets": [], "unknown_dockets": []}
+    assert gathered["detail"] == "standard"
+    # Logged with the serialized sources and the caller's identity.
+    entry = fake.asks[0]
+    assert entry["user_email"] == "ben@example.com" and entry["user_id"] == 3
+    assert entry["detail"] == "standard" and entry["model_id"] == "m-ask"
+    assert [s["n"] for s in entry["sources"]] == [1, 2, 3]
+    assert entry["answer_md"].startswith("Answer [1].")
+    assert entry["duration_ms"] >= 0
+    assert out["id"] == 1 and out["created_at"] == "2026-09-09T01:02:03"
+
+
+def test_ask_log_failure_does_not_break_answer(monkeypatch):
+    monkeypatch.setattr(ask_mod, "gather_sources", lambda scope, **kw: [_hit("meeting", 1)])
+
+    class _Broken(_FakeDB):
+        def record_ask(self, entry):
+            raise RuntimeError("db down")
+
+    monkeypatch.setattr(ask_mod, "db", _Broken(summaries={("meeting", 1): {"detailed": "t"}}))
+    monkeypatch.setattr(ask_mod, "load_prompt", _fake_prompts(TEMPLATE))
+    monkeypatch.setattr(ask_mod, "load_model_config", lambda: {"ask_model": "m"})
+    monkeypatch.setattr(ask_mod, "make_client", lambda: object())
+    monkeypatch.setattr(ask_mod, "call_llm", lambda *a, **k: "Answer [1].")
+    out = ask_mod.ask(AskBody(question="anything at all"), _USER)
+    assert out["answer_md"] == "Answer [1]." and "id" not in out
+
+
+def test_deep_raises_effort_floor_only_when_unset(monkeypatch):
+    monkeypatch.setattr(ask_mod, "gather_sources", lambda scope, **kw: [_hit("meeting", 1)])
+    monkeypatch.setattr(ask_mod, "db", _FakeDB(summaries={("meeting", 1): {"detailed": "t"}}))
+    monkeypatch.setattr(ask_mod, "load_prompt", _fake_prompts(TEMPLATE))
+    monkeypatch.setattr(ask_mod, "load_model_config", lambda: {"ask_model": "m"})
+    monkeypatch.setattr(ask_mod, "make_client", lambda: object())
+    seen: list = []
+
+    def _llm(client, model, prompt, max_tokens=0, label="", effort=None):
+        seen.append(effort)
+        assert "DIRECTIVE DEEP" in prompt or "DIRECTIVE STANDARD" in prompt
+        return "A [1]."
+
+    monkeypatch.setattr(ask_mod, "call_llm", _llm)
+    ask_mod.ask(AskBody(question="anything at all", detail="deep"), _USER)
+    ask_mod.ask(AskBody(question="anything at all", detail="deep", effort="low"), _USER)
+    ask_mod.ask(AskBody(question="anything at all"), _USER)
+    assert seen == ["medium", "low", ask_mod.DEFAULT_EFFORT]
+
+
+def test_ask_body_rejects_unknown_detail():
+    from pydantic import ValidationError
+    with pytest.raises(ValidationError):
+        AskBody(question="anything at all", detail="exhaustive")
+
+
+def test_ask_history_scopes_to_own_unless_admin(monkeypatch):
+    fake = _FakeDB()
+    monkeypatch.setattr(ask_mod, "db", fake)
+    viewer = {"id": 9, "email": "v@example.com", "role": "viewer"}
+    out = ask_mod.ask_history(limit=500, all=True, user=viewer)
+    assert fake.log_calls[-1] == {"limit": 100, "before_id": None,
+                                  "user_email": "v@example.com"}
+    assert out == {"items": [], "next_before_id": None}
+    ask_mod.ask_history(limit=5, before_id=77, all=True, user=_USER)
+    assert fake.log_calls[-1] == {"limit": 5, "before_id": 77, "user_email": None}
+
+
+def test_serialize_log_row_matches_live_shape():
+    from decimal import Decimal
+    row = {"id": 4, "created_at": datetime(2026, 9, 9), "user_email": "b@x",
+           "question": "q", "answer_md": "a [1]", "sources": [{"n": 1}],
+           "scope": {"corpus": "all"}, "model_id": "m", "effort": "low",
+           "detail": "deep", "cost_usd": Decimal("0.1234"), "duration_ms": 900}
+    out = ask_mod._serialize_log_row(row)
+    assert out["cost_usd"] == 0.1234 and out["created_at"] == "2026-09-09T00:00:00"
+    assert out["sources"] == [{"n": 1}] and out["detail"] == "deep"
 
 
 # ---------------------------------------------------------------------------
@@ -437,8 +634,7 @@ def test_ask_passes_model_and_effort_to_llm(monkeypatch):
     monkeypatch.setattr(ask_mod, "gather_sources", lambda scope, **kw: hits)
     monkeypatch.setattr(ask_mod, "db", _FakeDB(
         summaries={("meeting", 1): {"detailed": "text"}}))
-    monkeypatch.setattr(ask_mod, "load_prompt",
-                        lambda slug: TEMPLATE if slug == ask_mod.PROMPT_SLUG else "")
+    monkeypatch.setattr(ask_mod, "load_prompt", _fake_prompts(TEMPLATE))
     monkeypatch.setattr(ask_mod, "load_model_config", lambda: {"ask_model": "m-ask"})
     monkeypatch.setattr(ask_mod, "make_client", lambda: object())
     seen: dict = {}
@@ -450,11 +646,11 @@ def test_ask_passes_model_and_effort_to_llm(monkeypatch):
     monkeypatch.setattr(ask_mod, "call_llm", _fake_llm)
 
     out = ask_mod.ask(AskBody(question="where does CAR-SA stand?",
-                              model="claude-opus-5", effort="max"), {})
+                              model="claude-opus-5", effort="max"), _USER)
     assert seen == {"model": "claude-opus-5", "effort": "max"}
     assert out["model_id"] == "claude-opus-5" and out["effort"] == "max"
 
-    out = ask_mod.ask(AskBody(question="where does CAR-SA stand?"), {})
+    out = ask_mod.ask(AskBody(question="where does CAR-SA stand?"), _USER)
     assert seen == {"model": "m-ask", "effort": ask_mod.DEFAULT_EFFORT}
 
 
@@ -472,5 +668,7 @@ def test_ask_options_lists_models_and_defaults(monkeypatch):
     haiku = next(m for m in out["models"] if m["id"].startswith("claude-haiku"))
     assert haiku["effort"] is False                          # UI greys effort out
     assert out["efforts"] == ["low", "medium", "high", "xhigh", "max"]
+    assert out["details"] == ["brief", "standard", "deep"]
     assert out["default_model"] == "claude-sonnet-5"
     assert out["default_effort"] == "low"
+    assert out["default_detail"] == "standard"

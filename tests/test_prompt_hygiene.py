@@ -33,3 +33,19 @@ def test_no_fixed_word_quota():
 def test_pjm_lc_keeps_deliberate_cap():
     text = (PROMPTS / "pjm_lc_agenda_item_prompt.md").read_text(encoding="utf-8")
     assert "80–200 words" in text
+
+
+# ---------------------------------------------------------------------------
+# Ask detail levels
+# ---------------------------------------------------------------------------
+
+def test_ask_prompt_defers_length_to_detail_directives():
+    root = Path(__file__).resolve().parent.parent / "prompts"
+    ask = (root / "ask_prompt.md").read_text()
+    assert "[DETAIL]" in ask
+    assert "never exceed" not in ask          # the cap moved to the brief level
+    for level in ("brief", "standard", "deep"):
+        body = (root / f"ask_detail_{level}.md").read_text().strip()
+        assert body.startswith("Detail level:"), level
+    assert "never exceed ~400" in (root / "ask_detail_brief.md").read_text()
+    assert "no length cap" in (root / "ask_detail_deep.md").read_text()

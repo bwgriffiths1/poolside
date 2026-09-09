@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import logging
 import re
+import time
 from datetime import date
 from typing import Any, Literal
 
@@ -57,14 +58,35 @@ router = APIRouter(prefix="/api/ask", tags=["ask"])
 
 PROMPT_SLUG = "ask_prompt"
 
-# Retrieval breadth and per-source ceilings. Summaries beyond ~12 add
-# latency and prompt cost faster than answer quality; 6k chars keeps a long
-# briefing from crowding out the other sources. Document passages are
-# fewer and shorter — they're supplements to the summaries, not the corpus.
-_MAX_SOURCES = 12
-_MAX_SOURCE_CHARS = 6000
-_MAX_DOC_SOURCES = 6
-_MAX_PASSAGE_CHARS = 3200
+Detail = Literal["brief", "standard", "deep"]
+DETAIL_LEVELS: list[str] = ["brief", "standard", "deep"]
+DEFAULT_DETAIL = "standard"
+
+# Retrieval breadth and per-source ceilings, by detail level. `brief` is
+# the original tuning (≈12 summaries × 6k chars); `deep` trades prompt
+# cost for coverage — a "positions by party" question on a busy docket
+# needs every filing in front of the model, not the 12 best keyword
+# matches. Document passages stay supplements to the summaries.
+#   sources        — cap on summary sources (state of play + ranked hits,
+#                    or the full docket roster at deep)
+#   source_chars   — head-truncation of one summary body
+#   doc_sources    — verbatim passages at documents depth
+#   passage_chars  — length of one passage
+_RETRIEVAL: dict[str, dict[str, int]] = {
+    "brief":    {"sources": 12, "source_chars": 6000,  "doc_sources": 6, "passage_chars": 3200},
+    "standard": {"sources": 16, "source_chars": 8000,  "doc_sources": 6, "passage_chars": 3200},
+    "deep":     {"sources": 40, "source_chars": 12000, "doc_sources": 8, "passage_chars": 4000},
+}
+# A scoped docket's state of play is the frame for the whole answer, so it
+# is exempt from the per-source cap at every level; this is a safety
+# ceiling only.
+_MAX_STATE_OF_PLAY_CHARS = 16000
+# Total prompt budget (chars) for the sources block — a deep roster over a
+# very busy docket trims its tail rather than blowing the request up.
+_MAX_SOURCES_BLOCK_CHARS = 220_000
+# A deep memo needs some deliberation; applied only when the request left
+# effort unset.
+_DEEP_EFFORT_FLOOR = "medium"
 
 _NO_RESULTS_ANSWER = (
     "I couldn't find anything in the {corpus} matching that question. "
@@ -111,6 +133,7 @@ class AskBody(BaseModel):
     docket_numbers: list[str] = Field(default_factory=list, max_length=10)
     model: str | None = None
     effort: Effort | None = None
+    detail: Detail = DEFAULT_DETAIL
     type_short: str | None = None
     from_date: date | None = None
     to_date: date | None = None
@@ -212,11 +235,41 @@ def _seed_state_of_play(docket: dict) -> dict | None:
     }
 
 
-def gather_sources(scope: dict[str, Any], **filters) -> list[dict]:
+def _roster_hits(docket_ids: list[int]) -> list[dict]:
+    """Every substantive, summarized filing on the scoped dockets as
+    summary hits, newest first (deep detail only)."""
+    out = []
+    for row in db.list_docket_filing_summaries(docket_ids):
+        out.append({
+            "entity_type": "docket_filing",
+            "entity_id": row["filing_id"],
+            "docket_id": row["docket_id"],
+            "docket_number": row.get("docket_number"),
+            "docket_title": row.get("docket_title"),
+            "filing_id": row["filing_id"],
+            "accession_number": row.get("accession_number"),
+            "document_class": row.get("document_class"),
+            "document_type": row.get("document_type"),
+            "description": row.get("description"),
+            "filed_date": row.get("filed_date"),
+            "filing_parties": row.get("filing_parties"),
+            "snippet": search_svc._escape_snippet(
+                (row.get("description") or "")[:200]),
+            "tier": "summary",
+            "rank": None,
+        })
+    return out
+
+
+def gather_sources(scope: dict[str, Any], detail: str = DEFAULT_DETAIL,
+                   **filters) -> list[dict]:
     """Ranked, de-duplicated sources for a resolved scope: seeded
-    state-of-play for scoped dockets, then summary hits from the chosen
+    state-of-play for scoped dockets, then — at deep detail — every
+    summarized filing on those dockets, then summary hits from the chosen
     corpus (meeting and docket summaries interleaved by rank when both
     apply), then — at documents depth — verbatim passages."""
+    caps = _RETRIEVAL.get(detail, _RETRIEVAL[DEFAULT_DETAIL])
+    max_sources = caps["sources"]
     q = scope["retrieval_question"]
     corpus = scope["corpus"]
     docket_ids = scope["docket_ids"] or None
@@ -234,27 +287,31 @@ def gather_sources(scope: dict[str, Any], **filters) -> list[dict]:
     for d in scope["dockets"]:
         seeded = _seed_state_of_play(d)
         if seeded:
-            add(seeded, _MAX_SOURCES)
+            add(seeded, max_sources)
+
+    if detail == "deep" and docket_ids:
+        for h in _roster_hits(docket_ids):
+            add(h, max_sources)
 
     summary_hits: list[dict] = []
     if corpus in ("all", "meetings"):
-        summary_hits += retrieve_for_question(q, limit=_MAX_SOURCES, **filters)
+        summary_hits += retrieve_for_question(q, limit=max_sources, **filters)
     if corpus in ("all", "dockets"):
-        summary_hits += retrieve_docket_summaries(q, limit=_MAX_SOURCES,
+        summary_hits += retrieve_docket_summaries(q, limit=max_sources,
                                                   docket_ids=docket_ids)
     if corpus == "all":
         summary_hits.sort(key=lambda h: float(h.get("rank") or 0.0), reverse=True)
     for h in summary_hits:
         h.setdefault("tier", "summary")
-        add(h, _MAX_SOURCES)
+        add(h, max_sources)
 
     if scope["depth"] == "documents":
         doc_hits = retrieve_document_hits(
-            q, limit=_MAX_DOC_SOURCES, corpus=corpus, docket_ids=docket_ids,
-            **filters,
+            q, limit=caps["doc_sources"], corpus=corpus, docket_ids=docket_ids,
+            passage_chars=caps["passage_chars"], **filters,
         )
         for h in doc_hits:
-            add(h, _MAX_SOURCES + _MAX_DOC_SOURCES)
+            add(h, max_sources + caps["doc_sources"])
     return hits
 
 
@@ -337,12 +394,14 @@ def _source_label(n: int, hit: dict) -> str:
     return " — ".join(bits)
 
 
-def _source_body(hit: dict, question: str = "") -> str:
+def _source_body(hit: dict, question: str = "",
+                 caps: dict[str, int] | None = None) -> str:
+    caps = caps or _RETRIEVAL[DEFAULT_DETAIL]
     if hit.get("tier") == "document":
         passage = hit.get("passage")
         if passage is None:
             passage = extract_passages(hit.get("raw_content"), question,
-                                       max_chars=_MAX_PASSAGE_CHARS)
+                                       max_chars=caps["passage_chars"])
         passage = (passage or "").strip()
         if not passage:
             return "(No extractable text.)"
@@ -352,8 +411,12 @@ def _source_body(hit: dict, question: str = "") -> str:
     summ = db.get_current_summary(hit["entity_type"], hit["entity_id"]) or {}
     body = (summ.get("detailed") or summ.get("one_line") or "").strip()
     body = strip_image_refs(body)
-    if len(body) > _MAX_SOURCE_CHARS:
-        body = body[:_MAX_SOURCE_CHARS].rsplit("\n", 1)[0].rstrip() + "\n\n…(truncated)"
+    # The state of play is the frame for a docket answer — never cut it to
+    # the per-source cap (its tail is the current posture and next dates).
+    limit = (_MAX_STATE_OF_PLAY_CHARS if hit.get("entity_type") == "docket"
+             else caps["source_chars"])
+    if len(body) > limit:
+        body = body[:limit].rsplit("\n", 1)[0].rstrip() + "\n\n…(truncated)"
     return body or "(No summary text.)"
 
 
@@ -376,18 +439,33 @@ def scope_line(scope: dict[str, Any]) -> str:
 
 
 def build_ask_prompt(question: str, hits: list[dict],
-                     scope: dict[str, Any] | None = None) -> str:
-    """Template + numbered sources + the question. Raises ValueError when
-    the template is missing — callers surface that instead of free-styling."""
+                     scope: dict[str, Any] | None = None,
+                     detail: str = DEFAULT_DETAIL) -> str:
+    """Template + detail directive + numbered sources + the question.
+    Raises ValueError when the template or the level's directive is
+    missing — callers surface that instead of free-styling."""
     template = load_prompt(PROMPT_SLUG)
     if not template:
         raise ValueError(f"Prompt template '{PROMPT_SLUG}' not found")
+    directive_slug = f"ask_detail_{detail}"
+    directive = load_prompt(directive_slug)
+    if not directive:
+        raise ValueError(f"Prompt template '{directive_slug}' not found")
+    caps = _RETRIEVAL.get(detail, _RETRIEVAL[DEFAULT_DETAIL])
 
     retrieval_q = (scope or {}).get("retrieval_question") or question
     blocks = []
+    used = 0
     for n, hit in enumerate(hits, start=1):
-        blocks.append(f"=== SOURCE {_source_label(n, hit)} ===\n\n"
-                      f"{_source_body(hit, retrieval_q)}")
+        block = (f"=== SOURCE {_source_label(n, hit)} ===\n\n"
+                 f"{_source_body(hit, retrieval_q, caps)}")
+        # Budget guard: a deep roster on a very busy docket trims its tail
+        # (the oldest / lowest-ranked sources) instead of failing.
+        if used + len(block) > _MAX_SOURCES_BLOCK_CHARS and blocks:
+            del hits[n - 1:]
+            break
+        blocks.append(block)
+        used += len(block)
     sources_block = "\n\n".join(blocks)
 
     q_text = question
@@ -400,6 +478,12 @@ def build_ask_prompt(question: str, hits: list[dict],
         prompt = prompt.replace("[SOURCES]", sources_block)
     else:
         prompt = prompt + "\n\n" + sources_block
+    # The directive goes where the template asks; a prompt_overrides copy
+    # that predates the placeholder gets it appended after the sources.
+    if "[DETAIL]" in prompt:
+        prompt = prompt.replace("[DETAIL]", directive.strip())
+    else:
+        prompt = prompt + "\n\n" + directive.strip()
 
     general_context = load_prompt("general_context_prompt")
     if general_context:
@@ -448,12 +532,42 @@ def _serialize_scope(scope: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _record(user: dict, payload: dict[str, Any], totals: dict,
+            started: float) -> dict[str, Any]:
+    """Best-effort ask_log write — never fails the answer. Returns the
+    {"id", "created_at"} to merge into the response, or {}."""
+    try:
+        row = db.record_ask({
+            "user_id": user.get("id"),
+            "user_email": user.get("email"),
+            "question": payload["question"],
+            "scope": payload["scope"],
+            "model_id": payload["model_id"],
+            "effort": payload["effort"],
+            "detail": payload["detail"],
+            "sources": payload["sources"],
+            "answer_md": payload["answer_md"],
+            "input_tokens": totals.get("input_tokens"),
+            "output_tokens": totals.get("output_tokens"),
+            "cost_usd": payload["cost_usd"],
+            "duration_ms": int((time.monotonic() - started) * 1000),
+        })
+    except Exception:  # noqa: BLE001 — logging must not break answering
+        log.exception("ask_log write failed")
+        return {}
+    created = row.get("created_at")
+    return {"id": row.get("id"),
+            "created_at": created.isoformat() if hasattr(created, "isoformat") else created}
+
+
 @router.post("")
 def ask(
     body: AskBody = Body(...),
-    _: dict = Depends(current_user),
+    user: dict = Depends(current_user),
 ) -> dict[str, Any]:
+    started = time.monotonic()
     question = body.question.strip()
+    detail = body.detail
     filters: dict[str, Any] = {}
     if body.type_short:
         filters["type_short"] = body.type_short
@@ -464,7 +578,7 @@ def ask(
 
     model = resolve_model(body.model)
     scope = resolve_scope(body)
-    hits = gather_sources(scope, **filters)
+    hits = gather_sources(scope, detail=detail, **filters)
 
     if not hits:
         unit = "docket" if scope["corpus"] == "dockets" else "meeting"
@@ -473,38 +587,84 @@ def ask(
             answer += (" Not tracked here: "
                        + ", ".join(scope["unknown_dockets"])
                        + " — add it on the eLibrary page first.")
-        return {
+        payload = {
             "question": question,
             "answer_md": answer,
             "sources": [],
             "scope": _serialize_scope(scope),
             "model_id": None,
             "effort": None,
+            "detail": detail,
             "cost_usd": None,
         }
+        payload.update(_record(user, payload, {}, started))
+        return payload
 
-    prompt = build_ask_prompt(question, hits, scope)
+    prompt = build_ask_prompt(question, hits, scope, detail=detail)
 
     cfg = load_model_config()
     max_tokens = int(cfg.get("ask_max_tokens") or 8192)
-    effort = body.effort or DEFAULT_EFFORT
+    effort = body.effort or (_DEEP_EFFORT_FLOOR if detail == "deep"
+                             else DEFAULT_EFFORT)
 
     client = make_client()
-    log.info("ask: %d source(s) [%s], model %s @ %s: %r", len(hits),
-             scope_line(scope), model, effort, question[:80])
+    log.info("ask: %d source(s) [%s], model %s @ %s, %s detail: %r", len(hits),
+             scope_line(scope), model, effort, detail, question[:80])
     with capture_usage() as usage_log:
         answer = call_llm(client, model, prompt, max_tokens=max_tokens,
                           label=f"ask: {question[:40]}", effort=effort)
     totals = totals_from_usage_log(usage_log)
 
-    return {
+    payload = {
         "question": question,
         "answer_md": clean_output(answer),
         "sources": [_serialize_source(n, h) for n, h in enumerate(hits, start=1)],
         "scope": _serialize_scope(scope),
         "model_id": model,
         "effort": effort,
+        "detail": detail,
         "cost_usd": float(totals.get("cost_usd", 0.0)) or None,
+    }
+    payload.update(_record(user, payload, totals, started))
+    return payload
+
+
+def _serialize_log_row(row: dict) -> dict[str, Any]:
+    """An ask_log row in the same shape as a live answer, plus id/author."""
+    created = row.get("created_at")
+    cost = row.get("cost_usd")
+    return {
+        "id": row.get("id"),
+        "created_at": created.isoformat() if hasattr(created, "isoformat") else created,
+        "user_email": row.get("user_email"),
+        "question": row.get("question"),
+        "answer_md": row.get("answer_md"),
+        "sources": row.get("sources") or [],
+        "scope": row.get("scope") or {},
+        "model_id": row.get("model_id"),
+        "effort": row.get("effort"),
+        "detail": row.get("detail"),
+        "cost_usd": float(cost) if cost is not None else None,
+        "duration_ms": row.get("duration_ms"),
+    }
+
+
+@router.get("/history")
+def ask_history(
+    limit: int = 20,
+    before_id: int | None = None,
+    all: bool = False,
+    user: dict = Depends(current_user),
+) -> dict[str, Any]:
+    """The caller's past questions, newest first; admins may pass all=true
+    for everyone's. Keyset paging via before_id."""
+    limit = max(1, min(int(limit), 100))
+    email = None if (all and user.get("role") == "admin") else user.get("email")
+    rows = db.list_ask_log(limit=limit, before_id=before_id, user_email=email)
+    items = [_serialize_log_row(r) for r in rows]
+    return {
+        "items": items,
+        "next_before_id": items[-1]["id"] if len(items) == limit else None,
     }
 
 
@@ -514,6 +674,8 @@ def ask_options(_: dict = Depends(current_user)) -> dict[str, Any]:
     return {
         "models": ASK_MODELS,
         "efforts": EFFORT_LEVELS,
+        "details": DETAIL_LEVELS,
         "default_model": default_ask_model(),
         "default_effort": DEFAULT_EFFORT,
+        "default_detail": DEFAULT_DETAIL,
     }

@@ -4,10 +4,12 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { Topbar } from "../components/Topbar";
 import { Icon } from "../components/Icon";
 import { TypeTag } from "../components/Tag";
+import { ModelEffortPicker } from "../components/ModelEffortPicker";
 import {
   api,
   type AskCorpus,
   type AskDepth,
+  type AskEffort,
   type AskResponse,
   type AskScope,
   type AskSource,
@@ -28,6 +30,30 @@ interface AskEntry extends AskResponse {
 }
 
 const HISTORY_KEY = "poolside-ask-history";
+const PREFS_KEY = "poolside-ask-prefs";
+
+interface AskPrefs {
+  model?: string;
+  effort?: AskEffort;
+}
+
+function loadPrefs(): AskPrefs {
+  try {
+    const raw = localStorage.getItem(PREFS_KEY);
+    const parsed = raw ? JSON.parse(raw) : {};
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function savePrefs(prefs: AskPrefs) {
+  try {
+    localStorage.setItem(PREFS_KEY, JSON.stringify(prefs));
+  } catch {
+    /* storage blocked — the pick still applies this session */
+  }
+}
 
 function loadHistory(): AskEntry[] {
   try {
@@ -122,6 +148,7 @@ function AnswerCard({ entry }: { entry: AskEntry }) {
   const [showSources, setShowSources] = useState(true);
   const meta: string[] = [];
   if (entry.model_id) meta.push(entry.model_id);
+  if (entry.effort) meta.push(`${entry.effort} effort`);
   if (entry.cost_usd != null) meta.push(`$${entry.cost_usd.toFixed(3)}`);
   const scope = scopeLabel(entry.scope);
 
@@ -200,6 +227,8 @@ export function Ask() {
   const [question, setQuestion] = useState("");
   const [corpus, setCorpus] = useState<AskCorpus>("all");
   const [depth, setDepth] = useState<AskDepth>("summaries");
+  // "" = the server's default (model_config.json / DEFAULT_EFFORT).
+  const [prefs, setPrefs] = useState<AskPrefs>(loadPrefs);
   const [history, setHistory] = useState<AskEntry[]>(loadHistory);
   const [mention, setMention] = useState<MentionState | null>(null);
   const [menuIdx, setMenuIdx] = useState(0);
@@ -226,6 +255,21 @@ export function Ask() {
     queryFn: api.dockets,
     staleTime: 60_000,
   });
+  const { data: options } = useQuery({
+    queryKey: ["ask-options"],
+    queryFn: api.askOptions,
+    staleTime: Infinity,
+  });
+
+  const modelId = prefs.model || options?.default_model || "";
+  const modelOpt = options?.models.find((m) => m.id === modelId);
+  const effortSupported = modelOpt ? modelOpt.effort : true;
+  const effort = prefs.effort || options?.default_effort || "low";
+  const updatePrefs = (patch: AskPrefs) => {
+    const next = { ...prefs, ...patch };
+    setPrefs(next);
+    savePrefs(next);
+  };
 
   const mentioned = mentionedDockets(question);
   const byNumber = new Map(dockets.map((d) => [d.docket_number, d]));
@@ -235,7 +279,14 @@ export function Ask() {
   const menuOpen = mention !== null && menuItems.length > 0;
 
   const askMut = useMutation({
-    mutationFn: (q: string) => api.ask({ question: q, corpus, depth }),
+    mutationFn: (q: string) =>
+      api.ask({
+        question: q,
+        corpus,
+        depth,
+        model: prefs.model || undefined,
+        effort: effortSupported ? prefs.effort || undefined : undefined,
+      }),
     onSuccess: (res) => {
       setHistory((prev) => {
         const next = [{ ...res, ts: Date.now() }, ...prev];
@@ -495,6 +546,15 @@ export function Ask() {
                   <Icon name="doc" size={11} /> Documents
                 </button>
               </div>
+
+              {options && (
+                <ModelEffortPicker
+                  options={options}
+                  modelId={modelId}
+                  effort={effort}
+                  onChange={updatePrefs}
+                />
+              )}
             </div>
             <button
               className="btn btn-primary btn-sm"

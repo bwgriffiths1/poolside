@@ -837,10 +837,14 @@ export const api = {
     corpus?: AskCorpus;
     depth?: AskDepth;
     docket_numbers?: string[];
+    model?: string;
+    effort?: AskEffort;
     type_short?: string;
     from_date?: string;
     to_date?: string;
   }): Promise<AskResponse> => postJson(`/ask`, body),
+
+  askOptions: () => get<AskOptions>(`/ask/options`),
 
   // ── Deep dives ───────────────────────────────────────────────────────
   listDeepDives: () => get<DeepDive[]>(`/deep-dives`, () => []),
@@ -1381,6 +1385,22 @@ export interface MyPrefs {
 
 export type AskCorpus = "all" | "meetings" | "dockets";
 export type AskDepth = "summaries" | "documents";
+export type AskEffort = "low" | "medium" | "high" | "xhigh" | "max";
+
+export interface AskModelOption {
+  id: string;
+  label: string;
+  note: string;
+  /** false = the model rejects output_config.effort (the control is disabled). */
+  effort: boolean;
+}
+
+export interface AskOptions {
+  models: AskModelOption[];
+  efforts: AskEffort[];
+  default_model: string;
+  default_effort: AskEffort;
+}
 
 export interface AskSource {
   n: number;
@@ -1437,6 +1457,7 @@ export interface AskResponse {
   sources: AskSource[];
   scope?: AskScope;
   model_id: string | null;
+  effort?: AskEffort | null;
   cost_usd: number | null;
 }
 

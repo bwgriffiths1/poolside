@@ -4,6 +4,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { Topbar } from "../components/Topbar";
 import { Icon } from "../components/Icon";
 import { TypeTag } from "../components/Tag";
+import { ModelEffortPicker } from "../components/ModelEffortPicker";
 import {
   api,
   type AskCorpus,
@@ -547,56 +548,12 @@ export function Ask() {
               </div>
 
               {options && (
-                <div className="ask-model-controls">
-                  <select
-                    className="select select-sm"
-                    aria-label="Model"
-                    title={modelOpt?.note}
-                    value={modelId}
-                    onChange={(e) =>
-                      updatePrefs({
-                        model:
-                          e.target.value === options.default_model
-                            ? undefined
-                            : e.target.value,
-                      })
-                    }
-                  >
-                    {options.models.map((m) => (
-                      <option key={m.id} value={m.id} title={m.note}>
-                        {m.label}
-                        {m.id === options.default_model ? " (default)" : ""}
-                      </option>
-                    ))}
-                  </select>
-                  <select
-                    className="select select-sm"
-                    aria-label="Effort"
-                    title={
-                      effortSupported
-                        ? "How hard the model thinks before answering — higher is slower and costs more"
-                        : `${modelOpt?.label ?? "This model"} has no effort control`
-                    }
-                    value={effortSupported ? effort : ""}
-                    disabled={!effortSupported}
-                    onChange={(e) =>
-                      updatePrefs({
-                        effort:
-                          e.target.value === options.default_effort
-                            ? undefined
-                            : (e.target.value as AskEffort),
-                      })
-                    }
-                  >
-                    {!effortSupported && <option value="">n/a</option>}
-                    {options.efforts.map((lvl) => (
-                      <option key={lvl} value={lvl}>
-                        {lvl} effort
-                        {lvl === options.default_effort ? " (default)" : ""}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                <ModelEffortPicker
+                  options={options}
+                  modelId={modelId}
+                  effort={effort}
+                  onChange={updatePrefs}
+                />
               )}
             </div>
             <button

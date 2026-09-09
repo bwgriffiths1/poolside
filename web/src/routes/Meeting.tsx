@@ -11,8 +11,9 @@ import { MeetingLinks } from "../components/meeting/MeetingLinks";
 import { WatchToggle } from "../components/meeting/WatchToggle";
 import { SummarizeJobBanner } from "../components/meeting/SummarizeJobBanner";
 import { FilesSection } from "../components/meeting/FilesSection";
+import { TaglineEditor } from "../components/TaglineEditor";
 import { useSummarizeJob } from "../hooks/useSummarizeJob";
-import { useBriefing, useCan, useMeeting, useMeetingsAll } from "../lib/queries";
+import { qk, useBriefing, useCan, useMeeting, useMeetingsAll } from "../lib/queries";
 import { fmtDateRange } from "../lib/format";
 import { useTrackView } from "../hooks/useTrackView";
 import type { MeetingListItem } from "../types";
@@ -154,8 +155,15 @@ export function Meeting() {
               <Pill status={m.status} />
             </div>
             <MeetingLinks venue={m.venue} externalId={m.external_id} />
-            {detail.one_line && (
-              <p className="meeting-headline serif">{detail.one_line}</p>
+            {(detail.one_line || (canEdit && briefing)) && (
+              <TaglineEditor
+                entityType="meeting"
+                entityId={m.id}
+                value={detail.one_line || ""}
+                canEdit={canEdit}
+                className="meeting-headline serif"
+                invalidate={[qk.meeting(m.id), qk.briefing(m.id), qk.meetings]}
+              />
             )}
           </div>
           <div className="meeting-head-right">

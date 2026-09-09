@@ -907,6 +907,13 @@ def render_briefing_docx(
     p = doc.add_paragraph(); _v2_spacing(p, before=Pt(0), after=Pt(0))
     _v2_pborder(p, "bottom", 4, _GRAY_MID_HEX)
 
+    # The tagline (summary_versions.one_line) — the same italic line the
+    # web reader shows under the title.
+    headline = (getattr(briefing, "headline", "") or "").strip()
+    if headline:
+        p = doc.add_paragraph(); _v2_spacing(p, before=Pt(10), after=Pt(0))
+        _v2_run(p, headline, size=brand.SZ_HEADLINE, color=_INK, italic=True)
+
     # Source materials link, directly under the header rule — the venue's own
     # event page, one hop from the briefing. Label follows the link's host so
     # non-ISO-NE venues (PJM) read correctly: "View on iso-ne.com" stays

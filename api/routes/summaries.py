@@ -91,6 +91,37 @@ def get_summary(entity_type: str, entity_id: int) -> dict[str, Any]:
     }
 
 
+@router.patch("/api/summaries/{entity_type}/{entity_id}/one_line")
+def set_one_line(
+    entity_type: str,
+    entity_id: int,
+    body: dict[str, Any] = Body(...),
+    user: dict = Depends(current_user),
+) -> dict[str, Any]:
+    """Edit just the tagline (one_line) of the current summary, in place.
+
+    The tagline is what the briefing reader shows under the title and the
+    meeting page shows as its headline; changing it is headline metadata,
+    not a body edit, so no new version is minted. Body: { one_line: str }.
+    """
+    et = _validate_entity_type(entity_type)
+    one_line = body.get("one_line")
+    if one_line is not None and not isinstance(one_line, str):
+        raise HTTPException(status_code=400, detail="`one_line` must be a string")
+    if one_line is not None and len(one_line) > 500:
+        raise HTTPException(status_code=400, detail="`one_line` is limited to 500 characters")
+    row = db.set_summary_one_line(et, entity_id, one_line)
+    if row is None:
+        raise HTTPException(status_code=404, detail="No summary for this entity yet")
+    return {
+        "entity_type": et,
+        "entity_id": entity_id,
+        "one_line": row.get("one_line") or "",
+        "version": row.get("version"),
+        "status": row.get("status"),
+    }
+
+
 @router.put("/api/summaries/{entity_type}/{entity_id}")
 def save_summary(
     entity_type: str,

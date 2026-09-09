@@ -71,6 +71,7 @@ def export_briefing_docx(meeting_id: int) -> Response:
     md = adapters.resolve_image_refs(summary["detailed"])
     briefing = briefing_parser.parse_briefing_markdown(md, {
         "title": meeting.get("type_name") or "Committee",
+        "headline": summary.get("one_line") or "",
         "generated_at": str(summary.get("created_at", "")),
         "model": summary.get("model") or summary.get("created_by") or "",
     })

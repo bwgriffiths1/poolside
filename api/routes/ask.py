@@ -72,18 +72,25 @@ DEFAULT_DETAIL = "standard"
 #   source_chars   — head-truncation of one summary body
 #   doc_sources    — verbatim passages at documents depth
 #   passage_chars  — length of one passage
+#   budget_chars   — total budget for the sources block; per-source bodies
+#                    shrink toward `min_source_chars` as the count grows
+#   roster         — deep only: include every summarized filing of a scoped
+#                    docket (no fixed count — the budget is the limit)
 _RETRIEVAL: dict[str, dict[str, int]] = {
-    "brief":    {"sources": 12, "source_chars": 6000,  "doc_sources": 6, "passage_chars": 3200},
-    "standard": {"sources": 16, "source_chars": 8000,  "doc_sources": 6, "passage_chars": 3200},
-    "deep":     {"sources": 40, "source_chars": 12000, "doc_sources": 8, "passage_chars": 4000},
+    "brief":    {"sources": 12, "source_chars": 6000,  "min_source_chars": 6000,
+                 "doc_sources": 6, "passage_chars": 3200, "budget_chars": 120_000},
+    "standard": {"sources": 16, "source_chars": 8000,  "min_source_chars": 8000,
+                 "doc_sources": 6, "passage_chars": 3200, "budget_chars": 160_000},
+    # ~100k tokens of sources: enough for ~60 full filing summaries, or the
+    # whole roster of a monster docket at the floor length with the tail
+    # named as omitted. Input cost ≈ $0.30 Sonnet / $0.50 Opus / $1 Fable.
+    "deep":     {"sources": 400, "source_chars": 12000, "min_source_chars": 2200,
+                 "doc_sources": 8, "passage_chars": 4000, "budget_chars": 400_000},
 }
 # A scoped docket's state of play is the frame for the whole answer, so it
 # is exempt from the per-source cap at every level; this is a safety
 # ceiling only.
 _MAX_STATE_OF_PLAY_CHARS = 16000
-# Total prompt budget (chars) for the sources block — a deep roster over a
-# very busy docket trims its tail rather than blowing the request up.
-_MAX_SOURCES_BLOCK_CHARS = 220_000
 # A deep memo needs some deliberation; applied only when the request left
 # effort unset.
 _DEEP_EFFORT_FLOOR = "medium"
@@ -412,7 +419,8 @@ def _source_label(n: int, hit: dict) -> str:
 
 
 def _source_body(hit: dict, question: str = "",
-                 caps: dict[str, int] | None = None) -> str:
+                 caps: dict[str, int] | None = None,
+                 source_chars: int | None = None) -> str:
     caps = caps or _RETRIEVAL[DEFAULT_DETAIL]
     if hit.get("tier") == "document":
         passage = hit.get("passage")
@@ -431,7 +439,7 @@ def _source_body(hit: dict, question: str = "",
     # The state of play is the frame for a docket answer — never cut it to
     # the per-source cap (its tail is the current posture and next dates).
     limit = (_MAX_STATE_OF_PLAY_CHARS if hit.get("entity_type") == "docket"
-             else caps["source_chars"])
+             else (source_chars or caps["source_chars"]))
     if len(body) > limit:
         body = body[:limit].rsplit("\n", 1)[0].rstrip() + "\n\n…(truncated)"
     return body or "(No summary text.)"
@@ -455,12 +463,39 @@ def scope_line(scope: dict[str, Any]) -> str:
     return base
 
 
+def _omitted_label(hit: dict) -> str:
+    """Short name for a source that didn't fit the budget."""
+    if hit.get("docket_number"):
+        who = _authors(hit) or hit.get("document_class") or "filing"
+        when = hit.get("filed_date")
+        return f"{who} ({when})" if when else who
+    return _source_label(0, hit).split("] ", 1)[-1]
+
+
+def source_char_budget(n_sources: int, caps: dict[str, int],
+                       reserved: int = 0) -> int:
+    """Per-source body length for `n_sources` under the level's budget:
+    the level's cap when everything fits, shrinking toward the floor as
+    the count grows. `reserved` is what the exempt state of play uses."""
+    if n_sources <= 0:
+        return caps["source_chars"]
+    per = (caps["budget_chars"] - reserved) // n_sources
+    return max(caps["min_source_chars"], min(caps["source_chars"], per))
+
+
 def build_ask_prompt(question: str, hits: list[dict],
                      scope: dict[str, Any] | None = None,
-                     detail: str = DEFAULT_DETAIL) -> str:
+                     detail: str = DEFAULT_DETAIL,
+                     meta: dict[str, Any] | None = None) -> str:
     """Template + detail directive + numbered sources + the question.
     Raises ValueError when the template or the level's directive is
-    missing — callers surface that instead of free-styling."""
+    missing — callers surface that instead of free-styling.
+
+    Sources are cut to a per-source length derived from the level's total
+    budget (see source_char_budget); whatever still doesn't fit is dropped
+    from the tail of `hits` (mutated in place so the response's source list
+    matches the prompt) and named to the model in an OMITTED block, and in
+    `meta["omitted"]` for the UI."""
     template = load_prompt(PROMPT_SLUG)
     if not template:
         raise ValueError(f"Prompt template '{PROMPT_SLUG}' not found")
@@ -471,18 +506,36 @@ def build_ask_prompt(question: str, hits: list[dict],
     caps = _RETRIEVAL.get(detail, _RETRIEVAL[DEFAULT_DETAIL])
 
     retrieval_q = (scope or {}).get("retrieval_question") or question
+    n_exempt = sum(1 for h in hits if h.get("entity_type") == "docket")
+    per_source = source_char_budget(len(hits) - n_exempt, caps,
+                                    reserved=n_exempt * _MAX_STATE_OF_PLAY_CHARS)
     blocks = []
     used = 0
+    omitted: list[str] = []
     for n, hit in enumerate(hits, start=1):
+        if omitted:
+            omitted.append(_omitted_label(hit))
+            continue
         block = (f"=== SOURCE {_source_label(n, hit)} ===\n\n"
-                 f"{_source_body(hit, retrieval_q, caps)}")
-        # Budget guard: a deep roster on a very busy docket trims its tail
-        # (the oldest / lowest-ranked sources) instead of failing.
-        if used + len(block) > _MAX_SOURCES_BLOCK_CHARS and blocks:
-            del hits[n - 1:]
-            break
+                 f"{_source_body(hit, retrieval_q, caps, per_source)}")
+        # Budget guard: whatever the per-source cut couldn't absorb drops
+        # off the tail (the roster is tier- then date-ordered, so that's
+        # the least substantive, oldest material).
+        if used + len(block) > caps["budget_chars"] and blocks:
+            omitted.append(_omitted_label(hit))
+            continue
         blocks.append(block)
         used += len(block)
+    if omitted:
+        del hits[len(blocks):]
+        blocks.append(
+            "=== OMITTED — did not fit the prompt budget ===\n\n"
+            f"{len(omitted)} further source(s) exist in the record but are not "
+            "shown. If the question turns on them, say so and name them: "
+            + "; ".join(omitted))
+    if meta is not None:
+        meta["omitted"] = omitted
+        meta["per_source_chars"] = per_source
     sources_block = "\n\n".join(blocks)
 
     q_text = question
@@ -536,6 +589,7 @@ def _serialize_source(n: int, hit: dict) -> dict[str, Any]:
         "document_id": hit.get("document_id"),
         "filename": _file_name(hit) if hit.get("tier") == "document" else None,
         "file_row_id": hit.get("file_row_id"),
+        "pages": hit.get("passage_pages") or [],
         "snippet": hit.get("snippet"),
     }
 
@@ -546,6 +600,7 @@ def _serialize_scope(scope: dict[str, Any]) -> dict[str, Any]:
         "depth": scope["depth"],
         "dockets": scope["dockets"],
         "unknown_dockets": scope["unknown_dockets"],
+        "omitted_sources": scope.get("omitted_sources", []),
     }
 
 
@@ -617,7 +672,9 @@ def ask(
         payload.update(_record(user, payload, {}, started))
         return payload
 
-    prompt = build_ask_prompt(question, hits, scope, detail=detail)
+    meta: dict[str, Any] = {}
+    prompt = build_ask_prompt(question, hits, scope, detail=detail, meta=meta)
+    scope["omitted_sources"] = meta.get("omitted", [])
 
     cfg = load_model_config()
     effort = body.effort or (_DEEP_EFFORT_FLOOR if detail == "deep"

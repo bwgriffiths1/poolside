@@ -1445,6 +1445,8 @@ export interface AskSource {
   document_id: number | null;
   filename: string | null;
   file_row_id: number | null;
+  /** Pages the excerpt's windows start on (from `[Page N]` markers). */
+  pages?: number[];
   snippet: string; // pre-escaped HTML with <b> highlights
 }
 
@@ -1459,6 +1461,8 @@ export interface AskScope {
   depth: AskDepth;
   dockets: AskScopeDocket[];
   unknown_dockets: string[];
+  /** Sources that existed but didn't fit the prompt budget (deep). */
+  omitted_sources?: string[];
 }
 
 export interface AskResponse {

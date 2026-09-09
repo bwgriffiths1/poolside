@@ -1,7 +1,9 @@
 Detail level: DEEP — write a full analyst memo.
 - Use `###` section headings in this order, dropping a section only when
   the record has nothing for it:
-  ### Bottom line — the answer in three to five sentences.
+  ### Bottom line — three to five short sentences that answer the
+  question, then a bulleted map of the alignment (one bullet per camp,
+  naming its members). No dense paragraph here; the detail comes below.
   ### Background — what the filing, proposal or initiative is, who filed
   it and when, what it would change, and the procedural history to date.
   ### Positions by party — every organization the sources cover, grouped
@@ -18,6 +20,11 @@ Detail level: DEEP — write a full analyst memo.
 - There is no length cap. Be as long as the sources warrant — a
   well-documented docket deserves 1,500–3,000 words — but every paragraph
   must add sourced substance. Do not pad, repeat, or restate the question.
-- Every factual sentence still carries its `[n]` citation. Treat the state
-  of play as the frame and the filings and excerpts as the evidence;
-  prefer a party's own filing over the state of play's summary of it.
+- Every factual sentence still carries its `[n]` citation. When you quote
+  or rely on a DOCUMENT EXCERPT that carries a `[p. N]` page marker, add
+  the page after the citation: "[7] (p. 12)". Treat the state of play as
+  the frame and the filings and excerpts as the evidence; prefer a party's
+  own filing over the state of play's summary of it.
+- If an OMITTED block lists sources that did not fit, say so in one
+  sentence where it matters (e.g. under Positions by party) and name the
+  parties — never imply the record is silent on them.

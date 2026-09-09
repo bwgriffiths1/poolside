@@ -514,8 +514,9 @@ def search_document_hits(
     # in its back half ranks 0 in SQL. Over-fetch, then re-rank by passage
     # score (which reads the whole text) before cutting to `limit`.
     for r in out:
-        r["passage_score"], r["passage"] = score_passages(
-            r.get("raw_content"), q, max_chars=passage_chars)
+        d = score_passages_detailed(r.get("raw_content"), q, max_chars=passage_chars)
+        r["passage_score"], r["passage"], r["passage_pages"] = (
+            d["score"], d["passage"], d["pages"])
     out.sort(key=lambda r: (r["passage_score"], float(r.get("rank") or 0.0)),
              reverse=True)
     # Meeting materials often ship as clean / redline / incremental copies
@@ -587,39 +588,70 @@ def _term_matcher(term: str) -> re.Pattern:
     return re.compile(r"\b" + re.escape(term[:-1]), re.I)
 
 
-def score_passages(text: str | None, question: str,
-                   max_chars: int = 3200,
-                   window: int = _WINDOW_CHARS) -> tuple[int, str]:
-    """(score, passages): the best few windows of `text` for `question`, in
-    document order, joined with an ellipsis marker. Windows are
-    paragraph-aligned chunks of ~`window` chars scored by distinct-term
+_PAGE_RE = re.compile(r"\[Page (\d+)\]")
+
+
+def score_passages_detailed(text: str | None, question: str,
+                            max_chars: int = 3200,
+                            window: int = _WINDOW_CHARS) -> dict[str, Any]:
+    """{score, passage, pages}: the best few windows of `text` for
+    `question`, in document order, joined with an ellipsis marker. Windows
+    are paragraph-aligned chunks of ~`window` chars scored by distinct-term
     coverage (dominant) plus term frequency; the score is the best
     window's, so callers can re-rank documents by it. When nothing matches
     — e.g. the tsquery matched on stems Python can't see — the opening of
-    the document stands in at score 0, so the source is never empty."""
+    the document stands in at score 0, so the source is never empty.
+
+    Extracted PDFs carry `[Page N]` markers; each chosen window is prefixed
+    with the page it starts on (`[p. N]`) so the model can cite pages, and
+    `pages` lists them for the UI's deep links."""
     text = (text or "").strip()
     if not text:
-        return 0, ""
+        return {"score": 0, "passage": "", "pages": []}
     paras = [p.strip() for p in re.split(r"\n\s*\n|\n(?=\S)", text) if p.strip()]
     windows: list[str] = []
+    pages: list[int | None] = []      # page each window starts on
     buf = ""
-    for p in paras:
-        if buf and len(buf) + len(p) + 2 > window:
-            windows.append(buf)
-            buf = p
+    buf_page: int | None = None
+    page: int | None = None           # last marker seen so far
+    for para in paras:
+        para_page = page
+        m = _PAGE_RE.search(para)
+        if m:
+            page = int(m.group(1))
+            if para.lstrip().startswith("[Page"):
+                para_page = page       # marker leads the paragraph
+        if buf and len(buf) + len(para) + 2 > window:
+            windows.append(buf); pages.append(buf_page)
+            buf, buf_page = para, para_page
         else:
-            buf = f"{buf}\n{p}" if buf else p
+            if not buf:
+                buf_page = para_page
+            buf = f"{buf}\n{para}" if buf else para
         # A single giant paragraph (extracted PDFs often lack breaks):
         while len(buf) > window * 1.5:
             cut = buf.rfind(" ", 0, window)
             if cut < window // 2:
                 cut = window
-            windows.append(buf[:cut])
+            windows.append(buf[:cut]); pages.append(buf_page)
             buf = buf[cut:].lstrip()
+            buf_page = page
     if buf:
-        windows.append(buf)
+        windows.append(buf); pages.append(buf_page)
     if not windows:
-        return 0, ""
+        return {"score": 0, "passage": "", "pages": []}
+
+    def render(idxs: list[int]) -> tuple[str, list[int]]:
+        parts, seen_pages = [], []
+        for i in idxs:
+            w = windows[i][:max_chars]
+            if pages[i] is not None:
+                parts.append(f"[p. {pages[i]}] {w}")
+                if pages[i] not in seen_pages:
+                    seen_pages.append(pages[i])
+            else:
+                parts.append(w)
+        return "\n\n[…]\n\n".join(parts), seen_pages
 
     matchers = [_term_matcher(t) for t in query_terms(question)]
     scored: list[tuple[float, int]] = []
@@ -635,7 +667,8 @@ def score_passages(text: str | None, question: str,
         if score:
             scored.append((score, i))
     if not scored:
-        return 0, windows[0][:max_chars]
+        passage, pg = render([0])
+        return {"score": 0, "passage": passage, "pages": pg}
 
     scored.sort(key=lambda s: (-s[0], s[1]))
     chosen: list[int] = []
@@ -648,8 +681,15 @@ def score_passages(text: str | None, question: str,
         if used >= max_chars:
             break
     chosen.sort()
-    best = scored[0][0]
-    return best, "\n\n[…]\n\n".join(windows[i][:max_chars] for i in chosen)
+    passage, pg = render(chosen)
+    return {"score": scored[0][0], "passage": passage, "pages": pg}
+
+
+def score_passages(text: str | None, question: str,
+                   max_chars: int = 3200,
+                   window: int = _WINDOW_CHARS) -> tuple[int, str]:
+    d = score_passages_detailed(text, question, max_chars=max_chars, window=window)
+    return d["score"], d["passage"]
 
 
 def extract_passages(text: str | None, question: str,

@@ -111,6 +111,12 @@ function SourceRow({ s }: { s: AskSource }) {
     title = "Meeting briefing";
   }
 
+  const firstPage = s.pages && s.pages.length ? s.pages[0] : null;
+  const pdfHref =
+    excerpt && s.file_row_id != null
+      ? `/api/dockets/files/${s.file_row_id}/download${firstPage ? `#page=${firstPage}` : ""}`
+      : null;
+
   return (
     <button className="ask-source" onClick={() => navigate(target)}>
       <span className="ask-source-n mono">{s.n}</span>
@@ -128,6 +134,19 @@ function SourceRow({ s }: { s: AskSource }) {
           <span className="ask-source-title" title={title}>
             {title}
           </span>
+          {pdfHref && (
+            <a
+              className="ask-source-pdf mono text-xs"
+              href={pdfHref}
+              target="_blank"
+              rel="noreferrer"
+              title={firstPage ? `Open the PDF at page ${firstPage}` : "Open the PDF"}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <Icon name="external" size={10} />
+              {firstPage ? `p. ${s.pages!.join(", ")}` : "PDF"}
+            </a>
+          )}
         </div>
         {s.snippet && (
           <div
@@ -157,6 +176,22 @@ function scopeLabel(scope: AskScope | undefined): string | null {
     bits.push(`not tracked: ${scope.unknown_dockets.join(", ")}`);
   }
   return bits.length ? bits.join(" · ") : null;
+}
+
+function OmittedNote({ scope }: { scope: AskScope | undefined }) {
+  const omitted = scope?.omitted_sources ?? [];
+  if (!omitted.length) return null;
+  return (
+    <div
+      className="ask-omitted"
+      title={omitted.join("\n")}
+    >
+      <Icon name="filter" size={11} />
+      {omitted.length} source{omitted.length === 1 ? "" : "s"} didn't fit the
+      prompt budget and were named to the model as omitted — narrow the
+      question to cover them.
+    </div>
+  );
 }
 
 function AnswerCard({ entry }: { entry: AskEntry }) {
@@ -191,6 +226,7 @@ function AnswerCard({ entry }: { entry: AskEntry }) {
           {scope}
         </div>
       )}
+      <OmittedNote scope={entry.scope} />
       <article className="ask-answer">
         <Markdown source={linkCitations(entry.answer_md, entry.sources)} />
       </article>
@@ -328,6 +364,9 @@ export function Ask() {
     const next = { ...prefs, ...patch };
     setPrefs(next);
     savePrefs(next);
+    // A deep memo wants verbatim language; flip Documents on when the
+    // analyst picks Deep (they can flip it back — it's a visible control).
+    if (patch.detail === "deep") setDepth("documents");
   };
 
   const mentioned = mentionedDockets(question);

@@ -2774,9 +2774,11 @@ def list_docket_filing_summaries(docket_ids: list[int]) -> list[dict]:
     """Every substantive filing across the given dockets that HAS a current
     summary, newest first — the roster Ask uses at deep detail so a
     "positions by party" question sees every party, not just the filings
-    whose text happens to match the question. Skip-tier (administrative,
-    doc-less) filings are excluded; the summary body itself is fetched
-    later by entity id."""
+    whose text happens to match the question. Full-treatment filings
+    (protests, orders, the application) come before brief-treatment ones so
+    a prompt budget trims procedural comments first. Skip-tier
+    (administrative, doc-less) filings are excluded; the summary body
+    itself is fetched later by entity id."""
     if not docket_ids:
         return []
     with _conn() as conn:
@@ -2803,7 +2805,8 @@ def list_docket_filing_summaries(docket_ids: list[int]) -> list[dict]:
                         WHERE sv.entity_type = 'docket_filing'
                           AND sv.entity_id = f.id
                           AND sv.status IN ('draft', 'approved'))
-                 ORDER BY COALESCE(f.filed_date, f.issued_date) DESC NULLS LAST,
+                 ORDER BY CASE f.treatment WHEN 'full' THEN 0 ELSE 1 END,
+                          COALESCE(f.filed_date, f.issued_date) DESC NULLS LAST,
                           f.id DESC
             """, (list(docket_ids),))
             return [dict(r) for r in cur.fetchall()]

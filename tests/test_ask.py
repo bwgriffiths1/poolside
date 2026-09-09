@@ -281,7 +281,7 @@ def test_gather_caps_follow_detail_level(scope_db, retrieval):
     assert retrieval["document"][-1]["limit"] == 6
     assert retrieval["document"][-1]["passage_chars"] == 3200
     ask_mod.gather_sources(scope, detail="deep")
-    assert retrieval["limits"][-2:] == [40, 40]
+    assert retrieval["limits"][-2:] == [400, 400]      # budget, not count, limits deep
     assert retrieval["document"][-1]["limit"] == 8
     assert retrieval["document"][-1]["passage_chars"] == 4000
 
@@ -455,18 +455,34 @@ def test_state_of_play_exempt_from_source_cap(monkeypatch):
     assert filing in deep and "…(truncated)" not in deep
 
 
-def test_sources_block_budget_trims_tail(monkeypatch):
+def test_sources_block_budget_trims_tail_and_names_omitted(monkeypatch):
     monkeypatch.setattr(ask_mod, "load_prompt", _fake_prompts(TEMPLATE))
-    monkeypatch.setattr(ask_mod, "_MAX_SOURCES_BLOCK_CHARS", 500)
+    caps = dict(ask_mod._RETRIEVAL["deep"], budget_chars=900, min_source_chars=300)
+    monkeypatch.setitem(ask_mod._RETRIEVAL, "deep", caps)
     monkeypatch.setattr(ask_mod, "db", _FakeDB(summaries={
-        ("meeting", i): {"detailed": f"body{i} " * 40} for i in range(1, 6)
+        ("docket_filing", i): {"detailed": f"body{i} " * 80} for i in range(1, 7)
     }))
-    hits = [_hit("meeting", i) for i in range(1, 6)]
-    prompt = build_ask_prompt("q", hits)
-    assert "=== SOURCE [1]" in prompt and "=== SOURCE [5]" not in prompt
-    # The hits list is trimmed in step so the response's source list matches
-    # what the model actually saw.
-    assert len(hits) < 5
+    hits = [_docket_hit("docket_filing", i, entity_id=i,
+                        filing_parties=[{"type": "AUTHOR", "org": f"Party {i}"}],
+                        filed_date=date(2026, 9, i)) for i in range(1, 7)]
+    meta: dict = {}
+    prompt = build_ask_prompt("q", hits, detail="deep", meta=meta)
+    assert "=== SOURCE [1]" in prompt and "=== SOURCE [6]" not in prompt
+    # Per-source bodies shrank to the floor before anything was dropped.
+    assert meta["per_source_chars"] == 300
+    # The tail is named to the model and to the UI; hits trimmed in step.
+    assert "=== OMITTED" in prompt and "Party 6 (2026-09-06)" in prompt
+    assert meta["omitted"][-1] == "Party 6 (2026-09-06)"
+    assert len(hits) == 6 - len(meta["omitted"]) and len(meta["omitted"]) >= 1
+
+
+def test_source_char_budget_flexes_with_count():
+    caps = ask_mod._RETRIEVAL["deep"]
+    assert ask_mod.source_char_budget(10, caps) == caps["source_chars"]      # room to spare
+    assert ask_mod.source_char_budget(60, caps) == 400_000 // 60             # in between
+    assert ask_mod.source_char_budget(500, caps) == caps["min_source_chars"] # floor
+    # The exempt state of play's reservation comes off the top.
+    assert ask_mod.source_char_budget(60, caps, reserved=16000) == (400_000 - 16000) // 60
 
 
 # ---------------------------------------------------------------------------
@@ -537,7 +553,9 @@ def test_ask_happy_path_serializes_sources(monkeypatch):
     assert out["sources"][2]["tier"] == "document"
     assert out["sources"][2]["filename"] == "Attachment B"
     assert out["scope"] == {"corpus": "all", "depth": "documents",
-                            "dockets": [], "unknown_dockets": []}
+                            "dockets": [], "unknown_dockets": [],
+                            "omitted_sources": []}
+    assert out["sources"][2]["pages"] == []
     assert gathered["detail"] == "standard"
     # Logged with the serialized sources and the caller's identity.
     entry = fake.asks[0]
@@ -700,3 +718,15 @@ def test_ask_passes_effort_scaled_max_tokens(monkeypatch):
     ask_mod.ask(AskBody(question="anything at all"), _USER)
     ask_mod.ask(AskBody(question="anything at all", effort="xhigh"), _USER)
     assert seen == [32768, 65536]
+
+
+def test_score_passages_detailed_reports_pages():
+    text = ("[Page 1]\nCover sheet text.\n\n" + "filler " * 250 + "\n\n"
+            "[Page 2]\nThe seasonal auction design drew protests.\n\n"
+            "[Page 3]\nMore filler here.")
+    d = search_svc.score_passages_detailed(text, "seasonal auction design", max_chars=600)
+    assert d["score"] > 0
+    assert d["pages"] == [2]
+    assert d["passage"].startswith("[p. 2]")
+    # The two-tuple wrapper still works for older callers.
+    assert search_svc.score_passages(text, "seasonal auction design")[1] == d["passage"]

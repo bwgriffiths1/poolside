@@ -406,7 +406,8 @@
 .ask-followup-of { margin-bottom: 4px; }
 .ask-followup-of em { font-style: italic; color: var(--ink-soft); }
 
-.ask-followup-btn { margin-left: auto; }
+.ask-card-actions { margin-left: auto; display: inline-flex; gap: 4px; }
+.ask-card-actions .btn { text-decoration: none; }
 .ask-sources { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; }
 .ask-sources > .ask-sources-toggle { display: inline-flex; }
 .ask-sources > .ask-source-list { flex-basis: 100%; }

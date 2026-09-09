@@ -861,3 +861,44 @@ def test_ask_job_routes_scope_to_owner(monkeypatch):
         ask_mod.get_ask_job(5, viewer)
     with pytest.raises(HTTPException):
         ask_mod.cancel_ask_job(5, viewer)
+
+
+# ---------------------------------------------------------------------------
+# Word export
+# ---------------------------------------------------------------------------
+
+def test_ask_docx_renders_question_answer_and_sources(monkeypatch):
+    import pipeline.ask_docx as ask_docx
+    from docx import Document as _Docx
+    from io import BytesIO
+    row = dict(_logged_parent(), detail="deep", model_id="claude-opus-5", effort="high",
+               answer_md="### Bottom line\n\nIt stands here [1][2].\n\n"
+                         "### Positions by party\n\n**NEPGA [2]:** protested.\n\n- one\n- two",
+               created_at=datetime(2026, 9, 9))
+    row["sources"][1]["pages"] = [4, 7]
+    row["sources"][1]["document_class"] = "Comments/Protest"
+    monkeypatch.setattr(ask_docx.db, "get_ask_log", lambda i: row if i == 41 else None)
+    data, filename = ask_docx.generate_ask_docx_bytes(41)
+    assert filename.startswith("Ask_41_Where-does-it-stand") and filename.endswith(".docx")
+    text = "\n".join(p.text for p in _Docx(BytesIO(data)).paragraphs)
+    assert "Where does it stand?" in text
+    assert "Bottom line" in text and "It stands here [1][2]." in text
+    assert "NEPGA [2]:" in text and "protested." in text
+    assert "SOURCES" in text
+    assert "[1]  FERC docket ER26-925 — state of play" in text
+    assert "20251230-5436 · Comments/Protest · by NEPGA · excerpt: Attachment B, p. 4, 7" in text
+    assert "Deep memo · claude-opus-5 · high effort · 2 sources" in text
+    with pytest.raises(ValueError):
+        ask_docx.generate_ask_docx_bytes(999)
+
+
+def test_ask_docx_route_scopes_to_owner(monkeypatch):
+    from fastapi import HTTPException
+    fake = _FakeDB(); fake.logged = {41: _logged_parent()}
+    monkeypatch.setattr(ask_mod, "db", fake)
+    import pipeline.ask_docx as ask_docx
+    monkeypatch.setattr(ask_docx, "generate_ask_docx_bytes", lambda i: (b"PK", "a.docx"))
+    resp = ask_mod.download_ask_docx(41, _USER)
+    assert resp.body == b"PK" and 'filename="a.docx"' in resp.headers["content-disposition"]
+    with pytest.raises(HTTPException):
+        ask_mod.download_ask_docx(41, {"id": 9, "email": "v@example.com", "role": "viewer"})

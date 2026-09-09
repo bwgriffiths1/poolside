@@ -9,6 +9,7 @@ import { DocCards, SectionDocs } from "../components/briefing/SectionDocs";
 import { MeetingLinks } from "../components/meeting/MeetingLinks";
 import { VersionHistory } from "../components/VersionHistory";
 import { ShareLinkModal } from "../components/ShareLinkModal";
+import { TaglineEditor } from "../components/TaglineEditor";
 import { useScrollSpy } from "../hooks/useScrollSpy";
 import { useReadingProgress } from "../hooks/useReadingProgress";
 import { api } from "../lib/api";
@@ -365,7 +366,14 @@ export function Briefing() {
               <span>{briefing.subtitle}</span>
             </div>
             <h1 className="briefing-title">{briefing.title}</h1>
-            <p className="briefing-headline">{briefing.headline}</p>
+            <TaglineEditor
+              entityType="meeting"
+              entityId={meetingId}
+              value={briefing.headline}
+              canEdit={canEdit}
+              className="briefing-headline"
+              invalidate={[qk.briefing(meetingId), qk.meeting(meetingId), qk.meetings]}
+            />
 
             <div className="briefing-meta-row">
               <span>

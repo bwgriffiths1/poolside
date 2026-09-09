@@ -1384,3 +1384,29 @@ a:hover { text-decoration: underline; }
   .ask-source .row { flex-wrap: wrap; }
   .ask-source-title { white-space: normal; min-width: 0; }
 }
+
+/* Tagline (one_line) inline edit — briefing header + meeting page */
+.tagline-row { display: flex; align-items: baseline; gap: 8px; }
+.tagline-row > span { flex: 1; min-width: 0; }
+.tagline-empty { color: var(--muted); font-style: italic; }
+.tagline-pencil {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px;
+  background: transparent;
+  border: 0;
+  border-radius: 4px;
+  color: var(--muted);
+  cursor: pointer;
+  opacity: 0.55;
+  flex-shrink: 0;
+}
+.tagline-row:hover .tagline-pencil, .tagline-pencil:focus-visible { opacity: 1; color: var(--accent); }
+.tagline-edit {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0 0 14px 0;
+  max-width: 72ch;
+}
+.tagline-edit .input { width: 100%; font-size: 15px; }

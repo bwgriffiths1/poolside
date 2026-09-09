@@ -848,6 +848,31 @@ export const api = {
 
   askOptions: () => get<AskOptions>(`/ask/options`),
 
+  // Tagline (one_line) edit in place — no new version.
+  setSummaryOneLine: async (
+    entityType: SummaryEntityType,
+    entityId: number,
+    oneLine: string,
+  ): Promise<{ one_line: string; version: number | null }> => {
+    const res = await fetch(`${BASE}/summaries/${entityType}/${entityId}/one_line`, {
+      method: "PATCH",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ one_line: oneLine }),
+    });
+    if (!res.ok) {
+      let detail = `${res.status} ${res.statusText}`;
+      try {
+        const j = await res.json();
+        if (j?.detail) detail = j.detail;
+      } catch {
+        /* ignore */
+      }
+      throw new Error(detail);
+    }
+    return (await res.json()) as { one_line: string; version: number | null };
+  },
+
   // Async Ask: 202 + job id, then poll. The page uses this path so a
   // long memo survives the browser/edge request timeout.
   startAskJob: (body: AskBody): Promise<{ job_id: number }> =>

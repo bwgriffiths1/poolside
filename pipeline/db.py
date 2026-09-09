@@ -1360,6 +1360,26 @@ def create_summary_version(
             return dict(cur.fetchone())
 
 
+def set_summary_one_line(entity_type: str, entity_id: int,
+                         one_line: str | None) -> dict | None:
+    """Update the tagline (one_line) on the entity's CURRENT summary
+    version in place — it's headline metadata, not a body edit, so it
+    doesn't earn a new version. Returns the updated row, or None when the
+    entity has no summary yet."""
+    cur_row = get_current_summary(entity_type, entity_id)
+    if not cur_row:
+        return None
+    with _conn() as conn:
+        with _cursor(conn) as cur:
+            cur.execute(
+                """UPDATE summary_versions SET one_line = %s
+                    WHERE id = %s RETURNING *""",
+                ((one_line or "").strip() or None, cur_row["id"]),
+            )
+            row = cur.fetchone()
+            return dict(row) if row else None
+
+
 def get_current_summary(entity_type: str, entity_id: int) -> dict | None:
     """
     Return the best available summary version for an entity:

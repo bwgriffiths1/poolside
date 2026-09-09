@@ -350,7 +350,9 @@ export function Editor() {
               <h1 className="editor-title">{data.parent_label}</h1>
               <div className="row" style={{ gap: 16, marginTop: 12, flexWrap: "wrap" }}>
                 <div style={{ flex: 1, minWidth: 280 }}>
-                  <label className="field-label">One-line summary (italic preview)</label>
+                  <label className="field-label">
+                    Tagline — the one sentence shown under the briefing title and on the meeting page
+                  </label>
                   <input
                     className="input"
                     value={oneLine}
@@ -358,7 +360,7 @@ export function Editor() {
                       setOneLine(e.target.value);
                       setDirty(true);
                     }}
-                    placeholder="One sentence preview shown under the title…"
+                    placeholder="One sentence that captures the meeting…"
                   />
                 </div>
                 <div style={{ alignSelf: "flex-end" }}>

@@ -867,27 +867,44 @@ def test_ask_job_routes_scope_to_owner(monkeypatch):
 # Word export
 # ---------------------------------------------------------------------------
 
-def test_ask_docx_renders_question_answer_and_sources(monkeypatch):
+def test_ask_docx_renders_in_briefing_grammar(monkeypatch):
     import pipeline.ask_docx as ask_docx
     from docx import Document as _Docx
     from io import BytesIO
     row = dict(_logged_parent(), detail="deep", model_id="claude-opus-5", effort="high",
-               answer_md="### Bottom line\n\nIt stands here [1][2].\n\n"
-                         "### Positions by party\n\n**NEPGA [2]:** protested.\n\n- one\n- two",
+               answer_md="### Bottom line\n\nIt stands here [1][2] (p. 4).\n\n"
+                         "- one camp [1]\n\n### Positions by party\n\n"
+                         "**A. Supporters**\n\n**NEPGA [2]:** protested.",
                created_at=datetime(2026, 9, 9))
     row["sources"][1]["pages"] = [4, 7]
     row["sources"][1]["document_class"] = "Comments/Protest"
     monkeypatch.setattr(ask_docx.db, "get_ask_log", lambda i: row if i == 41 else None)
     data, filename = ask_docx.generate_ask_docx_bytes(41)
     assert filename.startswith("Ask_41_Where-does-it-stand") and filename.endswith(".docx")
-    text = "\n".join(p.text for p in _Docx(BytesIO(data)).paragraphs)
-    assert "Where does it stand?" in text
-    assert "Bottom line" in text and "It stands here [1][2]." in text
-    assert "NEPGA [2]:" in text and "protested." in text
+    d = _Docx(BytesIO(data))
+    paras = [p for p in d.paragraphs if p.text.strip()]
+    text = "\n".join(p.text for p in paras)
+    # Cover: scope as masthead, docket title as kicker, question as headline.
+    assert paras[1].text == "FERC Docket ER26-925" and paras[1].runs[0].font.size == ask_docx.brand.SZ_MASTHEAD
+    assert paras[2].text.startswith("T\t")           # kicker + tab + date
+    assert paras[3].text == "Where does it stand?" and paras[3].runs[0].font.italic
+    assert "Deep memo · claude-opus-5 · high effort · 2 sources · summaries + documents" in text
+    # Sections become eyebrow labels; alignment groups become accent titles.
+    assert "BOTTOM LINE" in text and "POSITIONS BY PARTY" in text
+    group = next(p for p in paras if p.text == "A. Supporters")
+    assert group.runs[0].font.size == ask_docx.brand.SZ_GROUP and group.runs[0].font.bold
+    # Citations are superscript runs, not bracketed text; page refs stay.
+    body = next(p for p in paras if p.text.startswith("It stands here"))
+    sup = [r for r in body.runs if r.font.superscript]
+    assert [r.text for r in sup] == ["1,2"] and "[1]" not in body.text
+    assert "(p. 4)" in body.text
+    lead = next(p for p in paras if p.text.startswith("NEPGA"))
+    assert lead.runs[0].text == "NEPGA " and lead.runs[0].font.bold
+    assert [r.text for r in lead.runs if r.font.superscript] == ["2"]
+    # Sources list.
     assert "SOURCES" in text
-    assert "[1]  FERC docket ER26-925 — state of play" in text
+    assert "1   FERC docket ER26-925 — state of play" in text
     assert "20251230-5436 · Comments/Protest · by NEPGA · excerpt: Attachment B, p. 4, 7" in text
-    assert "Deep memo · claude-opus-5 · high effort · 2 sources" in text
     with pytest.raises(ValueError):
         ask_docx.generate_ask_docx_bytes(999)
 

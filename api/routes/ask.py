@@ -26,7 +26,7 @@ import re
 from datetime import date
 from typing import Any, Literal
 
-from fastapi import APIRouter, Body, Depends
+from fastapi import APIRouter, Body, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from pipeline import db
@@ -79,6 +79,29 @@ _MENTION_RE = re.compile(r"(?<![\w@])@([A-Za-z]{1,3}\d{2}-\d+(?:-\d{1,3})?)\b")
 
 Corpus = Literal["all", "meetings", "dockets"]
 Depth = Literal["summaries", "documents"]
+Effort = Literal["low", "medium", "high", "xhigh", "max"]
+
+# Models the Ask UI may pick from. An allowlist, not free text: the model
+# id goes straight into the API call and the pricing table. `effort` marks
+# whether the model takes output_config.effort (Haiku 4.5 rejects it with a
+# 400 — summarizer._effort_kwargs already drops it, the flag just lets the
+# UI grey the control out).
+ASK_MODELS: list[dict[str, Any]] = [
+    {"id": "claude-sonnet-5", "label": "Sonnet 5",
+     "note": "Fast; the default", "effort": True},
+    {"id": "claude-opus-5", "label": "Opus 5",
+     "note": "Deeper reasoning, ~2.5× the cost", "effort": True},
+    {"id": "claude-fable-5-1", "label": "Fable 5.1",
+     "note": "Most capable, ~5× the cost, slower", "effort": True},
+    {"id": "claude-haiku-4-5", "label": "Haiku 4.5",
+     "note": "Cheapest; no effort control", "effort": False},
+]
+_ASK_MODEL_IDS = {m["id"] for m in ASK_MODELS}
+EFFORT_LEVELS: list[str] = ["low", "medium", "high", "xhigh", "max"]
+# Ask is interactive and reads already-summarized text, so it opts out of
+# the model family's default (max/high) effort — deep thinking here mostly
+# adds latency. The dropdown lets the analyst raise it per question.
+DEFAULT_EFFORT = "low"
 
 
 class AskBody(BaseModel):
@@ -86,9 +109,28 @@ class AskBody(BaseModel):
     corpus: Corpus = "all"
     depth: Depth = "summaries"
     docket_numbers: list[str] = Field(default_factory=list, max_length=10)
+    model: str | None = None
+    effort: Effort | None = None
     type_short: str | None = None
     from_date: date | None = None
     to_date: date | None = None
+
+
+def default_ask_model() -> str:
+    cfg = load_model_config()
+    return cfg.get("ask_model") or cfg.get("item_model", HAIKU)
+
+
+def resolve_model(requested: str | None) -> str:
+    """The model to call: the request's pick (allowlisted) or the config
+    default. A model outside the allowlist is a 422, not a silent fallback."""
+    if requested is None or requested == "":
+        return default_ask_model()
+    if requested not in _ASK_MODEL_IDS:
+        raise HTTPException(
+            status_code=422,
+            detail=f"model must be one of {sorted(_ASK_MODEL_IDS)}")
+    return requested
 
 
 # ── Scope ────────────────────────────────────────────────────────────────
@@ -420,6 +462,7 @@ def ask(
     if body.to_date:
         filters["to_date"] = body.to_date
 
+    model = resolve_model(body.model)
     scope = resolve_scope(body)
     hits = gather_sources(scope, **filters)
 
@@ -436,25 +479,22 @@ def ask(
             "sources": [],
             "scope": _serialize_scope(scope),
             "model_id": None,
+            "effort": None,
             "cost_usd": None,
         }
 
     prompt = build_ask_prompt(question, hits, scope)
 
     cfg = load_model_config()
-    model = (cfg.get("ask_model")
-             or cfg.get("item_model", HAIKU))
     max_tokens = int(cfg.get("ask_max_tokens") or 8192)
+    effort = body.effort or DEFAULT_EFFORT
 
     client = make_client()
-    log.info("ask: %d source(s) [%s], model %s: %r", len(hits),
-             scope_line(scope), model, question[:80])
+    log.info("ask: %d source(s) [%s], model %s @ %s: %r", len(hits),
+             scope_line(scope), model, effort, question[:80])
     with capture_usage() as usage_log:
-        # Ask is interactive and answers from already-summarized text, so it
-        # opts out of the model family's default (max/high) effort — deep
-        # thinking here just adds latency and eats the shared token budget.
         answer = call_llm(client, model, prompt, max_tokens=max_tokens,
-                          label=f"ask: {question[:40]}", effort="low")
+                          label=f"ask: {question[:40]}", effort=effort)
     totals = totals_from_usage_log(usage_log)
 
     return {
@@ -463,5 +503,17 @@ def ask(
         "sources": [_serialize_source(n, h) for n, h in enumerate(hits, start=1)],
         "scope": _serialize_scope(scope),
         "model_id": model,
+        "effort": effort,
         "cost_usd": float(totals.get("cost_usd", 0.0)) or None,
+    }
+
+
+@router.get("/options")
+def ask_options(_: dict = Depends(current_user)) -> dict[str, Any]:
+    """Model and effort choices for the Ask UI, plus the defaults."""
+    return {
+        "models": ASK_MODELS,
+        "efforts": EFFORT_LEVELS,
+        "default_model": default_ask_model(),
+        "default_effort": DEFAULT_EFFORT,
     }

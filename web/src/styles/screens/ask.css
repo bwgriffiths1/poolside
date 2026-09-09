@@ -226,6 +226,25 @@
 }
 .ask-chip-warn .ask-chip-title { color: inherit; }
 
+.ask-model-controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+}
+.ask-model-controls .select-sm {
+  padding: 4px 26px 4px 8px;
+  font-size: 12.5px;
+  line-height: 1.3;
+  height: auto;
+  min-width: 0;
+  width: auto;
+  max-width: 100%;
+}
+.ask-model-controls .select-sm:disabled { opacity: 0.55; cursor: not-allowed; }
+
 /* Mention autocomplete — anchored under the textarea, above the footer. */
 .ask-mention-menu {
   margin: 0 0 var(--pad-2);

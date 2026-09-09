@@ -415,3 +415,62 @@ def test_ask_happy_path_serializes_sources(monkeypatch):
     assert out["sources"][2]["filename"] == "Attachment B"
     assert out["scope"] == {"corpus": "all", "depth": "documents",
                             "dockets": [], "unknown_dockets": []}
+
+
+# ---------------------------------------------------------------------------
+# Model + effort selection
+# ---------------------------------------------------------------------------
+
+def test_resolve_model_allowlist(monkeypatch):
+    monkeypatch.setattr(ask_mod, "load_model_config", lambda: {"ask_model": "m-cfg"})
+    assert ask_mod.resolve_model(None) == "m-cfg"          # config default
+    assert ask_mod.resolve_model("") == "m-cfg"
+    assert ask_mod.resolve_model("claude-opus-5") == "claude-opus-5"
+    from fastapi import HTTPException
+    with pytest.raises(HTTPException) as exc:
+        ask_mod.resolve_model("gpt-9")                      # not free text
+    assert exc.value.status_code == 422
+
+
+def test_ask_passes_model_and_effort_to_llm(monkeypatch):
+    hits = [_hit("meeting", 1)]
+    monkeypatch.setattr(ask_mod, "gather_sources", lambda scope, **kw: hits)
+    monkeypatch.setattr(ask_mod, "db", _FakeDB(
+        summaries={("meeting", 1): {"detailed": "text"}}))
+    monkeypatch.setattr(ask_mod, "load_prompt",
+                        lambda slug: TEMPLATE if slug == ask_mod.PROMPT_SLUG else "")
+    monkeypatch.setattr(ask_mod, "load_model_config", lambda: {"ask_model": "m-ask"})
+    monkeypatch.setattr(ask_mod, "make_client", lambda: object())
+    seen: dict = {}
+
+    def _fake_llm(client, model, prompt, max_tokens=0, label="", effort=None):
+        seen["model"], seen["effort"] = model, effort
+        return "Answer [1]."
+
+    monkeypatch.setattr(ask_mod, "call_llm", _fake_llm)
+
+    out = ask_mod.ask(AskBody(question="where does CAR-SA stand?",
+                              model="claude-opus-5", effort="max"), {})
+    assert seen == {"model": "claude-opus-5", "effort": "max"}
+    assert out["model_id"] == "claude-opus-5" and out["effort"] == "max"
+
+    out = ask_mod.ask(AskBody(question="where does CAR-SA stand?"), {})
+    assert seen == {"model": "m-ask", "effort": ask_mod.DEFAULT_EFFORT}
+
+
+def test_ask_body_rejects_unknown_effort():
+    from pydantic import ValidationError
+    with pytest.raises(ValidationError):
+        AskBody(question="anything at all", effort="ultra")
+
+
+def test_ask_options_lists_models_and_defaults(monkeypatch):
+    monkeypatch.setattr(ask_mod, "load_model_config", lambda: {"ask_model": "claude-sonnet-5"})
+    out = ask_mod.ask_options({})
+    ids = [m["id"] for m in out["models"]]
+    assert "claude-sonnet-5" in ids and "claude-opus-5" in ids
+    haiku = next(m for m in out["models"] if m["id"].startswith("claude-haiku"))
+    assert haiku["effort"] is False                          # UI greys effort out
+    assert out["efforts"] == ["low", "medium", "high", "xhigh", "max"]
+    assert out["default_model"] == "claude-sonnet-5"
+    assert out["default_effort"] == "low"

@@ -1715,7 +1715,11 @@ def _briefing_summary_excerpt(md: str, max_chars: int = 3500) -> str:
     so a new briefing can reason about continuity without ingesting whole prior
     briefings."""
     low = md.lower()
-    cut = low.find("## agenda item summaries")
+    # Everything before the agenda-item body. Current briefings carry a single
+    # "## Agenda Item Summaries" heading; the oldest ones (early 2026) went
+    # straight to "## Agenda Item 1 — …" per item, so take whichever comes first.
+    cuts = [m.start() for m in re.finditer(r"^## agenda item(?: summaries|s? \d)", low, re.M)]
+    cut = min(cuts) if cuts else -1
     excerpt = (md[:cut] if cut != -1 else md).strip()
     excerpt = excerpt.lstrip("-").strip()  # drop a leading '---' rule
     if len(excerpt) > max_chars:
@@ -1723,11 +1727,128 @@ def _briefing_summary_excerpt(md: str, max_chars: int = 3500) -> str:
     return excerpt
 
 
-def _build_prior_context_block(meeting_id: int, within_days: int = 60) -> str:
+def _briefing_takeaway_bullets(md: str, max_items: int = 6, max_chars: int = 320) -> list[str]:
+    """The Key Takeaways bullets of a stored briefing, as plain one-liners.
+    Briefings stored before the dedicated section existed (pre 2026-08) fall
+    back to the Executive Summary's **Key Developments** bullets, then to the
+    first bullets of the pre-agenda excerpt — so [PREVIOUSLY REPORTED] never
+    goes blank just because a prior briefing is in the older format."""
+    lines = _briefing_summary_excerpt(md, max_chars=20000).splitlines()
+
+    def _bullets_between(start, stop):
+        out, on = [], False
+        for ln in lines:
+            s = ln.strip()
+            if not on:
+                on = start(s)
+                continue
+            if stop(s):
+                break
+            if s.startswith(("- ", "* ")):
+                out.append(s[2:].strip())
+        return out
+
+    def _is_bold_label(s):
+        return s.startswith("**") and s.endswith("**") and s.count("**") == 2
+
+    found = _bullets_between(
+        lambda s: s.startswith("## ") and "takeaway" in s.lower(),
+        lambda s: s.startswith("## "))
+    if not found:
+        found = _bullets_between(
+            lambda s: _is_bold_label(s) and "key developments" in s.lower(),
+            lambda s: s.startswith("## ") or _is_bold_label(s))
+    if not found:
+        # Oldest format: no labelled section at all. Take substantive bullets
+        # and skip date-led milestone lines ("April 22, 2026: …", "Q4 2026: …").
+        date_led = re.compile(
+            r"^\**\s*(?:Q[1-4](?:–Q[1-4])?\s+\d{4}|[A-Z][a-z]+(?:–[A-Z][a-z]+)?\s+(?:\d{1,2},?\s+)?\d{4})")
+        found = [s.strip()[2:].strip() for s in lines
+                 if s.strip().startswith(("- ", "* "))
+                 and len(s.strip()) >= 80
+                 and not date_led.match(s.strip()[2:].strip())]
+    if not found:
+        # Prose-only executive summary: its opening paragraph is the closest
+        # thing to a takeaways list that briefing has.
+        paras = [pp.strip() for pp in "\n".join(lines).split("\n\n")
+                 if pp.strip() and not pp.strip().startswith(("#", "**", "---"))]
+        found = paras[:1]
+
+    out = []
+    for b in found[:max_items]:
+        b = " ".join(b.replace("**", "").split())
+        if len(b) > max_chars:
+            b = b[:max_chars].rsplit(" ", 1)[0].rstrip(",;:") + "…"
+        if b:
+            out.append(b)
+    return out
+
+
+def _build_previously_reported_block(meeting_id: int, within_days: int | None = None,
+                                     limit: int | None = None) -> str:
+    """Dated headline + Key Takeaways of this committee's recent prior
+    briefings — the [PREVIOUSLY REPORTED] section, the record of what the
+    reader has already been told so the new briefing can reserve its
+    takeaways for what changed. Wider window and more meetings than
+    [PRIOR CONTEXT] (which carries whole executive summaries) because a
+    takeaway list is cheap: ~6 short bullets per meeting. '' when none."""
+    if within_days is None:
+        within_days = _prior_memory_setting("previously_reported_days")
+    if limit is None:
+        limit = _prior_memory_setting("previously_reported_meetings")
+    try:
+        priors = db.get_prior_meeting_briefings(meeting_id, within_days=within_days, limit=limit)
+    except Exception as e:  # never let the lookup break a briefing
+        logger.warning("previously-reported lookup failed for meeting %d: %s", meeting_id, e)
+        return ""
+    parts = []
+    for p in priors:
+        bullets = _briefing_takeaway_bullets(p.get("detailed") or "")
+        headline = " ".join((p.get("one_line") or "").split())
+        if not bullets and not headline:
+            continue
+        title = p.get("title") or ""
+        head = f"### {p.get('meeting_date', '')}" + (f" — {title}" if title else "")
+        body = ([f"- Headline: {headline}"] if headline else []) + [f"- {b}" for b in bullets]
+        parts.append(head + "\n" + "\n".join(body))
+    return "\n\n".join(parts)
+
+
+# How much prior-briefing memory a new briefing gets. [PRIOR CONTEXT] carries
+# whole Key Takeaways + Executive Summary excerpts (~3.5k chars each), so it
+# stays at a handful of meetings; [PREVIOUSLY REPORTED] is a dated bullet
+# record (~1k chars per meeting) and can reach back about a year, which is
+# what lets the "a takeaway must be NEW" rule catch a figure last reported in
+# a meeting that fell outside the exec-summary window. Override any of these
+# under summarization.* in config.yaml / app_config.
+_PRIOR_MEMORY_DEFAULTS = {
+    "prior_context_meetings": 4,
+    "prior_context_days": 120,
+    "previously_reported_meetings": 12,
+    "previously_reported_days": 400,
+}
+
+
+def _prior_memory_setting(key: str) -> int:
+    default = _PRIOR_MEMORY_DEFAULTS[key]
+    try:
+        from pipeline import appconfig
+        val = appconfig.get_config().get("summarization", {}).get(key, default)
+        return max(0, int(val))
+    except Exception:
+        return default
+
+
+def _build_prior_context_block(meeting_id: int, within_days: int | None = None,
+                               limit: int | None = None) -> str:
     """Assemble labelled excerpts of recent prior-meeting briefings for the
     [PRIOR CONTEXT] section, or '' if none are available."""
     try:
-        priors = db.get_prior_meeting_briefings(meeting_id, within_days=within_days)
+        priors = db.get_prior_meeting_briefings(
+            meeting_id,
+            within_days=within_days if within_days is not None else _prior_memory_setting("prior_context_days"),
+            limit=limit if limit is not None else _prior_memory_setting("prior_context_meetings"),
+        )
     except Exception as e:  # never let prior-context lookup break a briefing
         logger.warning("prior-context lookup failed for meeting %d: %s", meeting_id, e)
         return ""
@@ -1811,8 +1932,13 @@ def _run_meeting_briefing(
     # prompt's [PRIOR CONTEXT] section for continuity / trend analysis.
     prior_block = _build_prior_context_block(meeting_id)
     prior_section = prior_block if prior_block else "None available."
+    # The dated takeaway record ([PREVIOUSLY REPORTED]) is what the prompt's
+    # "a takeaway must be NEW" rule checks against — wider window, terser.
+    prev_block = _build_previously_reported_block(meeting_id)
+    prev_section = prev_block if prev_block else "None available."
 
     context_block = (
+        f"[PREVIOUSLY REPORTED]\n\n{prev_section}\n\n---\n\n"
         f"[PRIOR CONTEXT]\n\n{prior_section}\n\n---\n\n"
         f"[THIS MEETING — AGENDA STRUCTURE & ITEM SUMMARIES]\n\n"
         f"{structure_block}\n\n---\n\n{items_block}"
@@ -1826,6 +1952,9 @@ def _run_meeting_briefing(
     if prior_block:
         logger.info("Level 3 — meeting %d: injected %d prior-briefing excerpt(s)",
                     meeting_id, prior_block.count("### Prior meeting"))
+    if prev_block:
+        logger.info("Level 3 — meeting %d: injected takeaways from %d previously-reported meeting(s)",
+                    meeting_id, prev_block.count("\n### ") + 1)
 
     # Collect images referenced across all item summaries
     all_image_ids: list[int] = []

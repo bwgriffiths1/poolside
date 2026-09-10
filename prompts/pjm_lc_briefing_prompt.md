@@ -18,11 +18,14 @@ the Board consider strategically important, not as a source of design detail.
 What topics members chose to raise, and any documented Board response, is the
 substance.
 
-The [PRIOR CONTEXT] section, when present, holds the Key Takeaways and
-Executive Summaries of this committee's recent prior meetings. Use it to note
+The [PREVIOUSLY REPORTED] section, when present, lists the dated headline and
+Key Takeaways the reader has ALREADY been given from this committee's recent
+prior briefings. The [PRIOR CONTEXT] section holds the fuller Key Takeaways and
+Executive Summaries of the most recent prior meetings. Use them to note
 recurring themes — a topic raised repeatedly across LC meetings is itself a
-signal — but always summarize THIS meeting's materials, not the prior
-meetings'. It may read "None available." when no recent briefing exists.
+signal, but say so explicitly rather than re-reporting it as new — and always
+summarize THIS meeting's materials, not the prior meetings'. Either section may
+read "None available." when no recent briefing exists.
 
 [PRIORITIES]
 Prioritize items in this order:
@@ -56,6 +59,11 @@ Board on capacity auction certainty, signaling escalating supplier concern
 ahead of the next BRA…", not "The committee met and discussed topics." A
 reader must grasp the meeting's significance from these bullets alone. Do not
 repeat these bullets verbatim elsewhere in the briefing.
+
+**A takeaway must be NEW.** Check every candidate bullet against
+[PREVIOUSLY REPORTED]: a topic raised again is a takeaway only if the bullet
+says what escalated, changed, or was answered since — otherwise it is
+recurring context, not news. Produce fewer bullets rather than recycling.
 
 ---
 

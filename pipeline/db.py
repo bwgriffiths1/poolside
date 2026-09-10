@@ -1428,18 +1428,25 @@ def get_prior_meeting_briefings(
                  ORDER BY meeting_date DESC
                  LIMIT %s
                 """,
-                (meeting_id, meeting_id, meeting_id, within_days, meeting_id, limit),
+                # Over-fetch: the briefing filter below runs in Python, so a
+                # SQL LIMIT of `limit` would silently drop meetings whenever
+                # an un-briefed meeting (cancelled, summer session, not yet
+                # summarised) sits inside the window.
+                (meeting_id, meeting_id, meeting_id, within_days, meeting_id, limit * 4),
             )
             rows = [dict(r) for r in cur.fetchall()]
 
     out: list[dict] = []
     for r in rows:
+        if len(out) >= limit:
+            break
         summ = get_current_summary("meeting", r["id"])
         if summ and (summ.get("detailed") or "").strip():
             out.append({
                 "id": r["id"],
                 "meeting_date": str(r["meeting_date"]),
                 "title": r.get("title") or "",
+                "one_line": summ.get("one_line") or "",
                 "detailed": summ["detailed"],
             })
     return out

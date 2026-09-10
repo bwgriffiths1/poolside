@@ -9,12 +9,16 @@ filings, member assessments, bylaw changes, and items referred from the Markets
 and Reliability Committees. NPC votes are the final NEPOOL stakeholder action
 before ISO-NE files with FERC.
 
-The [PRIOR CONTEXT] section, when present, holds the Key Takeaways and
-Executive Summaries of this committee's recent prior meetings (typically the
-last ~60 days). Use it for continuity and trend analysis — note what has
-advanced, reversed, or resolved since — but always summarize THIS meeting's
-materials, not the prior meetings'. It may read "None available." when no
-recent briefing exists.
+The [PREVIOUSLY REPORTED] section, when present, lists the dated headline and
+Key Takeaways the reader has ALREADY been given in this committee's recent
+prior briefings (typically the last twelve meetings, about a year). Treat it as
+the record of
+what the reader has already been told. The [PRIOR CONTEXT] section holds the
+fuller Key Takeaways and Executive Summaries of the most recent prior meetings
+(typically the last ~4 months) — use it for continuity and trend analysis, noting
+what has advanced, reversed, or resolved since. Always summarize THIS meeting's
+materials, not the prior meetings'. Either section may read "None available."
+when no recent briefing exists.
 
 [PRIORITIES]
 Prioritize items in this order:
@@ -56,6 +60,19 @@ venue: "Non-firm gas capacity revenue falls ~17% under the base case…", not
 meeting's significance from these bullets alone. Do not repeat these bullets
 verbatim elsewhere in the briefing.
 
+**A takeaway must be NEW.** Rank by the impact of what CHANGED at this
+meeting, not by the standing importance of the topic. Check every candidate
+bullet against [PREVIOUSLY REPORTED]: if the reader has already been told it —
+the same finding, figure, proposal, or risk with no new number, decision, vote,
+filing, or date — it is not a takeaway, however important the topic remains.
+A recurring topic earns a bullet only for its delta, and the bullet must name
+the delta: "…revised from ~17% to ~22%", "…voted to advance what was only
+proposed in April", "…effective date slipped from October to January". A
+figure restated unchanged from a prior meeting is background, not news — if it
+still matters, carry it as a short clause ("unchanged since July") or leave it
+to the Executive Summary's Still Open / Unchanged list. When a meeting was
+genuinely uneventful, produce fewer bullets rather than recycling prior ones.
+
 ---
 
 ## Executive Summary
@@ -88,6 +105,16 @@ committee discussed X."
 **Near-Term Deadlines & Process Milestones** (brief, 2–3 items)
 Votes, comment deadlines, FERC filing dates, tariff effective dates —
 only items within the next 60 days that require action or attention
+
+**Still Open / Unchanged** (0–3 bullets, one line each)
+Standing issues the reader has already been briefed on that remain live but
+did not move at this meeting — name the issue and when it was last reported
+("Non-firm gas revenue impact, ~17% base case — unchanged since the July
+meeting"). This is where recurring topics live so they stay visible without
+being re-reported as news. Only list issues that actually appear in THIS
+meeting's materials — never note what was absent from the agenda or "not
+discussed"; a topic that did not come up is simply left out. Omit the element
+entirely if nothing qualifies.
 
 ---
 

@@ -147,7 +147,7 @@ def load_ferc_config() -> dict:
     default treatment map merged under missing keys."""
     from pipeline import appconfig
     try:
-        cfg = appconfig.get_config_key("ferc") or {}
+        cfg = appconfig.get_config().get("ferc") or {}
     except Exception:
         cfg = {}
     tmap = {**DEFAULT_TREATMENT_MAP, **(cfg.get("treatment_map") or {})}
@@ -772,6 +772,16 @@ def sync_docket(docket_id: int, progress=logger.info,
 
 def check_for_new_filings(docket_id: int) -> int:
     """Scheduler helper: crawl + enrich WITHOUT summarizing (no LLM spend).
-    Returns how many new filings landed. The caller raises the notification."""
+    Returns how many new filings landed. The caller decides whether to
+    notify or to start a summarizing sync job (ferc.auto_summarize)."""
     result = sync_docket(docket_id, summarize=False)
     return result["filings_found"]
+
+
+def pending_summary_count(docket_id: int) -> int:
+    """How many stored filings a summarizing sync would actually send to
+    the LLM: non-skip treatment and no summary yet. Zero means a sync job
+    would spend nothing (and would not re-run the state of play)."""
+    return sum(1 for f in db.list_docket_filings(docket_id)
+               if f["treatment"] != "skip"
+               and f.get("summary_status") in (None, "stub"))

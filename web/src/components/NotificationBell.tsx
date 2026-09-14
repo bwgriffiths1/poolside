@@ -57,6 +57,21 @@ function describe(n: NotificationRow): { title: string; sub: string } {
       sub: `${p.count ?? "?"} new filing(s) on eLibrary — open the docket and Sync to summarize.`,
     };
   }
+  if (n.kind === "docket_synced") {
+    const p = n.payload as {
+      docket_number?: string;
+      count?: number;
+      summarized?: number;
+      brief_updated?: boolean;
+      error?: string | null;
+    };
+    const brief = p.brief_updated ? ", state of play updated" : "";
+    const err = p.error ? " Some filings failed — see the docket." : "";
+    return {
+      title: `FERC docket updated — ${p.docket_number ?? "docket"}`,
+      sub: `${p.count ?? "?"} new filing(s), ${p.summarized ?? 0} summarized${brief}.${err}`,
+    };
+  }
   return { title: n.kind, sub: "" };
 }
 
@@ -114,7 +129,7 @@ export function NotificationBell() {
     }
     if (n.meeting_id) {
       navigate(`/meeting/${n.meeting_id}`);
-    } else if (n.kind === "docket_filings_new") {
+    } else if (n.kind === "docket_filings_new" || n.kind === "docket_synced") {
       const p = n.payload as { docket_id?: number };
       if (p.docket_id) navigate(`/docket/${p.docket_id}`);
     }

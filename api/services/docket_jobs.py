@@ -12,7 +12,7 @@ from __future__ import annotations
 import logging
 import threading
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Callable
 
 from pipeline import db
 
@@ -80,9 +80,28 @@ def request_cancel(job_id: int) -> bool:
             return cur.rowcount > 0
 
 
-def _run_docket_job(job_id: int, docket_id: int, mode: str) -> None:
+def _run_docket_job(job_id: int, docket_id: int, mode: str,
+                    on_finish: Callable[[dict], None] | None = None) -> None:
     """Daemon-thread entry point: drive the sync and/or brief while
-    streaming progress and usage back into the docket_jobs row."""
+    streaming progress and usage back into the docket_jobs row.
+
+    `on_finish(job_row)` runs after the terminal status (complete / failed
+    / cancelled) is written — the scheduler uses it to raise the
+    notification for an unattended sync. It never affects the job's own
+    outcome: a callback exception is logged and swallowed."""
+    try:
+        _drive_docket_job(job_id, docket_id, mode)
+    finally:
+        if on_finish is not None:
+            try:
+                row = get_job(job_id)
+                if row is not None:
+                    on_finish(row)
+            except Exception:
+                log.exception("on_finish callback failed for job %s", job_id)
+
+
+def _drive_docket_job(job_id: int, docket_id: int, mode: str) -> None:
     from pipeline.docket_brief import run_docket_brief
     from pipeline.docket_ingest import sync_docket
     from pipeline.summarizer import capture_usage, totals_from_usage_log
@@ -167,10 +186,13 @@ def _run_docket_job(job_id: int, docket_id: int, mode: str) -> None:
 
 
 def start_docket_job(docket_id: int, mode: str = "sync",
-                     created_by: str = "system") -> dict[str, Any] | None:
+                     created_by: str = "system",
+                     on_finish: Callable[[dict], None] | None = None,
+                     ) -> dict[str, Any] | None:
     """Claim the docket's active-job slot and launch the daemon thread.
     Returns {job_id, already_running, mode}, or None when the docket does
-    not exist."""
+    not exist. `on_finish` is only attached to a job this call actually
+    starts — an already-running job keeps whatever it was started with."""
     if db.get_docket(docket_id) is None:
         return None
 
@@ -199,7 +221,7 @@ def start_docket_job(docket_id: int, mode: str = "sync",
 
     t = threading.Thread(
         target=_run_docket_job,
-        args=(job_id, docket_id, mode),
+        args=(job_id, docket_id, mode, on_finish),
         name=f"docket-job-{job_id}",
         daemon=True,
     )

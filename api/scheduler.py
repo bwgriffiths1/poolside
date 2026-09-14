@@ -10,7 +10,11 @@ Jobs (all ET):
   * Mon-Fri 08:00-18:00, every 30 min — refresh upcoming meetings:
                          pull new docs, run auto-assignment, bump lifecycle.
   * Mon-Fri 07:15      — FERC eLibrary check on tracked dockets: store new
-                         filings (no LLM), notify so a user can click Sync.
+                         filings (no LLM). When new filings need summaries
+                         and ferc.auto_summarize is on (default), start a
+                         sync job — filing summaries + state-of-play regen —
+                         and notify on completion; otherwise notify so a
+                         user can click Sync.
 
 All jobs are idempotent and call the same code paths as POST /api/admin/*.
 """
@@ -192,18 +196,89 @@ def _prune_images_job() -> None:
         _notify_job_failed("prune_images", e)
 
 
+def _docket_auto_summarize_enabled() -> bool:
+    """ferc.auto_summarize — default ON. Unlike meetings (auto_resummarize
+    defaults off), a tracked docket is an explicit ask to follow it, and a
+    filing without a summary is a state of play that's quietly wrong."""
+    from pipeline.docket_ingest import load_ferc_config
+
+    try:
+        return bool(load_ferc_config().get("auto_summarize", True))
+    except Exception:
+        log.exception("docket_check: could not read ferc config — assuming auto_summarize on")
+        return True
+
+
+def _notify_docket_filings_new(docket: dict, new_count: int) -> None:
+    """The manual-path notification: filings stored, click Sync to summarize."""
+    from .services.notify import create_notification
+
+    create_notification(
+        kind="docket_filings_new",
+        user_id=None,  # broadcast
+        payload={
+            "docket_id": docket["id"],
+            "docket_number": docket["docket_number"],
+            "count": new_count,
+        },
+    )
+
+
+def _docket_auto_sync_finished(docket: dict, new_count: int, job: dict) -> None:
+    """on_finish for a scheduler-started sync job. Complete → one
+    docket_synced notification (summaries + state of play done). Anything
+    else → fall back to the manual-path notification so the new filings
+    are still surfaced with Sync one click away, plus job_failed."""
+    from .services.notify import create_notification
+
+    status = job.get("status")
+    if status == "complete":
+        summarized = int(job.get("filings_summarized") or 0)
+        create_notification(
+            kind="docket_synced",
+            user_id=None,  # broadcast
+            payload={
+                "docket_id": docket["id"],
+                "docket_number": docket["docket_number"],
+                "count": new_count,
+                "summarized": summarized,
+                # sync chains the state of play only when summaries landed
+                "brief_updated": summarized > 0,
+                "cost_usd": float(job.get("cost_usd") or 0.0),
+                "job_id": job.get("id"),
+                "error": job.get("error"),
+            },
+        )
+        log.info("docket_check: %s auto-sync complete — %d summarized, $%.2f",
+                 docket["docket_number"], summarized, float(job.get("cost_usd") or 0.0))
+        return
+
+    log.warning("docket_check: %s auto-sync ended %s: %s",
+                docket["docket_number"], status, job.get("error"))
+    _notify_docket_filings_new(docket, new_count)
+    if status == "failed":
+        _notify_job_failed(
+            "docket_auto_sync",
+            RuntimeError(f"{docket['docket_number']}: {job.get('error') or 'failed'}"),
+        )
+
+
 def _docket_check_job() -> None:
     """Daily FERC eLibrary check for tracked dockets (auto_refresh only).
 
-    Crawl + enrich is metadata-only — NO LLM spend. New filings raise a
-    broadcast notification; summarization stays a one-click user action
-    (the meetings auto_resummarize=false stance). Dockets with an active
-    job are skipped rather than raced."""
-    from pipeline import db
-    from pipeline.docket_ingest import check_for_new_filings
+    Crawl + enrich is metadata-only — NO LLM spend. When new filings land:
 
-    from .services.docket_jobs import active_job_id
-    from .services.notify import create_notification
+      * ferc.auto_summarize on (default) and at least one stored filing
+        still needs a summary → start a normal sync job (the same path as
+        the Sync button: summarize pending filings, then regenerate the
+        state of play) and notify when it finishes.
+      * otherwise → broadcast docket_filings_new so a user can click Sync.
+
+    Dockets with an active job are skipped rather than raced."""
+    from pipeline import db
+    from pipeline.docket_ingest import check_for_new_filings, pending_summary_count
+
+    from .services.docket_jobs import active_job_id, start_docket_job
 
     try:
         dockets = [d for d in db.list_dockets() if d.get("auto_refresh")]
@@ -212,6 +287,8 @@ def _docket_check_job() -> None:
         _notify_job_failed("docket_check", e)
         return
 
+    auto = _docket_auto_summarize_enabled()
+
     for d in dockets:
         try:
             if active_job_id(d["id"]) is not None:
@@ -219,18 +296,28 @@ def _docket_check_job() -> None:
                          d["docket_number"])
                 continue
             new_count = check_for_new_filings(d["id"])
-            if new_count > 0:
-                create_notification(
-                    kind="docket_filings_new",
-                    user_id=None,  # broadcast
-                    payload={
-                        "docket_id": d["id"],
-                        "docket_number": d["docket_number"],
-                        "count": new_count,
-                    },
+            if new_count <= 0:
+                continue
+            log.info("docket_check: %s has %d new filing(s)",
+                     d["docket_number"], new_count)
+
+            if auto and pending_summary_count(d["id"]) > 0:
+                docket, count = d, new_count
+                job = start_docket_job(
+                    d["id"], mode="sync", created_by="scheduler",
+                    on_finish=lambda row, docket=docket, count=count:
+                        _docket_auto_sync_finished(docket, count, row),
                 )
-                log.info("docket_check: %s has %d new filing(s)",
-                         d["docket_number"], new_count)
+                if job and not job.get("already_running"):
+                    log.info("docket_check: %s auto-sync started (job %s)",
+                             d["docket_number"], job.get("job_id"))
+                    continue
+                # Lost the admission race (or the docket vanished) — the
+                # filings are stored either way, so surface them manually.
+                log.info("docket_check: %s could not start auto-sync (%s)",
+                         d["docket_number"], job)
+
+            _notify_docket_filings_new(d, new_count)
         except Exception as e:
             log.exception("docket_check failed for %s: %s",
                           d.get("docket_number"), e)

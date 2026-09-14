@@ -113,6 +113,13 @@ ferc:
   # Each worker paces its own eLibrary client, so the aggregate request
   # rate stays ~workers/2s. FERC's own SPA fires concurrent calls.
   parallel_workers: 4
+  # When true (default), the weekday eLibrary check runs a full sync job as
+  # soon as new filings that need summaries appear on a tracked docket:
+  # per-filing summaries, then the state-of-play regenerates (unattended LLM
+  # spend, typically well under $1 per filing). When false, a
+  # docket_filings_new notification is raised instead and Sync stays a
+  # one-click user action.
+  auto_summarize: true
 
 summarization:
   # When true, the refresh cron auto-runs an item-scoped re-summarize as new

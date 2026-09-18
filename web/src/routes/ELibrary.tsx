@@ -29,6 +29,7 @@ export function ELibrary() {
   const [number, setNumber] = useState("");
   const [title, setTitle] = useState("");
   const [addError, setAddError] = useState<string | null>(null);
+  const [filter, setFilter] = useState("");
 
   const { data: dockets = [], isLoading } = useQuery({
     queryKey: qk.dockets,
@@ -44,6 +45,26 @@ export function ELibrary() {
       ),
     [dockets],
   );
+
+  // Every whitespace-separated term must appear somewhere in the card's
+  // text, so "PJM capacity" narrows rather than widens.
+  const visible = useMemo(() => {
+    const terms = filter.toLowerCase().split(/\s+/).filter(Boolean);
+    if (!terms.length) return sorted;
+    return sorted.filter((d) => {
+      const hay = [
+        d.docket_number,
+        d.title,
+        d.party_label,
+        d.notes,
+        d.latest_filing_one_line,
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+      return terms.every((t) => hay.includes(t));
+    });
+  }, [sorted, filter]);
 
   const add = useMutation({
     mutationFn: () =>
@@ -125,57 +146,92 @@ export function ELibrary() {
             No dockets tracked yet — add one above to get started.
           </div>
         ) : (
-          <div className="ru-list">
-            {sorted.map((d) => (
-              <button
-                key={d.id}
-                className="el-row"
-                onClick={() => navigate(`/docket/${d.id}`)}
-              >
-                <div className="el-row-main">
-                  <div className="el-row-head">
-                    <span className="el-row-number">{d.docket_number}</span>
-                    {(d.recent_filing_count ?? 0) > 0 && (
-                      <span
-                        className="el-row-new"
-                        title="Filings in the last 14 days"
-                      >
-                        {d.recent_filing_count} new filing
-                        {d.recent_filing_count === 1 ? "" : "s"}
-                      </span>
-                    )}
-                  </div>
-                  <div className="el-row-title">{d.title || "Untitled docket"}</div>
-                  {(d.latest_filing_one_line || d.latest_filed_date) && (
-                    <div className="el-row-line">
-                      {d.latest_filed_date && (
-                        <span className="el-row-when">
-                          {fmtShortDate(d.latest_filed_date)}
+          <>
+            <div className="el-filter">
+              <Icon name="search" size={13} />
+              <input
+                className="el-filter-input"
+                type="search"
+                placeholder="Filter dockets — number, title, latest filing…"
+                aria-label="Filter dockets"
+                value={filter}
+                onChange={(e) => setFilter(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Escape") setFilter("");
+                }}
+                spellCheck={false}
+              />
+              {filter.trim() && (
+                <span className="el-filter-count">
+                  {visible.length} of {sorted.length}
+                </span>
+              )}
+              {filter && (
+                <button
+                  type="button"
+                  className="el-filter-clear"
+                  aria-label="Clear filter"
+                  onClick={() => setFilter("")}
+                >
+                  <Icon name="x" size={12} />
+                </button>
+              )}
+            </div>
+            {visible.length === 0 && (
+              <div className="empty">No dockets match “{filter.trim()}”.</div>
+            )}
+            <div className="ru-list">
+              {visible.map((d) => (
+                <button
+                  key={d.id}
+                  className="el-row"
+                  onClick={() => navigate(`/docket/${d.id}`)}
+                >
+                  <div className="el-row-main">
+                    <div className="el-row-head">
+                      <span className="el-row-number">{d.docket_number}</span>
+                      {(d.recent_filing_count ?? 0) > 0 && (
+                        <span
+                          className="el-row-new"
+                          title="Filings in the last 14 days"
+                        >
+                          {d.recent_filing_count} new filing
+                          {d.recent_filing_count === 1 ? "" : "s"}
                         </span>
                       )}
-                      {d.latest_filing_one_line}
                     </div>
-                  )}
-                </div>
-                <div className="el-row-meta">
-                  <span>
-                    <span className="mono">{d.filing_count ?? 0}</span> filing
-                    {(d.filing_count ?? 0) === 1 ? "" : "s"}
-                  </span>
-                  <span>
-                    <span className="mono">{d.intervenor_count ?? 0}</span>{" "}
-                    intervention{(d.intervenor_count ?? 0) === 1 ? "" : "s"}
-                  </span>
-                </div>
-                <div className="ru-row-status">
-                  <BriefStatus d={d} />
-                </div>
-                <div className="ru-row-chev">
-                  <Icon name="chev-r" size={14} />
-                </div>
-              </button>
-            ))}
-          </div>
+                    <div className="el-row-title">{d.title || "Untitled docket"}</div>
+                    {(d.latest_filing_one_line || d.latest_filed_date) && (
+                      <div className="el-row-line">
+                        {d.latest_filed_date && (
+                          <span className="el-row-when">
+                            {fmtShortDate(d.latest_filed_date)}
+                          </span>
+                        )}
+                        {d.latest_filing_one_line}
+                      </div>
+                    )}
+                  </div>
+                  <div className="el-row-meta">
+                    <span>
+                      <span className="mono">{d.filing_count ?? 0}</span> filing
+                      {(d.filing_count ?? 0) === 1 ? "" : "s"}
+                    </span>
+                    <span>
+                      <span className="mono">{d.intervenor_count ?? 0}</span>{" "}
+                      intervention{(d.intervenor_count ?? 0) === 1 ? "" : "s"}
+                    </span>
+                  </div>
+                  <div className="ru-row-status">
+                    <BriefStatus d={d} />
+                  </div>
+                  <div className="ru-row-chev">
+                    <Icon name="chev-r" size={14} />
+                  </div>
+                </button>
+              ))}
+            </div>
+          </>
         )}
 
         <div style={{ height: 64 }} />

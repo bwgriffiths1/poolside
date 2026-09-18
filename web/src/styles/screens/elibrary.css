@@ -23,6 +23,58 @@
   margin: 6px 0 var(--pad-5);
 }
 
+.el-filter {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  margin-bottom: var(--pad-4);
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--muted);
+}
+
+.el-filter:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-tint);
+}
+
+.el-filter-input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--ink);
+  font-size: 13.5px;
+  font-family: inherit;
+}
+
+/* We render our own clear button. */
+.el-filter-input::-webkit-search-cancel-button {
+  display: none;
+}
+
+.el-filter-count {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.el-filter-clear {
+  display: inline-flex;
+  padding: 2px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.el-filter-clear:hover {
+  color: var(--ink);
+}
+
 .el-row {
   display: grid;
   grid-template-columns: minmax(200px, 1fr) auto auto 20px;

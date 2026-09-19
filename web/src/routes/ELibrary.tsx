@@ -100,7 +100,10 @@ export function ELibrary() {
         </div>
 
         {canEdit && (
-          <>
+          <section className="el-track" aria-labelledby="el-track-head">
+            <h2 className="el-section-label" id="el-track-head">
+              Track a new docket
+            </h2>
             <form
               className="el-add"
               onSubmit={(e) => {
@@ -136,7 +139,7 @@ export function ELibrary() {
                 <Icon name="x" size={12} /> {addError}
               </div>
             )}
-          </>
+          </section>
         )}
 
         {isLoading ? (
@@ -147,35 +150,41 @@ export function ELibrary() {
           </div>
         ) : (
           <>
-            <div className="el-filter">
-              <Icon name="search" size={13} />
-              <input
-                className="el-filter-input"
-                type="search"
-                placeholder="Filter dockets — number, title, latest filing…"
-                aria-label="Filter dockets"
-                value={filter}
-                onChange={(e) => setFilter(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Escape") setFilter("");
-                }}
-                spellCheck={false}
-              />
-              {filter.trim() && (
-                <span className="el-filter-count">
-                  {visible.length} of {sorted.length}
-                </span>
-              )}
-              {filter && (
-                <button
-                  type="button"
-                  className="el-filter-clear"
-                  aria-label="Clear filter"
-                  onClick={() => setFilter("")}
-                >
-                  <Icon name="x" size={12} />
-                </button>
-              )}
+            <div className="el-list-head">
+              <h2 className="el-section-label">
+                Tracked dockets
+                <span className="el-list-total">{sorted.length}</span>
+              </h2>
+              <div className="el-filter">
+                <Icon name="search" size={13} />
+                <input
+                  className="el-filter-input"
+                  type="search"
+                  placeholder="Filter — number, title, latest filing…"
+                  aria-label="Filter dockets"
+                  value={filter}
+                  onChange={(e) => setFilter(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Escape") setFilter("");
+                  }}
+                  spellCheck={false}
+                />
+                {filter.trim() && (
+                  <span className="el-filter-count">
+                    {visible.length} of {sorted.length}
+                  </span>
+                )}
+                {filter && (
+                  <button
+                    type="button"
+                    className="el-filter-clear"
+                    aria-label="Clear filter"
+                    onClick={() => setFilter("")}
+                  >
+                    <Icon name="x" size={12} />
+                  </button>
+                )}
+              </div>
             </div>
             {visible.length === 0 && (
               <div className="empty">No dockets match “{filter.trim()}”.</div>

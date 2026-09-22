@@ -55,6 +55,10 @@ function entryFromHistory(item: AskHistoryItem): AskEntry {
  *  survives the browser/edge request timeout, and a reload can recover an
  *  in-flight job from /api/ask/jobs/active. */
 const JOB_POLL_MS = 3000;
+/** Fallback for /api/ask/options.max_question_chars (mirrors the server). */
+const QUESTION_MAX_CHARS = 5000;
+/** Long questions (a pasted summary) collapse in history cards and chips. */
+const LONG_QUESTION_CHARS = 280;
 
 function isTerminal(status: AskJobStatus | undefined): boolean {
   return status === "complete" || status === "failed" || status === "cancelled";
@@ -64,6 +68,14 @@ function isTerminal(status: AskJobStatus | undefined): boolean {
 interface FollowUp {
   id: number;
   question: string;
+}
+
+/** First line of a question, trimmed, for chips and follow-up labels. */
+function shortQuestion(q: string, max = 140): string {
+  const first = q.trim().split(/\r?\n/)[0].trim();
+  if (first.length <= max && first.length === q.trim().length) return first;
+  const cut = first.length > max ? first.slice(0, max).replace(/\s+\S*$/, "") : first;
+  return `${cut}…`;
 }
 
 function loadPrefs(): AskPrefs {
@@ -201,6 +213,8 @@ function AnswerCard({
   onFollowUp?: (entry: AskEntry) => void;
 }) {
   const [showSources, setShowSources] = useState(true);
+  const [expandQ, setExpandQ] = useState(false);
+  const longQ = entry.question.length > LONG_QUESTION_CHARS;
   const meta: string[] = [];
   if (entry.model_id) meta.push(entry.model_id);
   if (entry.effort) meta.push(`${entry.effort} effort`);
@@ -214,12 +228,14 @@ function AnswerCard({
       {entry.parent_id != null && (
         <div className="ask-followup-of muted text-xs" title={parentQuestion ?? undefined}>
           ↳ follow-up to{" "}
-          <em>{parentQuestion ? parentQuestion : `an earlier question`}</em>
+          <em>{parentQuestion ? shortQuestion(parentQuestion) : `an earlier question`}</em>
         </div>
       )}
       <div className="ask-q">
         <Icon name="chat" size={14} />
-        <span>{entry.question}</span>
+        <span className={longQ && !expandQ ? "ask-q-text clamped" : "ask-q-text"}>
+          {entry.question}
+        </span>
         {when && !Number.isNaN(when.getTime()) && (
           <span className="ask-q-when mono text-xs muted">
             {when.toLocaleString(undefined, {
@@ -229,6 +245,15 @@ function AnswerCard({
               minute: "2-digit",
             })}
           </span>
+        )}
+        {longQ && (
+          <button
+            type="button"
+            className="ask-q-more text-xs"
+            onClick={() => setExpandQ((v) => !v)}
+          >
+            {expandQ ? "Less" : "More"}
+          </button>
         )}
       </div>
       {scope && (
@@ -417,6 +442,10 @@ export function Ask() {
   });
   const jobActive = effectiveJobId != null && !(job && isTerminal(job.status));
 
+  const maxChars = options?.max_question_chars || QUESTION_MAX_CHARS;
+  const overCap = question.length > maxChars;
+  const nearCap = question.length >= maxChars * 0.8;
+
   const modelId = prefs.model || options?.default_model || "";
   const modelOpt = options?.models.find((m) => m.id === modelId);
   const effortSupported = modelOpt ? modelOpt.effort : true;
@@ -464,7 +493,7 @@ export function Ask() {
 
   const submit = (q?: string) => {
     const text = (q ?? question).trim();
-    if (text.length < 3 || askMut.isPending || jobActive) return;
+    if (text.length < 3 || text.length > maxChars || askMut.isPending || jobActive) return;
     askMut.mutate(text);
   };
 
@@ -602,7 +631,7 @@ export function Ask() {
             <div className="ask-followup-chip">
               <Icon name="chat" size={12} />
               <span>
-                Following up on: <em>{followUp.question}</em>
+                Following up on: <em title={followUp.question}>{shortQuestion(followUp.question)}</em>
               </span>
               <button
                 type="button"
@@ -625,6 +654,7 @@ export function Ask() {
                 : 'e.g. "Where does CAR-SA stand?" or "@ER26-925 what did NEPGA argue?"'
             }
             value={question}
+            maxLength={maxChars}
             onChange={(e) => {
               setQuestion(e.target.value);
               syncMention(e.target.value, e.target.selectionStart);
@@ -761,9 +791,17 @@ export function Ask() {
                 />
               )}
             </div>
+            {nearCap && (
+              <span
+                className={overCap ? "ask-count mono text-xs over" : "ask-count mono text-xs muted"}
+                title={`Questions are capped at ${maxChars.toLocaleString()} characters`}
+              >
+                {question.length.toLocaleString()} / {maxChars.toLocaleString()}
+              </span>
+            )}
             <button
               className="btn btn-primary btn-sm"
-              disabled={question.trim().length < 3 || busy}
+              disabled={question.trim().length < 3 || overCap || busy}
               onClick={() => submit()}
             >
               <Icon name="spark" size={12} />

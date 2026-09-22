@@ -18,6 +18,36 @@ import type {
 import { MEETINGS, RECENT_INGESTS } from "./fixtures";
 
 const BASE = import.meta.env.VITE_API_BASE_URL || "/api";
+
+/** A readable message from an error response body. FastAPI sends `detail`
+ *  as a string for HTTPExceptions but as a list of {loc, msg} objects for
+ *  request-validation (422) failures; the latter used to surface as
+ *  "[object Object]". */
+function errorDetail(data: unknown, res: Response): string {
+  const fallback = `${res.status} ${res.statusText}`;
+  const detail = (data as { detail?: unknown } | null)?.detail;
+  if (typeof detail === "string" && detail) return detail;
+  if (Array.isArray(detail)) {
+    const parts = detail
+      .map((e) => {
+        const err = e as { loc?: unknown[]; msg?: string };
+        const field = Array.isArray(err.loc)
+          ? err.loc.filter((l) => l !== "body").map(String).join(".")
+          : "";
+        return field && err.msg ? `${field}: ${err.msg}` : err.msg || "";
+      })
+      .filter(Boolean);
+    if (parts.length) return parts.join("; ");
+  }
+  if (detail && typeof detail === "object") {
+    try {
+      return JSON.stringify(detail);
+    } catch {
+      /* fall through */
+    }
+  }
+  return fallback;
+}
 const USE_FIXTURES = import.meta.env.VITE_USE_FIXTURES === "true";
 
 async function get<T>(path: string, fallback?: () => T): Promise<T> {
@@ -481,7 +511,7 @@ export const api = {
       // Surface the server detail — the guard rails ("no active admins
       // left", "can't change your own role") are the interesting errors.
       const data = await res.json().catch(() => null);
-      throw new Error(data?.detail || `${res.status} ${res.statusText}`);
+      throw new Error(errorDetail(data, res));
     }
     return res.json();
   },
@@ -529,7 +559,7 @@ export const api = {
     });
     if (!res.ok) {
       const data = await res.json().catch(() => null);
-      throw new Error(data?.detail || `${res.status} ${res.statusText}`);
+      throw new Error(errorDetail(data, res));
     }
     return res.json();
   },
@@ -545,7 +575,7 @@ export const api = {
     });
     if (!res.ok) {
       const data = await res.json().catch(() => null);
-      throw new Error(data?.detail || `${res.status} ${res.statusText}`);
+      throw new Error(errorDetail(data, res));
     }
     return res.json();
   },
@@ -561,7 +591,7 @@ export const api = {
     const res = await fetch(`${BASE}/public/user-tokens/${encodeURIComponent(token)}`);
     if (!res.ok) {
       const data = await res.json().catch(() => null);
-      throw new Error(data?.detail || `${res.status} ${res.statusText}`);
+      throw new Error(errorDetail(data, res));
     }
     return res.json();
   },
@@ -590,7 +620,7 @@ export const api = {
     );
     if (!res.ok) {
       const data = await res.json().catch(() => null);
-      throw new Error(data?.detail || `${res.status} ${res.statusText}`);
+      throw new Error(errorDetail(data, res));
     }
     return res.json();
   },
@@ -994,14 +1024,8 @@ async function postJson<T>(path: string, body: unknown): Promise<T> {
     body: JSON.stringify(body),
   });
   if (!res.ok) {
-    let detail = `${res.status} ${res.statusText}`;
-    try {
-      const j = await res.json();
-      if (j?.detail) detail = j.detail;
-    } catch {
-      /* ignore */
-    }
-    throw new Error(detail);
+    const data = await res.json().catch(() => null);
+    throw new Error(errorDetail(data, res));
   }
   return res.json();
 }
@@ -1448,6 +1472,8 @@ export interface AskOptions {
   default_model: string;
   default_effort: AskEffort;
   default_detail: AskDetail;
+  /** Server-side cap on question length; the textarea enforces the same. */
+  max_question_chars?: number;
 }
 
 export interface AskSource {

@@ -184,6 +184,25 @@ def _source_line(src: dict) -> tuple[str, str | None]:
     return f"{head} — meeting briefing", None
 
 
+HEADLINE_MAX_CHARS = 200
+
+
+def _split_headline(question: str) -> tuple[str, str]:
+    """(headline, remainder). Short questions are their own headline.
+    Long ones use the first line, trimmed to a sentence boundary when
+    one falls inside the budget, and hand the whole question back as
+    the remainder so nothing the analyst pasted is lost."""
+    q = (question or "").strip()
+    if len(q) <= HEADLINE_MAX_CHARS and "\n" not in q:
+        return q, ""
+    first = q.splitlines()[0].strip() if q else ""
+    if len(first) > HEADLINE_MAX_CHARS:
+        cut = first[:HEADLINE_MAX_CHARS]
+        m = re.search(r"^(.*[.?!])\s", cut)
+        first = (m.group(1) if m else cut.rsplit(" ", 1)[0]).rstrip() + "…"
+    return first, q
+
+
 def generate_ask_docx_bytes(ask_id: int) -> tuple[bytes, str]:
     """Render one ask_log exchange; returns (bytes, suggested_filename).
     Raises ValueError when the exchange is missing."""
@@ -263,11 +282,23 @@ def generate_ask_docx_bytes(ask_id: int) -> tuple[bytes, str]:
     _v2_pborder(p, "bottom", 4, _GRAY_MID_HEX)
 
     # The question is the headline — the same italic line the briefing
-    # uses for its tagline.
+    # uses for its tagline. A long question (a pasted summary with an
+    # instruction) gets its first line as the headline and the full
+    # text as a block under the provenance line.
+    headline, rest = _split_headline(question)
     p = doc.add_paragraph(); _v2_spacing(p, before=Pt(10), after=Pt(0))
-    _v2_run(p, question, size=brand.SZ_HEADLINE, color=_INK, italic=True)
+    _v2_run(p, headline, size=brand.SZ_HEADLINE, color=_INK, italic=True)
     p = doc.add_paragraph(); _v2_spacing(p, before=Pt(6), after=Pt(0))
     _v2_run(p, prov_txt, size=brand.SZ_LINK, color=_GRAY_TEXT, font=_LABEL)
+    if rest:
+        _eyebrow(doc, "QUESTION")
+        for para in re.split(r"\n\s*\n", rest):
+            para = " ".join(para.split())
+            if not para:
+                continue
+            p = doc.add_paragraph()
+            _v2_spacing(p, before=Pt(0), after=Pt(6), line=brand.LINE_SPACING)
+            _v2_run(p, para, size=brand.SZ_BODY, color=_INK_SOFT)
 
     # ── Answer ──────────────────────────────────────────────────────────
     _body(doc, answer_md)

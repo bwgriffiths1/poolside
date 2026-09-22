@@ -151,8 +151,14 @@ EFFORT_LEVELS: list[str] = ["low", "medium", "high", "xhigh", "max"]
 DEFAULT_EFFORT = "low"
 
 
+# Room to paste an earlier summary and ask for it to be brought up to date
+# (~1,250 tokens). The UI caps the textarea at the same figure, read from
+# /api/ask/options.
+QUESTION_MAX_CHARS = 5000
+
+
 class AskBody(BaseModel):
-    question: str = Field(min_length=3, max_length=500)
+    question: str = Field(min_length=3, max_length=QUESTION_MAX_CHARS)
     corpus: Corpus = "all"
     depth: Depth = "summaries"
     docket_numbers: list[str] = Field(default_factory=list, max_length=10)
@@ -918,4 +924,5 @@ def ask_options(_: dict = Depends(current_user)) -> dict[str, Any]:
         "default_model": default_ask_model(),
         "default_effort": DEFAULT_EFFORT,
         "default_detail": DEFAULT_DETAIL,
+        "max_question_chars": QUESTION_MAX_CHARS,
     }

@@ -919,3 +919,32 @@ def test_ask_docx_route_scopes_to_owner(monkeypatch):
     assert resp.body == b"PK" and 'filename="a.docx"' in resp.headers["content-disposition"]
     with pytest.raises(HTTPException):
         ask_mod.download_ask_docx(41, {"id": 9, "email": "v@example.com", "role": "viewer"})
+
+
+# ---------------------------------------------------------------------------
+# Question length: long enough to paste an earlier summary, still bounded
+# ---------------------------------------------------------------------------
+
+def test_askbody_accepts_pasted_summary_length():
+    body = AskBody(question="Expand on this. " + "x" * 4000)
+    assert len(body.question) > 500
+
+
+def test_askbody_rejects_over_cap():
+    from pydantic import ValidationError
+    with pytest.raises(ValidationError):
+        AskBody(question="x" * (ask_mod.QUESTION_MAX_CHARS + 1))
+
+
+def test_docx_headline_short_question_is_itself():
+    from pipeline.ask_docx import _split_headline
+    assert _split_headline("Where does CAR-SA stand?") == ("Where does CAR-SA stand?", "")
+
+
+def test_docx_headline_long_question_trims_to_sentence_and_keeps_full_text():
+    from pipeline.ask_docx import _split_headline, HEADLINE_MAX_CHARS
+    q = "Here is an old summary. Expand on it based on current info. " + "word " * 300
+    head, rest = _split_headline(q)
+    assert head.startswith("Here is an old summary. Expand on it based on current info.")
+    assert len(head) <= HEADLINE_MAX_CHARS + 1
+    assert rest == q.strip()

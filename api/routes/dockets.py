@@ -241,7 +241,9 @@ def generate_state_of_play(
     docket_id: int,
     user: dict = Depends(current_user),
 ) -> dict[str, Any]:
-    """Regenerate the state of play alone (no crawl)."""
+    """Check eLibrary for new filings (crawl + summarize), then
+    regenerate the state of play. Unlike /sync, the regen runs even when
+    nothing new landed."""
     job = jobs_service.start_docket_job(
         docket_id, mode="brief", created_by=user.get("email") or "system")
     if job is None:

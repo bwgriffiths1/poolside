@@ -3,7 +3,9 @@
 Mirror of api/services/jobs.py for FERC dockets. Two modes on one table:
   sync  — crawl eLibrary, enrich + summarize new filings, then auto-chain
           the state-of-play rollup when new summaries landed
-  brief — regenerate the state-of-play alone
+  brief — same crawl first (a regen must see anything new on eLibrary),
+          then regenerate the state-of-play unconditionally; if FERC is
+          down, the regen falls back to the stored filings
 
 Job state lives in docket_jobs (migration 014); admission is the atomic
 INSERT against uq_docket_jobs_one_active."""
@@ -105,32 +107,47 @@ def _run_docket_job(job_id: int, docket_id: int, mode: str) -> None:
     errors: list[str] = []
 
     try:
-        if mode == "sync":
-            # capture_usage doesn't nest (inner scope detaches the outer
-            # bucket), so the brief runs OUTSIDE this block and reports its
-            # own totals.
+        if mode not in ("sync", "brief"):
+            raise ValueError(f"Unknown docket job mode: {mode}")
+
+        # Both modes crawl eLibrary first, so a state-of-play regen never
+        # builds on a stale filing list. capture_usage doesn't nest (inner
+        # scope detaches the outer bucket), so the brief runs OUTSIDE the
+        # capture and reports its own totals.
+        usage_log: list[dict] = []
+        result = None
+        try:
             with capture_usage() as usage_log:
                 result = sync_docket(docket_id, progress=progress)
-            t = totals_from_usage_log(usage_log)
-            totals["input_tokens"] += int(t.get("input_tokens", 0))
-            totals["output_tokens"] += int(t.get("output_tokens", 0))
-            totals["cost_usd"] += float(t.get("cost_usd", 0.0))
+        except _JobCancelled:
+            raise
+        except Exception as e:
+            # A FERC outage shouldn't block an explicit regen — it can
+            # still run from the stored filings. A plain sync has nothing
+            # left to do without the crawl, so there it stays fatal.
+            if mode == "sync":
+                raise
+            log.exception("docket job %s: eLibrary check failed; "
+                          "regenerating from stored filings", job_id)
+            errors.append(f"eLibrary check failed ({e}); state of play "
+                          "regenerated from previously stored filings")
+        t = totals_from_usage_log(usage_log)
+        totals["input_tokens"] += int(t.get("input_tokens", 0))
+        totals["output_tokens"] += int(t.get("output_tokens", 0))
+        totals["cost_usd"] += float(t.get("cost_usd", 0.0))
+        if result is not None:
             filings_found = result["filings_found"]
             filings_summarized = result["filings_summarized"]
             errors.extend(result["errors"])
 
-            if filings_summarized > 0:
-                progress("Updating the state of play…")
-                bt = run_docket_brief(docket_id, progress=progress)
-                totals["input_tokens"] += bt["input_tokens"]
-                totals["output_tokens"] += bt["output_tokens"]
-                totals["cost_usd"] += bt["cost_usd"]
-        elif mode == "brief":
+        # sync refreshes the state of play only when new material landed;
+        # brief is an explicit request, so it always regenerates.
+        if mode == "brief" or filings_summarized > 0:
+            progress("Updating the state of play…")
             bt = run_docket_brief(docket_id, progress=progress)
-            totals = {k: bt[k] for k in
-                      ("input_tokens", "output_tokens", "cost_usd")}
-        else:
-            raise ValueError(f"Unknown docket job mode: {mode}")
+            totals["input_tokens"] += bt["input_tokens"]
+            totals["output_tokens"] += bt["output_tokens"]
+            totals["cost_usd"] += bt["cost_usd"]
     except _JobCancelled:
         log.info("docket job %s cancelled at user request", job_id)
         _update_job(

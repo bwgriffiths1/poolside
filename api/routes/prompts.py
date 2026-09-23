@@ -13,6 +13,11 @@ nightly backup. DELETE reverts a slug to its repo default. Slug pattern:
   keyword_extraction_prompt        feature: keyword extraction
   {venue}_{committee}_briefing_prompt   per venue + committee
   {venue}_{committee}_agenda_item_prompt
+
+Committee slugs keep their hyphens (pjm_cifp-rbp_briefing_prompt) — the
+naming must match pipeline/summarizer.py _get_committee_prompts, which is
+venue lowercased minus hyphens/spaces + committee short_name lowercased
+verbatim.
 """
 from __future__ import annotations
 
@@ -31,7 +36,7 @@ config_router = APIRouter(prefix="/api/model-config", tags=["prompts"])
 
 _PROMPTS_DIR = Path(__file__).resolve().parent.parent.parent / "prompts"
 
-_SLUG_RE = re.compile(r"^[a-z0-9_]+$")
+_SLUG_RE = re.compile(r"^[a-z0-9_-]+$")
 _VENUE_SLUG_MAP = {"ISO-NE": "isone"}
 
 
@@ -40,7 +45,11 @@ def _venue_to_slug(short_name: str) -> str:
 
 
 def _safe_slug(slug: str) -> str:
-    """Reject anything that isn't a plain `[a-z0-9_]` slug."""
+    """Reject anything that isn't a plain `[a-z0-9_-]` slug.
+
+    The slug is interpolated into `prompts/<slug>.md`, so the class must
+    never admit `.`, `/` or `\\` — hyphens carry no path meaning.
+    """
     if not slug or not _SLUG_RE.match(slug):
         raise HTTPException(status_code=400, detail=f"Invalid slug: {slug!r}")
     return slug
